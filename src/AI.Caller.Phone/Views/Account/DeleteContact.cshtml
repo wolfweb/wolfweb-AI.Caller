@@ -1,0 +1,36 @@
+@using AI.Caller.Phone.Entities
+@model Contact
+
+@{
+    ViewData["Title"] = "Delete Contact";
+}
+
+<div class="container">
+    <h2>Delete Contact</h2>
+    
+    <div class="alert alert-danger">
+        <h4>Are you sure you want to delete this contact?</h4>
+        <p>This action cannot be undone.</p>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            Contact Details
+        </div>
+        <div class="card-body">
+            <dl class="row">
+                <dt class="col-sm-3">Name</dt>
+                <dd class="col-sm-9">@Model.Name</dd>
+                
+                <dt class="col-sm-3">Phone Number</dt>
+                <dd class="col-sm-9">@Model.PhoneNumber</dd>
+            </dl>
+        </div>
+    </div>
+    
+    <form asp-action="DeleteContact" method="post">
+        <input type="hidden" asp-for="Id" />
+        <button type="submit" class="btn btn-danger">Delete</button>
+        <a asp-action="ManageContacts" class="btn btn-secondary">Cancel</a>
+    </form>
+</div> 

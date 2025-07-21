@@ -1,0 +1,19 @@
+@using AI.Caller.Phone.Entities
+@model IEnumerable<Contact>
+
+@{
+    ViewData["Title"] = "View Contacts";
+}
+
+<h2>Your Contacts</h2>
+
+<ul>
+@foreach (var contact in Model)
+{
+    <li>
+        <strong>@contact.Name</strong>: @contact.PhoneNumber
+    </li>
+}
+</ul>
+
+<p><a asp-action="AddContact">Add a new contact</a></p>

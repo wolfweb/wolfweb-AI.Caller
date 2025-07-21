@@ -1,0 +1,40 @@
+@using AI.Caller.Phone.Entities
+@model Contact
+
+@{
+    ViewData["Title"] = "Edit Contact";
+}
+
+<div class="container">
+    <h2>Edit Contact</h2>
+    <hr />
+    <div class="row">
+        <div class="col-md-6">
+            <form asp-action="EditContact" method="post">
+                <input type="hidden" asp-for="Id" />
+                <input type="hidden" asp-for="UserId" />
+                
+                <div class="form-group mb-3">
+                    <label asp-for="Name" class="control-label"></label>
+                    <input asp-for="Name" class="form-control" />
+                    <span asp-validation-for="Name" class="text-danger"></span>
+                </div>
+                
+                <div class="form-group mb-3">
+                    <label asp-for="PhoneNumber" class="control-label"></label>
+                    <input asp-for="PhoneNumber" class="form-control" />
+                    <span asp-validation-for="PhoneNumber" class="text-danger"></span>
+                </div>
+                
+                <div class="form-group mt-4">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <a asp-action="ManageContacts" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+} 

@@ -1,0 +1,65 @@
+@using AI.Caller.Phone.Entities
+@model IEnumerable<Contact>
+
+@{
+    ViewData["Title"] = "Manage Contacts";
+}
+
+<div class="container">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Manage Your Contacts</h2>
+        </div>
+        <div class="col-auto">
+            <a asp-action="AddContact" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Add New Contact
+            </a>
+        </div>
+    </div>
+
+    @if (Model == null || !Model.Any())
+    {
+        <div class="alert alert-info">
+            You don't have any contacts yet. Click the "Add New Contact" button to create one.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Phone Number</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var contact in Model)
+                    {
+                        <tr>
+                            <td>@contact.Name</td>
+                            <td>@contact.PhoneNumber</td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <a asp-action="EditContact" asp-route-id="@contact.Id" class="btn btn-sm btn-outline-primary">
+                                        Edit
+                                    </a>
+                                    <a asp-action="DeleteContact" asp-route-id="@contact.Id" class="btn btn-sm btn-outline-danger">
+                                        Delete
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        // You can add JavaScript for additional functionality here
+    </script>
+}
