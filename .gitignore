@@ -247,3 +247,7 @@ ModelManifest.xml
 .fake/
 /src/web/LightApp.Server/LightApp.Server.csproj
 /src/web/Magicube.ProxyWeb/Magicube.ProxyWeb.csproj
+/Deploy
+/src/AI.Caller.Phone/Properties/PublishProfiles/FolderProfile.pubxml
+/src/AI.Caller.Phone/app.db-shm
+/src/AI.Caller.Phone/app.db-wal
