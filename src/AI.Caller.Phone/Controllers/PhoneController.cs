@@ -3,6 +3,7 @@ using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SIPSorcery.Net;
+using System.Threading.Tasks;
 
 namespace AI.Caller.Phone.Controllers
 {
@@ -57,7 +58,7 @@ namespace AI.Caller.Phone.Controllers
         }
 
         [HttpPost("hangup")]
-        public IActionResult Hangup()
+        public async Task<IActionResult> Hangup()
         {
             try
             {
@@ -65,7 +66,7 @@ namespace AI.Caller.Phone.Controllers
                 _logger.LogInformation($"用户 {username} 请求挂断电话");
 
                 // 使用SipService挂断电话
-                var result = _sipService.HangupCall(username);
+                var result = await _sipService.HangupCallAsync(username);
                 
                 if (!result)
                 {

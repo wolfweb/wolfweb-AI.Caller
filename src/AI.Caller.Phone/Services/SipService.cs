@@ -56,7 +56,7 @@ namespace AI.Caller.Phone.Services {
                 };
 
                 // 创建SIP客户端
-                var sipClient = new SIPClient(sipOptions, _sipTransportManager.SIPTransport!);
+                var sipClient = new SIPClient(_logger, sipOptions, _sipTransportManager.SIPTransport!);
                 // 添加状态消息事件处理
                 sipClient.StatusMessage += (client, message) => {
                     _logger.LogInformation($"SIP客户端状态: {message}");
@@ -146,13 +146,6 @@ namespace AI.Caller.Phone.Services {
                 _logger.LogWarning($"用户 {userName} 的SIP客户端不存在，无法接听电话");
             }
             return false;
-        }
-
-        /// <summary>
-        /// 挂断电话
-        /// </summary>
-        public bool HangupCall(string sipUserName, string? reason = null) {
-            return HangupCallAsync(sipUserName, reason).GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -396,7 +389,7 @@ namespace AI.Caller.Phone.Services {
                 }
 
                 // 执行挂断操作
-                var hangupSuccess = HangupCall(sipUserName);
+                var hangupSuccess = await HangupCallAsync(sipUserName, reason);
 
                 if (hangupSuccess) {
                     hangupNotification.Status = HangupStatus.Completed;

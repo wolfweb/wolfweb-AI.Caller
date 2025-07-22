@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
 using SIPSorcery.SIP.App;
@@ -11,9 +12,10 @@ namespace AI.Caller.Core {
         private static string _sdpMimeContentType = SDP.SDP_MIME_CONTENTTYPE;
         private static int TRANSFER_RESPONSE_TIMEOUT_SECONDS = 10;
 
-        private readonly SIPClientOptions _options;
-        private readonly SIPTransport m_sipTransport;
+        private readonly ILogger _logger;
         private readonly SIPUserAgent m_userAgent;        
+        private readonly SIPTransport m_sipTransport;
+        private readonly SIPClientOptions _options;
 
         public event Action<SIPClient>? CallAnswer;
         public event Action<SIPClient>? CallEnded;
@@ -48,7 +50,8 @@ namespace AI.Caller.Core {
         private DateTime _lastNetworkCheck = DateTime.UtcNow;
         private readonly object _networkStateLock = new object();
 
-        public SIPClient(SIPClientOptions options, SIPTransport sipTransport) {
+        public SIPClient(ILogger logger, SIPClientOptions options, SIPTransport sipTransport) {
+            _logger         = logger;
             _options        = options;
             m_sipTransport  = sipTransport;
             m_userAgent = new SIPUserAgent(m_sipTransport, null);
@@ -111,7 +114,7 @@ namespace AI.Caller.Core {
                     MediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                 }
             } catch (Exception ex) {
-                Trace.WriteLine($"Error forwarding media to SIP: {ex.Message}");
+                _logger.LogError($"Error forwarding media to SIP: {ex.Message}");
                 // Don't rethrow - we want to continue processing other packets
             }
         }
@@ -122,7 +125,7 @@ namespace AI.Caller.Core {
                     RTCPeerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                 }
             } catch (Exception ex) {
-                Trace.WriteLine($"Error sending audio packet: {ex.Message}");
+                _logger.LogError($"Error sending audio packet: {ex.Message}");
                 // Don't rethrow - we want to continue processing other packets
             }
         }
@@ -266,7 +269,7 @@ namespace AI.Caller.Core {
                     // 执行SIP挂断
                     m_userAgent.Hangup();
                 } catch (Exception ex) {
-                    Trace.WriteLine($"Error in Hangup: {ex.Message}");
+                    _logger.LogError($"Error in Hangup: {ex.Message}");
                 } finally {
                     CallFinished(null);
                 }
@@ -294,7 +297,7 @@ namespace AI.Caller.Core {
                 // 触发音频停止事件
                 AudioStopped?.Invoke(this);
             } catch (Exception ex) {
-                Trace.WriteLine($"Error stopping audio streams: {ex.Message}");
+                _logger.LogError($"Error stopping audio streams: {ex.Message}");
             }
         }
 
@@ -312,9 +315,9 @@ namespace AI.Caller.Core {
                     RTCPeerConnection = null;
                     rtcConnectionClosed = true;
                     StatusMessage?.Invoke(this, "RTCPeerConnection resources released successfully.");
-                    Trace.WriteLine($"RTCPeerConnection closed successfully for user {_options.SIPUsername}");
+                    _logger.LogInformation($"RTCPeerConnection closed successfully for user {_options.SIPUsername}");
                 } catch (Exception ex) {
-                    Trace.WriteLine($"Error closing RTCPeerConnection for user {_options.SIPUsername}: {ex.Message}");
+                    _logger.LogError($"Error closing RTCPeerConnection for user {_options.SIPUsername}: {ex.Message}");
                     StatusMessage?.Invoke(this, $"Warning: RTCPeerConnection close failed: {ex.Message}");
                     // 即使关闭失败，也将引用设为null以防止内存泄漏
                     RTCPeerConnection = null;
@@ -328,9 +331,9 @@ namespace AI.Caller.Core {
                     MediaSession = null;
                     mediaSessionClosed = true;
                     StatusMessage?.Invoke(this, "MediaSession resources released successfully.");
-                    Trace.WriteLine($"MediaSession closed successfully for user {_options.SIPUsername}");
+                    _logger.LogInformation($"MediaSession closed successfully for user {_options.SIPUsername}");
                 } catch (Exception ex) {
-                    Trace.WriteLine($"Error closing MediaSession for user {_options.SIPUsername}: {ex.Message}");
+                    _logger.LogError($"Error closing MediaSession for user {_options.SIPUsername}: {ex.Message}");
                     StatusMessage?.Invoke(this, $"Warning: MediaSession close failed: {ex.Message}");
                     // 即使关闭失败，也将引用设为null以防止内存泄漏
                     MediaSession = null;
@@ -341,9 +344,9 @@ namespace AI.Caller.Core {
             if (rtcConnectionClosed || mediaSessionClosed || RTCPeerConnection == null || MediaSession == null) {
                 try {
                     ResourcesReleased?.Invoke(this);
-                    Trace.WriteLine($"ResourcesReleased event triggered for user {_options.SIPUsername}");
+                    _logger.LogInformation($"ResourcesReleased event triggered for user {_options.SIPUsername}");
                 } catch (Exception ex) {
-                    Trace.WriteLine($"Error triggering ResourcesReleased event for user {_options.SIPUsername}: {ex.Message}");
+                    _logger.LogError($"Error triggering ResourcesReleased event for user {_options.SIPUsername}: {ex.Message}");
                 }
             }
         }
@@ -422,7 +425,7 @@ namespace AI.Caller.Core {
                 }
             };
             peerConnection.oniceconnectionstatechange += (state) => {
-                Trace.WriteLine($"ICE connection state changed to: {state}");
+                _logger.LogInformation($"ICE connection state changed to: {state}");
             };
             RTCPeerConnection = peerConnection;
         }        
@@ -447,7 +450,7 @@ namespace AI.Caller.Core {
 
         private void CallFinished(SIPDialogue? dialogue) {
             try {
-                Trace.WriteLine($"CallFinished triggered for user {_options.SIPUsername}");
+                _logger.LogInformation($"CallFinished triggered for user {_options.SIPUsername}");
                 m_pendingIncomingCall = null;
                 
                 // 使用统一的资源释放方法
@@ -455,15 +458,15 @@ namespace AI.Caller.Core {
                 
                 StatusMessage?.Invoke(this, "Call finished and resources cleaned up.");
             } catch (Exception ex) {
-                Trace.WriteLine($"Error in CallFinished for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error in CallFinished for user {_options.SIPUsername}: {ex.Message}");
                 StatusMessage?.Invoke(this, $"Error during call cleanup: {ex.Message}");
             } finally {
                 // 确保无论是否有异常都触发CallEnded事件
                 try {
                     CallEnded?.Invoke(this);
-                    Trace.WriteLine($"CallEnded event triggered for user {_options.SIPUsername}");
+                    _logger.LogInformation($"CallEnded event triggered for user {_options.SIPUsername}");
                 } catch (Exception ex) {
-                    Trace.WriteLine($"Error triggering CallEnded event for user {_options.SIPUsername}: {ex.Message}");
+                    _logger.LogError($"Error triggering CallEnded event for user {_options.SIPUsername}: {ex.Message}");
                 }
             }
         }
@@ -512,9 +515,9 @@ namespace AI.Caller.Core {
             try {
                 // 每5秒检查一次网络状态
                 _networkMonitorTimer = new Timer(CheckNetworkStatus, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
-                Trace.WriteLine($"Network monitoring started for user {_options.SIPUsername}");
+                _logger.LogInformation($"Network monitoring started for user {_options.SIPUsername}");
             } catch (Exception ex) {
-                Trace.WriteLine($"Error starting network monitoring for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error starting network monitoring for user {_options.SIPUsername}: {ex.Message}");
             }
         }
 
@@ -525,9 +528,9 @@ namespace AI.Caller.Core {
             try {
                 _networkMonitorTimer?.Dispose();
                 _networkMonitorTimer = null;
-                Trace.WriteLine($"Network monitoring stopped for user {_options.SIPUsername}");
+                _logger.LogInformation($"Network monitoring stopped for user {_options.SIPUsername}");
             } catch (Exception ex) {
-                Trace.WriteLine($"Error stopping network monitoring for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error stopping network monitoring for user {_options.SIPUsername}: {ex.Message}");
             }
         }
 
@@ -542,7 +545,7 @@ namespace AI.Caller.Core {
                     if (_isNetworkConnected && !currentNetworkState) {
                         // 网络从连接变为断开
                         _isNetworkConnected = false;
-                        Trace.WriteLine($"Network disconnected detected for user {_options.SIPUsername}");
+                        _logger.LogInformation($"Network disconnected detected for user {_options.SIPUsername}");
                         StatusMessage?.Invoke(this, "Network connection lost.");
                         
                         // 触发网络断开事件
@@ -554,7 +557,7 @@ namespace AI.Caller.Core {
                     } else if (!_isNetworkConnected && currentNetworkState) {
                         // 网络从断开变为连接
                         _isNetworkConnected = true;
-                        Trace.WriteLine($"Network reconnected detected for user {_options.SIPUsername}");
+                        _logger.LogInformation($"Network reconnected detected for user {_options.SIPUsername}");
                         StatusMessage?.Invoke(this, "Network connection restored.");
                         
                         // 触发网络重连事件
@@ -567,7 +570,7 @@ namespace AI.Caller.Core {
                     _lastNetworkCheck = DateTime.UtcNow;
                 }
             } catch (Exception ex) {
-                Trace.WriteLine($"Error checking network status for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error checking network status for user {_options.SIPUsername}: {ex.Message}");
             }
         }
 
@@ -596,7 +599,7 @@ namespace AI.Caller.Core {
 
                 return true;
             } catch (Exception ex) {
-                Trace.WriteLine($"Error checking network availability for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error checking network availability for user {_options.SIPUsername}: {ex.Message}");
                 return false;
             }
         }
@@ -607,14 +610,14 @@ namespace AI.Caller.Core {
         private void HandleNetworkDisconnection() {
             try {
                 if (IsCallActive) {
-                    Trace.WriteLine($"Handling network disconnection during active call for user {_options.SIPUsername}");
+                    _logger.LogInformation($"Handling network disconnection during active call for user {_options.SIPUsername}");
                     StatusMessage?.Invoke(this, "Network disconnected during call, performing local hangup.");
                     
                     // 执行本地挂断处理
                     PerformLocalHangup("Network disconnection");
                 }
             } catch (Exception ex) {
-                Trace.WriteLine($"Error handling network disconnection for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error handling network disconnection for user {_options.SIPUsername}: {ex.Message}");
             }
         }
 
@@ -623,11 +626,11 @@ namespace AI.Caller.Core {
         /// </summary>
         private void HandleNetworkReconnection() {
             try {
-                Trace.WriteLine($"Network reconnected for user {_options.SIPUsername}");
+                _logger.LogInformation($"Network reconnected for user {_options.SIPUsername}");
                 // 网络恢复后的处理逻辑可以在这里添加
                 // 例如：重新注册SIP账号、重发挂断通知等
             } catch (Exception ex) {
-                Trace.WriteLine($"Error handling network reconnection for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error handling network reconnection for user {_options.SIPUsername}: {ex.Message}");
             }
         }
 
@@ -636,7 +639,7 @@ namespace AI.Caller.Core {
         /// </summary>
         private void PerformLocalHangup(string reason) {
             try {
-                Trace.WriteLine($"Performing local hangup for user {_options.SIPUsername}, reason: {reason}");
+                _logger.LogInformation($"Performing local hangup for user {_options.SIPUsername}, reason: {reason}");
                 
                 // 触发挂断开始事件
                 HangupInitiated?.Invoke(this);
@@ -648,15 +651,15 @@ namespace AI.Caller.Core {
                 // 不调用m_userAgent.Hangup()，因为网络可能不可用
                 // 直接进行本地资源清理
                 CallFinished(null);
-                
-                Trace.WriteLine($"Local hangup completed for user {_options.SIPUsername}");
+
+                _logger.LogInformation($"Local hangup completed for user {_options.SIPUsername}");
             } catch (Exception ex) {
-                Trace.WriteLine($"Error performing local hangup for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error performing local hangup for user {_options.SIPUsername}: {ex.Message}");
                 // 即使出现异常，也要确保资源被清理
                 try {
                     CallFinished(null);
                 } catch (Exception cleanupEx) {
-                    Trace.WriteLine($"Error in cleanup during local hangup for user {_options.SIPUsername}: {cleanupEx.Message}");
+                    _logger.LogError($"Error in cleanup during local hangup for user {_options.SIPUsername}: {cleanupEx.Message}");
                 }
             }
         }

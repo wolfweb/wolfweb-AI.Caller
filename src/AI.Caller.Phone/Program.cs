@@ -80,7 +80,9 @@ namespace AI.Caller.Phone {
 
             using (var scope = app.Services.CreateScope()) {
                 var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+#if DEBUG
                 dbContext.Database.Migrate();
+#endif
                 EnsureDefaultUser(builder.Configuration, dbContext);
             }
 
