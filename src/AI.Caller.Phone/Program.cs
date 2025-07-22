@@ -7,26 +7,27 @@ using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using NLog.Extensions.Logging;
 
-namespace AI.Caller.Phone
-{
-    public class Program
-    {
-        public static void Main(string[] args)
-        {
+namespace AI.Caller.Phone {
+    public class Program {
+        public static void Main(string[] args) {
             var builder = WebApplication.CreateBuilder(args);
+
+            builder.Services.AddLogging(options => {
+                options.AddNLog();
+            });
 
             // Add services to the container.
             builder.Services.AddControllersWithViews(options => {
                 options.Filters.Add<SipAuthencationFilter>();
-            }).AddNewtonsoftJson(options=>{ 
+            }).AddNewtonsoftJson(options => {
 
             });
-            
+
             // Add session services
             builder.Services.AddDistributedMemoryCache();
-            builder.Services.AddSession(options =>
-            {
+            builder.Services.AddSession(options => {
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
                 options.Cookie.HttpOnly = true;
                 options.Cookie.IsEssential = true;
@@ -44,21 +45,18 @@ namespace AI.Caller.Phone
             builder.Services.AddHostedService<SipBackgroundTask>();
             builder.Services.AddSingleton<SIPTransportManager>();
             builder.Services.AddScoped<UserService>();
-            builder.Services.AddScoped<ContactService>();            
+            builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
-            builder.Services.AddSingleton<HangupMonitoringService>();            
-            builder.Services.AddAuthentication(options =>
-            {
+            builder.Services.AddSingleton<HangupMonitoringService>();
+            builder.Services.AddAuthentication(options => {
                 options.DefaultScheme = "CookieAuth";
                 options.DefaultChallengeScheme = "CookieAuth";
             })
-            .AddCookie("CookieAuth", options =>
-            {
+            .AddCookie("CookieAuth", options => {
                 options.LoginPath = "/Account/Login";
             });
 
-            builder.Services.AddAuthorization(options =>
-            {
+            builder.Services.AddAuthorization(options => {
                 options.DefaultPolicy = new AuthorizationPolicyBuilder("CookieAuth")
                     .RequireAuthenticatedUser()
                     .Build();
@@ -66,43 +64,38 @@ namespace AI.Caller.Phone
 
             var app = builder.Build();
 
-            if (!app.Environment.IsDevelopment())
-            {
+            if (!app.Environment.IsDevelopment()) {
                 app.UseExceptionHandler("/Error");
             }
             app.UseStaticFiles();
             app.UseRouting();
             app.UseSession();
-            app.UseAuthentication(); 
+            app.UseAuthentication();
             app.UseAuthorization();
 
             app.MapDefaultControllerRoute();
             app.MapHub<WebRtcHub>("/webrtc");
 
             SIPSorcery.LogFactory.Set(app.Services.GetService<ILoggerFactory>());
-            
-            using (var scope = app.Services.CreateScope())
-            {
+
+            using (var scope = app.Services.CreateScope()) {
                 var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                dbContext.Database.Migrate();                
+                dbContext.Database.Migrate();
                 EnsureDefaultUser(builder.Configuration, dbContext);
             }
 
             app.Run();
         }
-        
-        private static void EnsureDefaultUser(IConfiguration configuration, AppDbContext dbContext)
-        {
-            var defaultUserSection = configuration.GetSection("UserSettings:DefaultUser");            
-            var adminUser = dbContext.Users.FirstOrDefault(u => u.Username == "admin");            
-            if (adminUser == null)
-            {
-                dbContext.Users.Add(new User
-                {
+
+        private static void EnsureDefaultUser(IConfiguration configuration, AppDbContext dbContext) {
+            var defaultUserSection = configuration.GetSection("UserSettings:DefaultUser");
+            var adminUser = dbContext.Users.FirstOrDefault(u => u.Username == "admin");
+            if (adminUser == null) {
+                dbContext.Users.Add(new User {
                     Username = defaultUserSection["Username"],
                     Password = defaultUserSection["Password"]
                 });
-                
+
                 dbContext.SaveChanges();
             }
         }
