@@ -31,8 +31,14 @@ namespace AI.Caller.Phone.Services
             }
             var peerConnection = new RTCPeerConnection(null);
 
-            MediaStreamTrack audioTrack = new MediaStreamTrack(SDPMediaTypesEnum.audio, false,
-                new List<SDPAudioVideoMediaFormat> { new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMU) }, MediaStreamStatusEnum.RecvOnly);
+            MediaStreamTrack audioTrack = new MediaStreamTrack(
+                SDPMediaTypesEnum.audio, 
+                false,
+                [
+                    new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMA),
+                    new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMU)
+                ]
+            );
             peerConnection.addTrack(audioTrack);
 
             peerConnection.OnRtpPacketReceived += PeerConnection_OnRtpPacketReceived;

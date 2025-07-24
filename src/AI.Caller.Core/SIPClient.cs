@@ -16,6 +16,7 @@ namespace AI.Caller.Core {
         private readonly SIPUserAgent m_userAgent;        
         private readonly SIPTransport m_sipTransport;
         private readonly SIPClientOptions _options;
+        private readonly WebRTCSettings? _webRTCSettings;
 
         public event Action<SIPClient>? CallAnswer;
         public event Action<SIPClient>? CallEnded;
@@ -50,10 +51,11 @@ namespace AI.Caller.Core {
         private DateTime _lastNetworkCheck = DateTime.UtcNow;
         private readonly object _networkStateLock = new object();
 
-        public SIPClient(ILogger logger, SIPClientOptions options, SIPTransport sipTransport) {
+        public SIPClient(ILogger logger, SIPClientOptions options, SIPTransport sipTransport, WebRTCSettings? webRTCSettings = null) {
             _logger         = logger;
             _options        = options;
             m_sipTransport  = sipTransport;
+            _webRTCSettings = webRTCSettings;
             m_userAgent = new SIPUserAgent(m_sipTransport, null);
 
             m_userAgent.ClientCallFailed += CallFailed;
@@ -384,6 +386,7 @@ namespace AI.Caller.Core {
                 SDPMediaTypesEnum.audio,
                 false,
                 [
+                    new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMA),
                     new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMU)
                 ]
             );
@@ -391,25 +394,79 @@ namespace AI.Caller.Core {
             return rtpSession;
         }
 
-        private void CreatePeerConnection() {
-            var pcConfiguration = new RTCConfiguration {
-                iceServers = [new RTCIceServer { urls = "stun:stun.sipsorcery.com" }],
-                iceTransportPolicy = RTCIceTransportPolicy.all,
+        private RTCConfiguration GetRTCConfiguration() {
+            var iceServers = new List<RTCIceServer>();
+            
+            // If WebRTCSettings is provided and has ICE servers configured, use them
+            if (_webRTCSettings != null && _webRTCSettings.IceServers != null && _webRTCSettings.IceServers.Count > 0)
+            {
+                try
+                {
+                    iceServers.AddRange(_webRTCSettings.GetRTCIceServers());
+                    _logger.LogInformation($"Using {iceServers.Count} configured ICE servers for WebRTC");
+                }
+                catch (ArgumentException ex)
+                {
+                    _logger.LogError(ex, "Failed to convert WebRTC settings to RTCIceServer instances. Using default STUN server.");
+                }
+            }
+            
+            // If no ICE servers were configured or the configuration is invalid, use a default STUN server
+            if (iceServers.Count == 0)
+            {
+                _logger.LogWarning("No ICE servers configured, using default STUN server");
+                iceServers.Add(new RTCIceServer { urls = "stun:stun.sipsorcery.com" });
+            }
+            
+            // Determine ICE transport policy
+            var iceTransportPolicy = RTCIceTransportPolicy.all;
+            if (_webRTCSettings != null && 
+                !string.IsNullOrEmpty(_webRTCSettings.IceTransportPolicy) && 
+                _webRTCSettings.IceTransportPolicy.Equals("relay", StringComparison.OrdinalIgnoreCase))
+            {
+                iceTransportPolicy = RTCIceTransportPolicy.relay;
+                _logger.LogInformation("Using 'relay' ICE transport policy");
+            }
+            
+            return new RTCConfiguration
+            {
+                iceServers = iceServers.ToList(),
+                iceTransportPolicy = iceTransportPolicy,
                 X_DisableExtendedMasterSecretKey = true
             };
-            var peerConnection = new RTCPeerConnection(pcConfiguration);
+        }
 
+        private void CreatePeerConnection() {
+            var pcConfiguration = GetRTCConfiguration();
+            var peerConnection = new RTCPeerConnection(pcConfiguration);
+            
+            // Set up event handlers and tracks
+            SetupPeerConnectionEvents(peerConnection);
+            
+            RTCPeerConnection = peerConnection;
+        }
+        
+        /// <summary>
+        /// Sets up event handlers for a peer connection
+        /// </summary>
+        /// <param name="peerConnection">The RTCPeerConnection to set up events for</param>
+        private void SetupPeerConnectionEvents(RTCPeerConnection peerConnection)
+        {
+            if (peerConnection == null)
+                return;
+                
+            // Add the audio track
             MediaStreamTrack track = new MediaStreamTrack(
                 SDPMediaTypesEnum.audio,
                 false,
-                [new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMU)]
+                [
+                    new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMA),
+                    new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMU)
+                ]
             );
-
-            //AudioExtrasSource audioSource = new AudioExtrasSource(new AudioEncoder(includeOpus: false), new AudioSourceOptions { AudioSource = AudioSourcesEnum.Music });
-            //audioSource.OnAudioSourceEncodedSample += peerConnection.SendAudio;
             peerConnection.addTrack(track);
-
-            //peerConnection.OnAudioFormatsNegotiated += (audioFormats) => audioSource.SetAudioSourceFormat(audioFormats.First());
+            
+            // Set up event handlers
             peerConnection.OnRtpPacketReceived += OnForwardMediaToSIP;
             
             peerConnection.onconnectionstatechange += (state) => {
@@ -420,15 +477,32 @@ namespace AI.Caller.Core {
                 ) {
                     CallFinished(null);
                 } else if (state == RTCPeerConnectionState.connected) {
-                    //await audioSource.StartAudio();
                     StatusMessage?.Invoke(this, "Peer connection connected.");
                 }
             };
+            
             peerConnection.oniceconnectionstatechange += (state) => {
                 _logger.LogInformation($"ICE connection state changed to: {state}");
             };
-            RTCPeerConnection = peerConnection;
-        }        
+            
+            peerConnection.onicegatheringstatechange += (state) => {
+                _logger.LogInformation($"ICE gathering state changed to: {state}");
+            };
+            
+            peerConnection.onicecandidate += (candidate) => {
+                if (candidate != null)
+                {
+                    _logger.LogDebug($"ICE candidate: {candidate.candidate}, Type: {candidate.type}");
+                    
+                    // Log when TURN relay is being used
+                    if (candidate.candidate != null && candidate.candidate.Contains("typ relay"))
+                    {
+                        _logger.LogInformation("Using TURN relay for media");
+                        StatusMessage?.Invoke(this, "Using TURN relay for media connection");
+                    }
+                }
+            };
+        }
 
         private void CallTrying(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call trying: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");

@@ -35,6 +35,9 @@ namespace AI.Caller.Phone {
 
             builder.Services.AddSignalR();
 
+            // Configure WebRTC settings
+            builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
+
             builder.Services.AddSingleton<ApplicationContext>(x => {
                 var ctx = new ApplicationContext();
                 ctx.SipServer = builder.Configuration.GetSection("SipSettings")["SipServer"] ?? "192.168.8.113";
@@ -83,7 +86,7 @@ namespace AI.Caller.Phone {
 #if DEBUG
                 dbContext.Database.Migrate();
 #endif
-                EnsureDefaultUser(builder.Configuration, dbContext);
+                EnsureDefaultUser(builder.Configuration, dbContext);                
             }
 
             app.Run();

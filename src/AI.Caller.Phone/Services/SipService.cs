@@ -4,6 +4,7 @@ using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Org.BouncyCastle.Asn1.Ocsp;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
@@ -17,6 +18,7 @@ namespace AI.Caller.Phone.Services {
         private readonly SIPTransportManager _sipTransportManager;
         private readonly HangupRetryPolicy _retryPolicy;
         private readonly HangupMonitoringService _monitoringService;
+        private readonly WebRTCSettings _webRTCSettings;
 
         public SipService(
             ILogger<SipService> logger,
@@ -24,6 +26,7 @@ namespace AI.Caller.Phone.Services {
             IHubContext<WebRtcHub> hubContext,
             ApplicationContext applicationContext,
             SIPTransportManager sipTransportManager,
+            IOptions<WebRTCSettings> webRTCSettings,
             HangupMonitoringService? monitoringService = null
         ) {
             _logger = logger;
@@ -31,6 +34,7 @@ namespace AI.Caller.Phone.Services {
             _hubContext = hubContext;
             _applicationContext = applicationContext;
             _sipTransportManager = sipTransportManager;
+            _webRTCSettings = webRTCSettings.Value;
             _retryPolicy = new HangupRetryPolicy(); // 使用默认配置
             _monitoringService = monitoringService ?? new HangupMonitoringService(
                 Microsoft.Extensions.Logging.LoggerFactory.Create(builder => builder.AddConsole())
@@ -56,7 +60,7 @@ namespace AI.Caller.Phone.Services {
                 };
 
                 // 创建SIP客户端
-                var sipClient = new SIPClient(_logger, sipOptions, _sipTransportManager.SIPTransport!);
+                var sipClient = new SIPClient(_logger, sipOptions, _sipTransportManager.SIPTransport!, _webRTCSettings);
                 // 添加状态消息事件处理
                 sipClient.StatusMessage += (client, message) => {
                     _logger.LogInformation($"SIP客户端状态: {message}");
@@ -107,7 +111,13 @@ namespace AI.Caller.Phone.Services {
 
                 sipClient.RTCPeerConnection.onicecandidate += async (candidate) => {
                     if (candidate != null) {
-                        await _hubContext.Clients.User(user.Id.ToString()).SendAsync("receiveIceCandidate", candidate);
+                        try
+                        {
+                            await _hubContext.Clients.User(user.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
+                        }catch(Exception e)
+                        {
+                            _logger.LogError(e, e.Message);
+                        }
                     }
                 };
 

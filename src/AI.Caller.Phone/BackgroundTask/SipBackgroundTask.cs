@@ -70,7 +70,14 @@ namespace AI.Caller.Phone.BackgroundTask {
                         var offerSdp = await client.CreateOfferAsync();
                         client.RTCPeerConnection!.onicecandidate += (candidate) => {
                             if (client.RTCPeerConnection.signalingState == RTCSignalingState.have_remote_offer || client.RTCPeerConnection.signalingState == RTCSignalingState.stable) {
-                                _hubContext.Clients.User(user.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
+                                try
+                                {
+                                    _hubContext.Clients.User(user.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
+                                }
+                                catch (Exception e)
+                                {
+                                    _logger.LogError(e, e.Message);
+                                }
                             }
                         };                        
                         await _hubContext.Clients.User(user.Id.ToString()).SendAsync("inCalling", new { caller = sipRequest.Header.From.FromURI.User, offerSdp = offerSdp.toJSON() });

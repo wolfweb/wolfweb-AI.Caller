@@ -4,9 +4,6 @@ using System.Diagnostics;
 
 namespace AI.Caller.Phone.Services
 {
-    /// <summary>
-    /// 挂断操作监控服务
-    /// </summary>
     public class HangupMonitoringService
     {
         private readonly ILogger<HangupMonitoringService> _logger;
@@ -15,7 +12,6 @@ namespace AI.Caller.Phone.Services
         private readonly Timer _metricsTimer;
         private readonly object _metricsLock = new object();
 
-        // 监控指标
         private int _totalHangupAttempts = 0;
         private int _successfulHangups = 0;
         private int _failedHangups = 0;
@@ -28,13 +24,9 @@ namespace AI.Caller.Phone.Services
             _activeHangups = new ConcurrentDictionary<string, HangupMetrics>();
             _auditLogs = new ConcurrentQueue<HangupAuditLog>();
 
-            // 每分钟输出一次监控指标
             _metricsTimer = new Timer(LogMetrics, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
 
-        /// <summary>
-        /// 开始监控挂断操作
-        /// </summary>
         public string StartHangupMonitoring(string sipUsername, string reason)
         {
             var hangupId = Guid.NewGuid().ToString();
@@ -53,7 +45,6 @@ namespace AI.Caller.Phone.Services
             
             _logger.LogInformation($"开始监控挂断操作 - ID: {hangupId}, 用户: {sipUsername}, 原因: {reason}");
             
-            // 记录审计日志
             var auditLog = new HangupAuditLog
             {
                 HangupId = hangupId,
@@ -67,9 +58,6 @@ namespace AI.Caller.Phone.Services
             return hangupId;
         }
 
-        /// <summary>
-        /// 记录挂断步骤
-        /// </summary>
         public void LogHangupStep(string hangupId, string step, string details = "")
         {
             if (_activeHangups.TryGetValue(hangupId, out var metrics))
@@ -77,7 +65,6 @@ namespace AI.Caller.Phone.Services
                 var elapsed = metrics.Stopwatch.ElapsedMilliseconds;
                 _logger.LogInformation($"挂断步骤 - ID: {hangupId}, 步骤: {step}, 耗时: {elapsed}ms, 详情: {details}");
 
-                // 记录审计日志
                 var auditLog = new HangupAuditLog
                 {
                     HangupId = hangupId,
@@ -88,7 +75,6 @@ namespace AI.Caller.Phone.Services
                 };
                 _auditLogs.Enqueue(auditLog);
 
-                // 检测潜在的资源泄漏
                 if (elapsed > 30000) // 30秒
                 {
                     _logger.LogWarning($"挂断操作可能存在资源泄漏 - ID: {hangupId}, 用户: {metrics.SipUsername}, 已耗时: {elapsed}ms");
@@ -96,9 +82,6 @@ namespace AI.Caller.Phone.Services
             }
         }
 
-        /// <summary>
-        /// 完成挂断监控
-        /// </summary>
         public void CompleteHangupMonitoring(string hangupId, bool success, string? errorMessage = null)
         {
             if (_activeHangups.TryRemove(hangupId, out var metrics))
@@ -110,7 +93,6 @@ namespace AI.Caller.Phone.Services
                 {
                     _hangupResponseTimes.Add(totalTime);
                     
-                    // 保持最近1000个响应时间记录
                     if (_hangupResponseTimes.Count > 1000)
                     {
                         _hangupResponseTimes.RemoveAt(0);
@@ -128,7 +110,6 @@ namespace AI.Caller.Phone.Services
                     _logger.LogError($"挂断操作失败 - ID: {hangupId}, 用户: {metrics.SipUsername}, 耗时: {totalTime}ms, 错误: {errorMessage}");
                 }
 
-                // 记录审计日志
                 var auditLog = new HangupAuditLog
                 {
                     HangupId = hangupId,
@@ -139,7 +120,6 @@ namespace AI.Caller.Phone.Services
                 };
                 _auditLogs.Enqueue(auditLog);
 
-                // 检查是否超时
                 if (totalTime > 10000) // 10秒超时
                 {
                     Interlocked.Increment(ref _timeoutHangups);
@@ -148,9 +128,6 @@ namespace AI.Caller.Phone.Services
             }
         }
 
-        /// <summary>
-        /// 获取挂断成功率
-        /// </summary>
         public double GetHangupSuccessRate()
         {
             var total = _totalHangupAttempts;
@@ -159,9 +136,6 @@ namespace AI.Caller.Phone.Services
             return (_successfulHangups * 100.0) / total;
         }
 
-        /// <summary>
-        /// 获取平均响应时间
-        /// </summary>
         public double GetAverageResponseTime()
         {
             lock (_metricsLock)
@@ -171,17 +145,11 @@ namespace AI.Caller.Phone.Services
             }
         }
 
-        /// <summary>
-        /// 获取当前活动的挂断操作数量
-        /// </summary>
         public int GetActiveHangupCount()
         {
             return _activeHangups.Count;
         }
 
-        /// <summary>
-        /// 检测资源泄漏
-        /// </summary>
         public List<string> DetectResourceLeaks()
         {
             var leaks = new List<string>();
@@ -201,9 +169,6 @@ namespace AI.Caller.Phone.Services
             return leaks;
         }
 
-        /// <summary>
-        /// 获取审计日志
-        /// </summary>
         public List<HangupAuditLog> GetAuditLogs(int maxCount = 100)
         {
             var logs = new List<HangupAuditLog>();
@@ -218,9 +183,6 @@ namespace AI.Caller.Phone.Services
             return logs.OrderByDescending(x => x.Timestamp).ToList();
         }
 
-        /// <summary>
-        /// 定期输出监控指标
-        /// </summary>
         private void LogMetrics(object? state)
         {
             try
@@ -239,13 +201,11 @@ namespace AI.Caller.Phone.Services
                     $"平均响应时间: {avgResponseTime:F0}ms, " +
                     $"活动操作: {activeCount}");
 
-                // 报告资源泄漏
                 foreach (var leak in leaks)
                 {
                     _logger.LogWarning($"资源泄漏检测: {leak}");
                 }
 
-                // 清理过期的审计日志（保留最近1小时的）
                 CleanupAuditLogs();
             }
             catch (Exception ex)
@@ -254,15 +214,11 @@ namespace AI.Caller.Phone.Services
             }
         }
 
-        /// <summary>
-        /// 清理过期的审计日志
-        /// </summary>
         private void CleanupAuditLogs()
         {
             var cutoffTime = DateTime.UtcNow.AddHours(-1);
             var tempLogs = new List<HangupAuditLog>();
             
-            // 将所有日志取出
             while (_auditLogs.TryDequeue(out var log))
             {
                 if (log.Timestamp > cutoffTime)
@@ -271,7 +227,6 @@ namespace AI.Caller.Phone.Services
                 }
             }
             
-            // 将未过期的日志放回
             foreach (var log in tempLogs)
             {
                 _auditLogs.Enqueue(log);
@@ -284,9 +239,6 @@ namespace AI.Caller.Phone.Services
         }
     }
 
-    /// <summary>
-    /// 挂断操作指标
-    /// </summary>
     public class HangupMetrics
     {
         public string HangupId { get; set; } = string.Empty;
@@ -296,9 +248,6 @@ namespace AI.Caller.Phone.Services
         public Stopwatch Stopwatch { get; set; } = new Stopwatch();
     }
 
-    /// <summary>
-    /// 挂断审计日志
-    /// </summary>
     public class HangupAuditLog
     {
         public string HangupId { get; set; } = string.Empty;

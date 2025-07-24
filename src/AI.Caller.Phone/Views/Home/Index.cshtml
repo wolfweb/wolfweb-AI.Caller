@@ -141,7 +141,6 @@
     <script src="~/js/integration-tests.js"></script>
     <script src="~/js/hangup-test.js"></script>
     <script>
-        // 获取DOM元素
         const destinationInput = document.getElementById('destination');
         const callButton = document.getElementById('callButton');
         const answerButton = document.getElementById('answerButton');
@@ -155,7 +154,6 @@
         const remoteAudio = document.getElementById('remoteAudio');
         let pc, localStream, signalRConnection, hangupHandler;
 
-        // Call State Management
         const CallState = {
             IDLE: 'IDLE',
             OUTGOING: 'OUTGOING',
@@ -182,7 +180,6 @@
                     hangup: hangupButton
                 };
                 
-                // Initialize to idle state
                 this.updateButtonVisibility();
                 console.log('CallStateManager initialized in IDLE state');
             }
@@ -231,7 +228,6 @@
                 }
 
                 try {
-                    // Update call button
                     if (this.buttons.call) {
                         if (config.call) {
                             this.showButton(this.buttons.call);
@@ -240,7 +236,6 @@
                         }
                     }
 
-                    // Update answer button
                     if (this.buttons.answer) {
                         if (config.answer) {
                             this.showButton(this.buttons.answer);
@@ -249,7 +244,6 @@
                         }
                     }
 
-                    // Update hangup button
                     if (this.buttons.hangup) {
                         if (config.hangup) {
                             this.showButton(this.buttons.hangup);
@@ -300,10 +294,8 @@
             }
         }
 
-        // Initialize the call state manager
         let callStateManager;
         
-        // 调试函数：检查当前状态
         window.debugCallState = function() {
             console.log('=== 通话状态调试信息 ===');
             console.log('CallStateManager状态:', callStateManager ? callStateManager.getCurrentState() : '未初始化');
@@ -332,7 +324,6 @@
             console.log('=== 调试信息结束 ===');
         };
 
-        // Test functions for validation (can be called from browser console)
         window.testCallStateManager = {
             testIdleState: function() {
                 console.log('Testing IDLE state...');
@@ -387,7 +378,6 @@
                 console.log('Test results:', results);
                 console.log(`All tests ${allPassed ? 'PASSED' : 'FAILED'}`);
                 
-                // Reset to idle state after testing
                 callStateManager.setState(CallState.IDLE);
                 return results;
             },
@@ -397,19 +387,43 @@
             }
         };
 
-        // 使用公共 STUN 服务器
-        const iceServers = [{ urls: 'stun:stun.sipsorcery.com' }];
+        let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]; // Default fallback
+        let iceTransportPolicy = 'all';
         let callTimerInterval;
         let callStartTime;
+        
+        async function fetchIceServers() {
+            try {
+                const response = await fetch('/api/WebRTC/ice-servers');
+                if (response.ok) {
+                    const config = await response.json();
+                    console.log('Fetched ICE server configuration:', config);
+                    
+                    if (config.iceServers && config.iceServers.length > 0) {
+                        iceServers = config.iceServers;
+                        console.log(`Using ${iceServers.length} ICE servers from server configuration`);
+                    }
+                    
+                    if (config.iceTransportPolicy) {
+                        iceTransportPolicy = config.iceTransportPolicy;
+                        console.log(`Using ICE transport policy: ${iceTransportPolicy}`);
+                    }
+                    
+                    return true;
+                } else {
+                    console.error('Failed to fetch ICE server configuration:', response.status, response.statusText);
+                    return false;
+                }
+            } catch (error) {
+                console.error('Error fetching ICE server configuration:', error);
+                return false;
+            }
+        }
         
         signalRConnection = new signalR.HubConnectionBuilder()        
         .withUrl("/webrtc")
 		.configureLogging(signalR.LogLevel.Debug)
         .build();
-
-        signalRConnection.on("signalRConnection", function(msg){
-            console.log(msg);
-        });
 
         signalRConnection.on("inCalling", function(x){
             console.log("Incoming call received:", x);
@@ -417,7 +431,6 @@
             callStateManager.setState(CallState.INCOMING);
             
             try {
-                // 健壮的SDP offer处理
                 let offerObj;
                 if (typeof x.offerSdp === 'string') {
                     offerObj = JSON.parse(x.offerSdp);
@@ -470,7 +483,6 @@
             console.log("SDP Answer received from server:", answerDesc, "Type:", typeof answerDesc);
             if (pc) {
                 try {
-                    // 健壮的SDP处理
                     let sdpObj;
                     if (typeof answerDesc === 'string') {
                         sdpObj = JSON.parse(answerDesc);
@@ -507,7 +519,6 @@
             }
         });
 
-        // 监控网络状态变化
         window.addEventListener('online', () => {
             updateStatus('网络已恢复连接', 'success');
             setTimeout(() => {
@@ -517,18 +528,15 @@
         
         window.addEventListener('offline', () => { 
             updateStatus('网络已断开，通话可能受到影响', 'danger');
-            // Reset to idle state on network disconnection
             if (callStateManager) {
                 callStateManager.resetToIdle();
             }
         });
                 
-        // 监控页面关闭事件，尝试在页面关闭前挂断通话
         window.addEventListener('beforeunload', (event) => {
             //todo: 
         });
                 
-        // 检查浏览器是否支持WebRTC
         function checkWebRTCSupport() {
             if (!window.RTCPeerConnection) {
                 updateStatus('您的浏览器不支持WebRTC，请使用Chrome、Firefox、Edge或Safari的最新版本', 'danger');
@@ -543,7 +551,6 @@
             return true;
         }
         
-        // 检查网络连接状态
         function checkNetworkConnection() {
             if (!navigator.onLine) {
                 updateStatus('网络连接不可用，请检查您的网络设置', 'danger');
@@ -553,7 +560,13 @@
         }
         
         async function createPeerConnection(isCaller, remoteSdp) { 
-            pc = new RTCPeerConnection(null);
+            const rtcConfig = {
+                iceServers: iceServers,
+                iceTransportPolicy: iceTransportPolicy
+            };
+            
+            console.log('Creating RTCPeerConnection with config:', rtcConfig);
+            pc = new RTCPeerConnection(rtcConfig);
             localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
             pc.ontrack = evt => remoteAudio.srcObject = evt.streams[0];
@@ -588,7 +601,6 @@
             }            
         }
 
-        // 获取并选择最佳音频设备
         async function selectOptimalAudioDevices() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
                 return false;
@@ -597,18 +609,14 @@
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 
-                // 获取音频输入设备（麦克风）
                 const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
                 console.log(`找到 ${audioInputDevices.length} 个麦克风设备`);
                 
-                // 获取音频输出设备（扬声器）
                 const audioOutputDevices = devices.filter(device => device.kind === 'audiooutput');
                 console.log(`找到 ${audioOutputDevices.length} 个扬声器设备`);
                 
-                // 如果有多个麦克风，尝试选择最佳麦克风（通常是非默认设备，如耳机麦克风）
                 let preferredMicrophoneId = '';
                 if (audioInputDevices.length > 1) {
-                    // 查找非默认设备，通常是耳机或外接麦克风
                     const nonDefaultMicrophone = audioInputDevices.find(device => 
                         !device.deviceId.includes('default') && 
                         !device.label.toLowerCase().includes('default'));
@@ -622,10 +630,8 @@
                     console.log('使用唯一可用麦克风:', audioInputDevices[0].label || '未命名设备');
                 }
                 
-                // 如果有多个扬声器，尝试选择最佳扬声器（通常是非默认设备，如耳机）
                 let preferredSpeakerId = '';
                 if (audioOutputDevices.length > 1) {
-                    // 查找非默认设备，通常是耳机或外接扬声器
                     const nonDefaultSpeaker = audioOutputDevices.find(device => 
                         !device.deviceId.includes('default') && 
                         !device.label.toLowerCase().includes('default'));
@@ -639,7 +645,6 @@
                     console.log('使用唯一可用扬声器:', audioOutputDevices[0].label || '未命名设备');
                 }
                 
-                // 如果支持，设置音频输出设备
                 if (preferredSpeakerId && typeof remoteAudio.setSinkId === 'function') {
                     try {
                         await remoteAudio.setSinkId(preferredSpeakerId);
@@ -661,11 +666,12 @@
             }
         }
         
-        // 初始化检查函数
         async function initializeChecks() {
             if (!checkWebRTCSupport()) {
                 return false;
             }
+            
+            await fetchIceServers();
             
             if (!checkNetworkConnection()) {
                 return false;
@@ -687,7 +693,6 @@
 
             await signalRConnection.start();
             
-            // 初始化挂断处理器
             const uiElements = {
                 hangupButton: hangupButton,
                 statusAlert: statusAlert,
@@ -699,10 +704,8 @@
             
             hangupHandler = new HangupHandler(signalRConnection, uiElements, callStateManager);
             
-            // 设置挂断处理器的事件监听
             document.addEventListener('callEnded', (event) => {
                 console.log('收到通话结束事件:', event.detail);
-                // HangupHandler已经处理了状态重置和UI清理，这里只需要确保没有遗漏
                 showCallInfo(false);
                 stopCallTimer();
                 console.log('通话结束事件处理完成');
@@ -710,7 +713,6 @@
             
             document.addEventListener('remoteHangup', (event) => {
                 console.log('收到对方挂断事件:', event.detail);
-                // HangupHandler已经处理了状态重置和UI清理，这里只需要确保没有遗漏
                 showCallInfo(false);
                 stopCallTimer();
                 console.log('对方挂断事件处理完成');
@@ -721,27 +723,19 @@
             return true;
         }
         
-        // 设置全局错误处理
         function setupGlobalErrorHandling() {
-            // 处理未捕获的JavaScript错误
             window.addEventListener('error', (event) => {
                 console.error('未捕获的错误:', event.error || event.message);
-                                
-                // 防止错误对用户造成困扰
                 event.preventDefault();
                 return true;
             });
             
-            // 处理未处理的Promise拒绝
             window.addEventListener('unhandledrejection', (event) => {
                 console.error('未处理的Promise拒绝:', event.reason);
-                                
-                // 防止错误对用户造成困扰
                 event.preventDefault();
                 return true;
             });
             
-            // 监听设备变化事件
             if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
                 navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
                 console.log('设备变化监听已设置');
@@ -750,12 +744,10 @@
             console.log('全局错误处理已设置');
         }
         
-        // 处理设备变化事件
         async function handleDeviceChange() {
             console.log('检测到媒体设备变化');
             
             try {
-                // 获取可用的音频设备
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
                 const audioOutputDevices = devices.filter(device => device.kind === 'audiooutput');
@@ -767,12 +759,10 @@
             }
         }
 
-        // 检查麦克风权限
         async function checkMicrophonePermission() {
             try {
                 console.log('检查麦克风权限');
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // 获取权限后立即停止所有轨道
                 stream.getTracks().forEach(track => track.stop());
                 console.log('已获得麦克风权限');
                 return true;
@@ -784,18 +774,15 @@
             }
         }
 
-        // 清理通话UI和资源
         function clearCallUI() {
             console.log('清理通话UI和资源');
 
-            // 停止计时器
             if (callTimerInterval) {
                 clearInterval(callTimerInterval);
                 callTimerInterval = null;
                 console.log('通话计时器已停止');
             }
 
-            // 停止远程音频
             if (remoteAudio.srcObject) {
                 try {
                     const tracks = remoteAudio.srcObject.getTracks();
@@ -811,7 +798,6 @@
                 }
             }
 
-            // 重置音频元素
             try {
                 remoteAudio.pause();
                 remoteAudio.currentTime = 0;
@@ -820,19 +806,15 @@
             } catch (audioResetError) {
                 console.warn('重置音频元素时出错:', audioResetError);
             }
-
-            // 确保状态管理器重置到IDLE状态
             if (callStateManager) {
                 callStateManager.resetToIdle();
                 console.log('状态管理器已重置到IDLE');
             }
 
-            // 重置UI - 让状态管理器处理按钮状态
             callInfo.classList.add('d-none');
             destinationInput.disabled = false;
             callTimer.textContent = '00:00';
             
-            // 重新启用拨号盘和联系人列表
             document.querySelectorAll('.dialpad-btn').forEach(btn => {
                 btn.disabled = false;
             });
@@ -840,7 +822,6 @@
                 item.disabled = false;
             });
             
-            // 延迟更新状态，确保UI完全重置
             setTimeout(() => {
                 updateStatus('就绪', 'success');
             }, 100);
@@ -848,31 +829,26 @@
             console.log('UI已重置');
         }
 
-        // 更新状态显示
         function updateStatus(text, type) {
             statusDiv.textContent = text;
             statusAlert.className = `alert mb-4 alert-${type}`;
         }
 
-        // 切换控制按钮状态
         function toggleControls(inCall) {
             callButton.disabled = inCall;
             if(!inCall) callButton.classList.remove('d-none');
             hangupButton.disabled = !inCall;
             destinationInput.disabled = inCall;
 
-            // 在通话中时禁用拨号盘
             document.querySelectorAll('.dialpad-btn').forEach(btn => {
                 btn.disabled = inCall;
             });
 
-            // 在通话中时禁用联系人列表
             document.querySelectorAll('.contact-item').forEach(item => {
                 item.disabled = inCall;
             });
         }
 
-        // 显示或隐藏通话信息
         function showCallInfo(show) {
             if (show) {
                 callInfo.classList.remove('d-none');
@@ -881,7 +857,6 @@
             }
         }
 
-        // 开始通话计时器
         function startCallTimer() {
             callStartTime = new Date();
             callTimer.textContent = "00:00";
@@ -895,7 +870,6 @@
             }, 1000);
         }
 
-        // 停止通话计时器
         function stopCallTimer() {
             if (callTimerInterval) {
                 clearInterval(callTimerInterval);
@@ -903,10 +877,8 @@
             }
         }
 
-        // 初始化页面
         updateStatus('正在初始化...', 'info');
         
-        // Initialize call state manager
         callStateManager = new CallStateManager();
         
         initializeChecks().then(success => {
@@ -921,7 +893,6 @@
             updateStatus('初始化失败: ' + error.message, 'danger');
         });
         
-        // 拨号盘按钮事件
         document.querySelectorAll('.dialpad-btn').forEach(button => {
             button.addEventListener('click', () => {
                 const key = button.getAttribute('data-key');
@@ -930,7 +901,6 @@
             });
         });
         
-        // 联系人列表点击事件
         document.querySelectorAll('.contact-item').forEach(item => {
             item.addEventListener('click', () => {
                 const name = item.getAttribute('data-name');
@@ -942,7 +912,6 @@
             });
         });
                        
-        // 呼叫按钮点击事件
         callButton.addEventListener('click', async () => {
             const destination = destinationInput.value;
             if (!destination) {
@@ -967,7 +936,6 @@
                 console.error('呼叫失败:', error);
                 let errorMessage = error.message;
                 
-                // 提供更友好的错误信息
                 if (errorMessage.includes('JSON')) {
                     errorMessage = '服务器响应格式错误，请联系管理员';
                 } else if (errorMessage.includes('WebRTC')) {
@@ -979,18 +947,13 @@
                 updateStatus(`呼叫失败: ${errorMessage}`, 'danger');
                 callStateManager.resetToIdle();
                 showCallInfo(false);
-                
-                // 显示错误提示
-                alert(`呼叫失败: ${errorMessage}\n\n如果问题持续存在，请联系系统管理员。`);
             }
         });
         
-        // 挂断按钮点击事件 - 使用新的挂断处理器
         hangupButton.addEventListener('click', async () => {
             if (hangupHandler) {
                 await hangupHandler.initiateHangup('用户主动挂断');
             } else {
-                // 回退到原有的挂断逻辑
                 console.log('开始挂断通话');
                 callStateManager.setState(CallState.ENDING);
                 updateStatus('正在挂断...', 'warning');
@@ -1006,7 +969,6 @@
             updateStatus('已挂断...', 'success');
         });        
 
-        // 接通电话
         answerButton.addEventListener('click', async () => { 
             updateStatus('正在接听...', 'warning');
             try{

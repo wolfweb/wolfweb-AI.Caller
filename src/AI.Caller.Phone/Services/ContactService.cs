@@ -15,7 +15,7 @@ namespace AI.Caller.Phone.Services
             _context = context;
         }
 
-        public async Task<Contact> GetContactByIdAsync(int id)
+        public async Task<Contact?> GetContactByIdAsync(int id)
         {
             return await _context.Contacts.FindAsync(id);
         }
