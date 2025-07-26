@@ -499,23 +499,8 @@
             startCallTimer();
         });
 
-        signalRConnection.on("callAnswered", async function(x){
+        signalRConnection.on("callAnswered", async function(){
             try {
-                let offerObj;
-                if (typeof x.offerSdp === 'string') {
-                    offerObj = JSON.parse(x.offerSdp);
-                } else if (typeof x.offerSdp === 'object') {
-                    offerObj = x.offerSdp;
-                } else {
-                    console.error("Invalid offer SDP type:", typeof x.offerSdp);
-                    updateStatus('来电数据格式错误', 'danger');
-                    return;
-                }
-
-                const answerSdp = await createPeerConnection(false, offerObj);
-                console.log('接听SDP:', answerSdp);
-                await signalRConnection.invoke("AnswerAsync", {caller: callerName.innerText, answerSdp: JSON.stringify(answerSdp)});
-
                 updateStatus('接听成功', 'success');
                 callStateManager.setState(CallState.CONNECTED);
                 stopCallTimer();

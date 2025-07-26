@@ -5,20 +5,20 @@ using AI.Caller.Phone.Models;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Org.BouncyCastle.Asn1.Ocsp;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
+using SIPSorcery.SIP.App;
 
 namespace AI.Caller.Phone.Services {
     public class SipService {
         private readonly ILogger _logger;
         private readonly AppDbContext _dbContext;
+        private readonly HangupRetryPolicy _retryPolicy;
+        private readonly WebRTCSettings _webRTCSettings;
         private readonly IHubContext<WebRtcHub> _hubContext;
         private readonly ApplicationContext _applicationContext;
         private readonly SIPTransportManager _sipTransportManager;
-        private readonly HangupRetryPolicy _retryPolicy;
         private readonly HangupMonitoringService _monitoringService;
-        private readonly WebRTCSettings _webRTCSettings;
 
         private readonly IRecordingService? _recordingService;
 
@@ -38,10 +38,8 @@ namespace AI.Caller.Phone.Services {
             _applicationContext = applicationContext;
             _sipTransportManager = sipTransportManager;
             _webRTCSettings = webRTCSettings.Value;
-            _retryPolicy = new HangupRetryPolicy(); // 使用默认配置
-            _monitoringService = monitoringService ?? new HangupMonitoringService(
-                Microsoft.Extensions.Logging.LoggerFactory.Create(builder => builder.AddConsole())
-                    .CreateLogger<HangupMonitoringService>());
+            _retryPolicy = new HangupRetryPolicy();
+            _monitoringService = monitoringService ?? new HangupMonitoringService(LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<HangupMonitoringService>());
             _recordingService = recordingService;
         }
 
@@ -55,34 +53,12 @@ namespace AI.Caller.Phone.Services {
             }
 
             try {
-                // 创建SIP客户端选项
-                var sipOptions = new SIPClientOptions {
-                    SIPUsername = user.SipUsername,
-                    SIPPassword = user.SipPassword,
-                    SIPFromName = user.Username,
-                    SIPServer = _applicationContext.SipServer,
-                };
-
-                // 创建SIP客户端
-                var sipClient = new SIPClient(_logger, sipOptions, _sipTransportManager.SIPTransport!, _webRTCSettings);
-                // 添加状态消息事件处理
-                sipClient.StatusMessage += (client, message) => {
-                    _logger.LogDebug($"SIP客户端状态: {message}");
-                };
-
-                if (user.RegisteredAt == null || user.RegisteredAt < DateTime.UtcNow.AddHours(-2) || user.RegisteredAt < _applicationContext.StartAt) {
-                    sipClient.Register();
+                if (user.RegisteredAt == null || user.RegisteredAt < DateTime.UtcNow.AddHours(-2) || user.RegisteredAt < _applicationContext.StartAt) {                    
+                    user.SipRegistered = await RegisterAsync(user);
                     user.RegisteredAt = DateTime.UtcNow;
                 }
-
-                // 保存SIP客户端实例
-                _applicationContext.SipClients[user.SipUsername] = sipClient;
-
-                // 更新用户SIP注册状态
-                user.SipRegistered = true;
+                
                 await _dbContext.SaveChangesAsync();
-
-                _logger.LogInformation($"用户 {user.Username} 的SIP账号 {user.SipUsername} 注册成功");
                 return true;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"用户 {user.Username} 的SIP账号注册失败");
@@ -101,7 +77,6 @@ namespace AI.Caller.Phone.Services {
                         return (false, "用户未注册SIP账号或SIP账号未激活", null);
                     }
 
-                    // 尝试重新注册
                     var registered = await RegisterUserAsync(user);
                     if (!registered || !_applicationContext.SipClients.TryGetValue(sipUsername, out sipClient)) {
                         return (false, "无法获取SIP客户端", null);
@@ -125,18 +100,15 @@ namespace AI.Caller.Phone.Services {
                     }
                 };
 
-                // 发起呼叫
-                await sipClient.CallAsync(destination);
+                await sipClient.CallAsync(destination, new SIPFromHeader(user.Username, new SIPURI(user.SipUsername, _applicationContext.SipServer, null), null));
 
-                // 检查是否需要自动录音
                 if (user != null && await IsAutoRecordingEnabledAsync(user.Id))
                 {
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            // 等待通话建立后开始录音
-                            await Task.Delay(2000); // 等待2秒确保通话建立
+                            await Task.Delay(2000); 
                             
                             if (sipClient.IsCallActive)
                             {
@@ -542,6 +514,23 @@ namespace AI.Caller.Phone.Services {
 
             _logger.LogError($"通知用户 {targetSipUsername} 挂断事件失败，已达到最大重试次数 {_retryPolicy.MaxRetries}");
             return false;
+        }
+
+        private Task<bool> RegisterAsync(User user) {
+            var tcs = new TaskCompletionSource<bool>();
+            var sipRegistrationClient = new SIPRegistrationUserAgent(_sipTransportManager.SIPTransport, user.SipUsername, user.SipPassword, _applicationContext.SipServer, 180);
+
+            sipRegistrationClient.RegistrationSuccessful += (uac, resp) => {
+                tcs.TrySetResult(true);
+            };
+
+            sipRegistrationClient.RegistrationFailed += (uri, resp, err) => {
+                tcs.TrySetResult(false);
+            };
+
+            sipRegistrationClient.Start();
+
+            return tcs.Task;
         }
 
         #region 录音功能集成

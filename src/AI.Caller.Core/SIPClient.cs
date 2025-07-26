@@ -14,9 +14,9 @@ namespace AI.Caller.Core {
         private static int TRANSFER_RESPONSE_TIMEOUT_SECONDS = 10;
 
         private readonly ILogger _logger;
+        private readonly string _sipServer;
         private readonly SIPUserAgent m_userAgent;        
         private readonly SIPTransport m_sipTransport;
-        private readonly SIPClientOptions _options;
         private readonly WebRTCSettings? _webRTCSettings;
         
         // 录音相关
@@ -58,51 +58,43 @@ namespace AI.Caller.Core {
         public bool IsRecording => _recordingManager?.IsRecording ?? false;
         public RecordingStatus? RecordingStatus => _recordingManager?.CurrentStatus;
 
-        private SIPServerUserAgent? m_pendingIncomingCall;
-        private CancellationTokenSource _cts = new CancellationTokenSource();
-        
         // 网络监控相关
         private Timer? _networkMonitorTimer;
         private bool _isNetworkConnected = true;
+        private CancellationTokenSource _cts = new();
+        private SIPServerUserAgent? m_pendingIncomingCall;
         private DateTime _lastNetworkCheck = DateTime.UtcNow;
-        private readonly object _networkStateLock = new object();
+        private readonly object _networkStateLock = new ();
 
-        public SIPClient(ILogger logger, SIPClientOptions options, SIPTransport sipTransport, WebRTCSettings? webRTCSettings = null) {
+        public SIPClient(string sipServer, ILogger logger, SIPTransport sipTransport, WebRTCSettings? webRTCSettings = null) {
             _logger         = logger;
-            _options        = options;
+            _sipServer      = sipServer;
             m_sipTransport  = sipTransport;
             _webRTCSettings = webRTCSettings;
-            m_userAgent = new SIPUserAgent(m_sipTransport, null);
+
+            m_userAgent = new (m_sipTransport, null);
 
             m_userAgent.ClientCallFailed += CallFailed;
             m_userAgent.ClientCallTrying += CallTrying;
             m_userAgent.ClientCallRinging += CallRinging;
             m_userAgent.ClientCallAnswered += CallAnswered;
 
-            m_userAgent.ServerCallCancelled += IncomingCallCancelled;
-
             m_userAgent.OnDtmfTone += OnDtmfTone;
             m_userAgent.OnCallHungup += CallFinished;
             m_userAgent.OnTransferNotify += OnTransferNotify;
+
+            m_userAgent.ServerCallCancelled += IncomingCallCancelled;
             
-            // 启动网络监控
             StartNetworkMonitoring();
         }
 
-        public async Task CallAsync(string destination) {
-            SIPURI? callURI = null;
-            string? sipUsername = null;
-            string? sipPassword = null;
-            string? fromHeader = null;
+        public async Task CallAsync(string destination, SIPFromHeader fromHeader) {
+            SIPURI callURI;
 
-            if (destination.Contains("@") || _options.SIPServer == null) {
+            if (destination.Contains("@")) {
                 callURI = SIPURI.ParseSIPURIRelaxed(destination);
-                fromHeader = (new SIPFromHeader(_options.SIPFromName, new SIPURI(_options.SIPUsername, _options.SIPServer, null), null)).ToString();
             } else {
-                callURI = SIPURI.ParseSIPURIRelaxed(destination + "@" + _options.SIPServer);
-                sipUsername = _options.SIPUsername;
-                sipPassword = _options.SIPPassword;
-                fromHeader = (new SIPFromHeader(_options.SIPFromName, new SIPURI(_options.SIPUsername, _options.SIPServer, null), null)).ToString();
+                callURI = SIPURI.ParseSIPURIRelaxed(destination + "@" + _sipServer);
             }
 
             StatusMessage?.Invoke(this, $"Starting call to {callURI}.");
@@ -114,7 +106,7 @@ namespace AI.Caller.Core {
             } else {
                 StatusMessage?.Invoke(this, $"Call progressing, resolved {callURI} to {dstEndpoint}.");
                 Debug.WriteLine($"DNS lookup result for {callURI}: {dstEndpoint}.");
-                SIPCallDescriptor callDescriptor = new SIPCallDescriptor(sipUsername, sipPassword, callURI.ToString(), fromHeader, null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, null, null);
+                SIPCallDescriptor callDescriptor = new SIPCallDescriptor(null, null, callURI.ToString(), fromHeader.ToString(), null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, null, null);
 
                 MediaSession = await CreateMediaSession();
                 MediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
@@ -132,7 +124,7 @@ namespace AI.Caller.Core {
                     return;
                 }
                 
-                if (MediaSession != null && m_userAgent.IsCallActive) {
+                if (MediaSession != null) {
                     MediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                     _logger.LogTrace($"Forwarded WebRTC audio to SIP: {rtpPacket.Payload.Length} bytes from {remote}");
                     
@@ -197,13 +189,13 @@ namespace AI.Caller.Core {
                     hasVideo = offerSDP.Media.Any(x => x.Media == SDPMediaTypesEnum.video && x.MediaStreamStatus != MediaStreamStatusEnum.Inactive);
                 }
 
-                MediaSession = await CreateMediaSession();
-                MediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
+                MediaSession = await CreateMediaSession();               
 
                 m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
                 m_userAgent.RemoteTookOffHold += OnRemoteTookOffHold;
 
                 bool result = await m_userAgent.Answer(m_pendingIncomingCall, MediaSession);
+                MediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
                 m_pendingIncomingCall = null;
 
                 return result;
@@ -216,33 +208,6 @@ namespace AI.Caller.Core {
         /// <param name="destination"></param>
         public void Redirect(string destination) {
             m_pendingIncomingCall?.Redirect(SIPResponseStatusCodesEnum.MovedTemporarily, SIPURI.ParseSIPURIRelaxed(destination));
-        }
-
-        /// <summary>
-        /// 注册
-        /// </summary>
-        public void Register() {
-            //var tcs = new TaskCompletionSource<bool>();
-
-            var sipRegistrationClient = new SIPRegistrationUserAgent(
-                m_sipTransport,
-                _options.SIPUsername,
-                _options.SIPPassword,
-                _options.SIPServer,
-                180);
-
-            sipRegistrationClient.RegistrationSuccessful += (uac, resp) => {
-                StatusMessage?.Invoke(this, $"SIP registration successful for {_options.SIPUsername}.");
-                //tcs.TrySetResult(true);
-            };
-
-            sipRegistrationClient.RegistrationFailed += (uri, resp, err) => {
-                StatusMessage?.Invoke(this, $"SIP registration failed for {_options.SIPUsername} with {err}.");
-                //tcs.TrySetResult(false);
-            };
-
-            sipRegistrationClient.Start();
-            //return tcs.Task;
         }
 
         //public async Task PutOnHoldAsync() {
@@ -351,9 +316,8 @@ namespace AI.Caller.Core {
                     RTCPeerConnection = null;
                     rtcConnectionClosed = true;
                     StatusMessage?.Invoke(this, "RTCPeerConnection resources released successfully.");
-                    _logger.LogInformation($"RTCPeerConnection closed successfully for user {_options.SIPUsername}");
                 } catch (Exception ex) {
-                    _logger.LogError($"Error closing RTCPeerConnection for user {_options.SIPUsername}: {ex.Message}");
+                    _logger.LogError($"Error closing RTCPeerConnection : {ex.Message}");
                     StatusMessage?.Invoke(this, $"Warning: RTCPeerConnection close failed: {ex.Message}");
                     // 即使关闭失败，也将引用设为null以防止内存泄漏
                     RTCPeerConnection = null;
@@ -367,9 +331,8 @@ namespace AI.Caller.Core {
                     MediaSession = null;
                     mediaSessionClosed = true;
                     StatusMessage?.Invoke(this, "MediaSession resources released successfully.");
-                    _logger.LogInformation($"MediaSession closed successfully for user {_options.SIPUsername}");
                 } catch (Exception ex) {
-                    _logger.LogError($"Error closing MediaSession for user {_options.SIPUsername}: {ex.Message}");
+                    _logger.LogError($"Error closing MediaSession : {ex.Message}");
                     StatusMessage?.Invoke(this, $"Warning: MediaSession close failed: {ex.Message}");
                     // 即使关闭失败，也将引用设为null以防止内存泄漏
                     MediaSession = null;
@@ -380,9 +343,8 @@ namespace AI.Caller.Core {
             if (rtcConnectionClosed || mediaSessionClosed || RTCPeerConnection == null || MediaSession == null) {
                 try {
                     ResourcesReleased?.Invoke(this);
-                    _logger.LogInformation($"ResourcesReleased event triggered for user {_options.SIPUsername}");
                 } catch (Exception ex) {
-                    _logger.LogError($"Error triggering ResourcesReleased event for user {_options.SIPUsername}: {ex.Message}");
+                    _logger.LogError($"Error triggering ResourcesReleased event : {ex.Message}");
                 }
             }
         }
@@ -565,7 +527,6 @@ namespace AI.Caller.Core {
 
         private void CallFinished(SIPDialogue? dialogue) {
             try {
-                _logger.LogInformation($"CallFinished triggered for user {_options.SIPUsername}");
                 m_pendingIncomingCall = null;
                 
                 // 自动停止录音（如果正在录音）
@@ -579,15 +540,15 @@ namespace AI.Caller.Core {
                 
                 StatusMessage?.Invoke(this, "Call finished and resources cleaned up.");
             } catch (Exception ex) {
-                _logger.LogError($"Error in CallFinished for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error in CallFinished : {ex.Message}");
                 StatusMessage?.Invoke(this, $"Error during call cleanup: {ex.Message}");
             } finally {
                 // 确保无论是否有异常都触发CallEnded事件
                 try {
                     CallEnded?.Invoke(this);
-                    _logger.LogInformation($"CallEnded event triggered for user {_options.SIPUsername}");
+                    _logger.LogInformation($"CallEnded event triggered ");
                 } catch (Exception ex) {
-                    _logger.LogError($"Error triggering CallEnded event for user {_options.SIPUsername}: {ex.Message}");
+                    _logger.LogError($"Error triggering CallEnded event : {ex.Message}");
                 }
             }
         }
@@ -636,9 +597,9 @@ namespace AI.Caller.Core {
             try {
                 // 每5秒检查一次网络状态
                 _networkMonitorTimer = new Timer(CheckNetworkStatus, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
-                _logger.LogInformation($"Network monitoring started for user {_options.SIPUsername}");
+                _logger.LogInformation($"Network monitoring started ");
             } catch (Exception ex) {
-                _logger.LogError($"Error starting network monitoring for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error starting network monitoring : {ex.Message}");
             }
         }
 
@@ -649,9 +610,9 @@ namespace AI.Caller.Core {
             try {
                 _networkMonitorTimer?.Dispose();
                 _networkMonitorTimer = null;
-                _logger.LogInformation($"Network monitoring stopped for user {_options.SIPUsername}");
+                _logger.LogInformation($"Network monitoring stopped ");
             } catch (Exception ex) {
-                _logger.LogError($"Error stopping network monitoring for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error stopping network monitoring : {ex.Message}");
             }
         }
 
@@ -666,19 +627,16 @@ namespace AI.Caller.Core {
                     if (_isNetworkConnected && !currentNetworkState) {
                         // 网络从连接变为断开
                         _isNetworkConnected = false;
-                        _logger.LogInformation($"Network disconnected detected for user {_options.SIPUsername}");
                         StatusMessage?.Invoke(this, "Network connection lost.");
                         
                         // 触发网络断开事件
                         NetworkDisconnected?.Invoke(this);
                         
                         // 执行本地挂断处理
-                        HandleNetworkDisconnection();
-                        
+                        HandleNetworkDisconnection();                        
                     } else if (!_isNetworkConnected && currentNetworkState) {
                         // 网络从断开变为连接
                         _isNetworkConnected = true;
-                        _logger.LogInformation($"Network reconnected detected for user {_options.SIPUsername}");
                         StatusMessage?.Invoke(this, "Network connection restored.");
                         
                         // 触发网络重连事件
@@ -691,7 +649,7 @@ namespace AI.Caller.Core {
                     _lastNetworkCheck = DateTime.UtcNow;
                 }
             } catch (Exception ex) {
-                _logger.LogError($"Error checking network status for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error checking network status : {ex.Message}");
             }
         }
 
@@ -720,7 +678,7 @@ namespace AI.Caller.Core {
 
                 return true;
             } catch (Exception ex) {
-                _logger.LogError($"Error checking network availability for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error checking network availability : {ex.Message}");
                 return false;
             }
         }
@@ -731,14 +689,13 @@ namespace AI.Caller.Core {
         private void HandleNetworkDisconnection() {
             try {
                 if (IsCallActive) {
-                    _logger.LogInformation($"Handling network disconnection during active call for user {_options.SIPUsername}");
+                    _logger.LogInformation($"Handling network disconnection during active call");
                     StatusMessage?.Invoke(this, "Network disconnected during call, performing local hangup.");
                     
-                    // 执行本地挂断处理
                     PerformLocalHangup("Network disconnection");
                 }
             } catch (Exception ex) {
-                _logger.LogError($"Error handling network disconnection for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error handling network disconnection : {ex.Message}");
             }
         }
 
@@ -747,11 +704,11 @@ namespace AI.Caller.Core {
         /// </summary>
         private void HandleNetworkReconnection() {
             try {
-                _logger.LogInformation($"Network reconnected for user {_options.SIPUsername}");
+                _logger.LogInformation($"Network reconnected ");
                 // 网络恢复后的处理逻辑可以在这里添加
                 // 例如：重新注册SIP账号、重发挂断通知等
             } catch (Exception ex) {
-                _logger.LogError($"Error handling network reconnection for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error handling network reconnection : {ex.Message}");
             }
         }
 
@@ -760,9 +717,6 @@ namespace AI.Caller.Core {
         /// </summary>
         private void PerformLocalHangup(string reason) {
             try {
-                _logger.LogInformation($"Performing local hangup for user {_options.SIPUsername}, reason: {reason}");
-                
-                // 触发挂断开始事件
                 HangupInitiated?.Invoke(this);
                 StatusMessage?.Invoke(this, $"Local hangup initiated: {reason}");
                 
@@ -772,15 +726,13 @@ namespace AI.Caller.Core {
                 // 不调用m_userAgent.Hangup()，因为网络可能不可用
                 // 直接进行本地资源清理
                 CallFinished(null);
-
-                _logger.LogInformation($"Local hangup completed for user {_options.SIPUsername}");
             } catch (Exception ex) {
-                _logger.LogError($"Error performing local hangup for user {_options.SIPUsername}: {ex.Message}");
+                _logger.LogError($"Error performing local hangup: {ex.Message}");
                 // 即使出现异常，也要确保资源被清理
                 try {
                     CallFinished(null);
                 } catch (Exception cleanupEx) {
-                    _logger.LogError($"Error in cleanup during local hangup for user {_options.SIPUsername}: {cleanupEx.Message}");
+                    _logger.LogError($"Error in cleanup during local hangup : {cleanupEx.Message}");
                 }
             }
         }
@@ -813,8 +765,6 @@ namespace AI.Caller.Core {
             // 订阅录音管理器事件
             _recordingManager.StatusChanged += OnRecordingStatusChanged;
             _recordingManager.ErrorOccurred += OnRecordingErrorOccurred;
-
-            _logger.LogInformation($"Recording manager set for SIPClient {_options.SIPUsername}, auto recording: {autoRecording}");
         }
 
         /// <summary>

@@ -86,21 +86,13 @@ namespace AI.Caller.Phone.BackgroundTask {
                     client = item.Value;
                     var user = _appDbContext.Users.First(x => x.SipUsername == item.Key);
 
-                    client.Accept(sipRequest);
+                    if (!client.IsCallActive) {
+                        client.Accept(sipRequest);
 
-                    // 创建 answer SDP 回应 web端的 offer
-                    var answerSdp = await client.AnswerAsync();
-                    client.RTCPeerConnection!.onicecandidate += (candidate) => {
-                        if (client.RTCPeerConnection.signalingState == RTCSignalingState.have_remote_offer || client.RTCPeerConnection.signalingState == RTCSignalingState.stable) {
-                            try {
-                                _hubContext.Clients.User(user.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
-                            } catch (Exception e) {
-                                _logger.LogError(e, e.Message);
-                            }
-                        }
-                    };
+                        await client.AnswerAsync().ConfigureAwait(false);
 
-                    await _hubContext.Clients.User(user.Id.ToString()).SendAsync("callAnswered", new { answerSdp = answerSdp.toJSON() });
+                        await _hubContext.Clients.User(user.Id.ToString()).SendAsync("callAnswered");
+                    }
                 }
                 return false;
             } catch (Exception ex) {
