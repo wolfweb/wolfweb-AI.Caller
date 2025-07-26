@@ -74,6 +74,15 @@
                         <span id="status">未连接</span>
                     </div>
                     
+                    <!-- 录音状态指示器 -->
+                    <div class="alert alert-info mb-4 d-none" id="recordingStatusAlert">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-record-circle text-danger me-2" id="recordingIcon"></i>
+                            <span id="recordingStatus">录音状态</span>
+                            <span class="badge bg-secondary ms-auto" id="recordingTimer">00:00</span>
+                        </div>
+                    </div>
+                    
                     <!-- 输入框和拨号按钮 -->
                     <div class="input-group mb-4">
                         <span class="input-group-text"><i class="bi bi-telephone"></i></span>
@@ -87,6 +96,12 @@
                         </button>
                         <button id="hangupButton" class="btn btn-danger d-none">
                             <i class="bi bi-telephone-x-fill"></i> 挂断
+                        </button>
+                        <button id="startRecordingButton" class="btn btn-warning d-none">
+                            <i class="bi bi-record-circle"></i> 开始录音
+                        </button>
+                        <button id="stopRecordingButton" class="btn btn-secondary d-none">
+                            <i class="bi bi-stop-circle"></i> 停止录音
                         </button>
                     </div>
                     
@@ -145,14 +160,24 @@
         const callButton = document.getElementById('callButton');
         const answerButton = document.getElementById('answerButton');
         const hangupButton = document.getElementById('hangupButton');
+        const startRecordingButton = document.getElementById('startRecordingButton');
+        const stopRecordingButton = document.getElementById('stopRecordingButton');
         const statusDiv = document.getElementById('status');
         const statusAlert = document.getElementById('statusAlert');
+        const recordingStatusAlert = document.getElementById('recordingStatusAlert');
+        const recordingStatus = document.getElementById('recordingStatus');
+        const recordingTimer = document.getElementById('recordingTimer');
+        const recordingIcon = document.getElementById('recordingIcon');
         const callerName = document.getElementById('callerName');
         const callerNumber = document.getElementById('callerNumber');
         const callInfo = document.getElementById('callInfo');
         const callTimer = document.getElementById('callTimer');
         const remoteAudio = document.getElementById('remoteAudio');
         let pc, localStream, signalRConnection, hangupHandler;
+        let recordingStartTime = null;
+        let recordingTimerInterval = null;
+        let isRecording = false;
+        let isAutoRecording = false;
 
         const CallState = {
             IDLE: 'IDLE',
@@ -163,11 +188,11 @@
         };
 
         const BUTTON_STATES = {
-            IDLE: { call: true, answer: false, hangup: false },
-            OUTGOING: { call: false, answer: false, hangup: true },
-            INCOMING: { call: false, answer: true, hangup: false },
-            CONNECTED: { call: false, answer: false, hangup: true },
-            ENDING: { call: false, answer: false, hangup: false }
+            IDLE: { call: true, answer: false, hangup: false, startRecording: false, stopRecording: false },
+            OUTGOING: { call: false, answer: false, hangup: true, startRecording: false, stopRecording: false },
+            INCOMING: { call: false, answer: true, hangup: false, startRecording: false, stopRecording: false },
+            CONNECTED: { call: false, answer: false, hangup: true, startRecording: true, stopRecording: false },
+            ENDING: { call: false, answer: false, hangup: false, startRecording: false, stopRecording: false }
         };
 
         class CallStateManager {
@@ -177,7 +202,9 @@
                 this.buttons = {
                     call: callButton,
                     answer: answerButton,
-                    hangup: hangupButton
+                    hangup: hangupButton,
+                    startRecording: startRecordingButton,
+                    stopRecording: stopRecordingButton
                 };
                 
                 this.updateButtonVisibility();
@@ -249,6 +276,23 @@
                             this.showButton(this.buttons.hangup);
                         } else {
                             this.hideButton(this.buttons.hangup);
+                        }
+                    }
+
+                    // 录音按钮的显示逻辑需要考虑当前录音状态
+                    if (this.buttons.startRecording) {
+                        if (config.startRecording && !isRecording) {
+                            this.showButton(this.buttons.startRecording);
+                        } else {
+                            this.hideButton(this.buttons.startRecording);
+                        }
+                    }
+
+                    if (this.buttons.stopRecording) {
+                        if (isRecording) {
+                            this.showButton(this.buttons.stopRecording);
+                        } else {
+                            this.hideButton(this.buttons.stopRecording);
                         }
                     }
 
@@ -994,5 +1038,146 @@
                 callStateManager.resetToIdle();
             }
         });
+
+        // 录音控制功能
+        startRecordingButton.addEventListener('click', async () => {
+            try {
+                console.log('手动开始录音');
+                updateRecordingStatus('正在开始录音...', 'warning');
+                
+                const calleeNumber = destinationInput.value || callerNumber.textContent || '未知';
+                const result = await signalRConnection.invoke("StartRecordingAsync", calleeNumber);
+                
+                if (result.success) {
+                    console.log('录音开始成功:', result);
+                } else {
+                    console.error('录音开始失败:', result.message);
+                    updateRecordingStatus('录音开始失败: ' + result.message, 'danger');
+                }
+            } catch (error) {
+                console.error('开始录音时发生错误:', error);
+                updateRecordingStatus('录音开始失败: ' + error.message, 'danger');
+            }
+        });
+
+        stopRecordingButton.addEventListener('click', async () => {
+            try {
+                console.log('手动停止录音');
+                updateRecordingStatus('正在停止录音...', 'warning');
+                
+                const result = await signalRConnection.invoke("StopRecordingAsync");
+                
+                if (result.success) {
+                    console.log('录音停止成功:', result);
+                } else {
+                    console.error('录音停止失败:', result.message);
+                    updateRecordingStatus('录音停止失败: ' + result.message, 'danger');
+                }
+            } catch (error) {
+                console.error('停止录音时发生错误:', error);
+                updateRecordingStatus('录音停止失败: ' + error.message, 'danger');
+            }
+        });
+
+        // 录音状态更新函数
+        function updateRecordingStatus(message, type = 'info') {
+            recordingStatus.textContent = message;
+            recordingStatusAlert.className = `alert alert-${type} mb-4`;
+            
+            if (type === 'danger') {
+                recordingStatusAlert.classList.remove('d-none');
+                setTimeout(() => {
+                    recordingStatusAlert.classList.add('d-none');
+                }, 5000);
+            }
+        }
+
+        // 录音计时器功能
+        function startRecordingTimer() {
+            recordingStartTime = new Date();
+            recordingTimer.textContent = "00:00";
+            recordingIcon.className = "bi bi-record-circle text-danger me-2";
+
+            recordingTimerInterval = setInterval(() => {
+                const now = new Date();
+                const diff = new Date(now - recordingStartTime);
+                const minutes = diff.getUTCMinutes().toString().padStart(2, '0');
+                const seconds = diff.getUTCSeconds().toString().padStart(2, '0');
+                recordingTimer.textContent = `${minutes}:${seconds}`;
+            }, 1000);
+        }
+
+        function stopRecordingTimer() {
+            if (recordingTimerInterval) {
+                clearInterval(recordingTimerInterval);
+                recordingTimerInterval = null;
+            }
+            recordingIcon.className = "bi bi-stop-circle text-secondary me-2";
+        }
+
+        // SignalR 录音事件处理
+        signalRConnection.on("recordingStarted", function(data) {
+            console.log("录音已开始:", data);
+            isRecording = true;
+            isAutoRecording = data.isAuto || false;
+            
+            updateRecordingStatus(isAutoRecording ? '自动录音已开始' : '手动录音已开始', 'success');
+            recordingStatusAlert.classList.remove('d-none');
+            
+            startRecordingTimer();
+            callStateManager.updateButtonVisibility();
+        });
+
+        signalRConnection.on("recordingStopped", function(data) {
+            console.log("录音已停止:", data);
+            isRecording = false;
+            
+            updateRecordingStatus('录音已停止并保存', 'info');
+            setTimeout(() => {
+                recordingStatusAlert.classList.add('d-none');
+            }, 3000);
+            
+            stopRecordingTimer();
+            callStateManager.updateButtonVisibility();
+        });
+
+        signalRConnection.on("recordingError", function(data) {
+            console.error("录音错误:", data);
+            isRecording = false;
+            
+            updateRecordingStatus('录音错误: ' + data.message, 'danger');
+            stopRecordingTimer();
+            callStateManager.updateButtonVisibility();
+        });
+
+        signalRConnection.on("recordingStatusUpdate", function(data) {
+            console.log("录音状态更新:", data);
+            if (data.status) {
+                const statusText = data.status === 'Recording' ? '录音中' : 
+                                 data.status === 'Completed' ? '录音完成' : 
+                                 data.status === 'Failed' ? '录音失败' : data.status;
+                updateRecordingStatus(statusText, data.status === 'Failed' ? 'danger' : 'info');
+            }
+        });
+
+        // 在通话状态变化时更新录音按钮
+        const originalSetState = callStateManager.setState;
+        callStateManager.setState = function(newState) {
+            const result = originalSetState.call(this, newState);
+            
+            // 当通话结束时，自动停止录音计时器显示
+            if (newState === CallState.IDLE && isRecording) {
+                // 不改变录音状态，只是隐藏录音状态显示
+                setTimeout(() => {
+                    if (!isRecording) {
+                        recordingStatusAlert.classList.add('d-none');
+                    }
+                }, 5000);
+            }
+            
+            return result;
+        };
+
+        console.log('录音控制功能已初始化');
     </script>
 }

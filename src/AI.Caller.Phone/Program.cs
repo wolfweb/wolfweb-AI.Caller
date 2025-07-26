@@ -50,6 +50,9 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<UserService>();
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
+            builder.Services.AddScoped<IRecordingService, RecordingService>();
+            builder.Services.AddScoped<IFileStorageService, FileStorageService>();
+            builder.Services.AddScoped<IMediaProcessingService, MediaProcessingService>();
             builder.Services.AddSingleton<HangupMonitoringService>();
             builder.Services.AddAuthentication(options => {
                 options.DefaultScheme = "CookieAuth";
