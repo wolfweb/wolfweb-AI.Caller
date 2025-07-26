@@ -6,6 +6,8 @@ using SIPSorceryMedia.Abstractions;
 using System.Diagnostics;
 using System.Net;
 using System.Text.RegularExpressions;
+using AI.Caller.Core.Recording;
+using System.Threading.Tasks;
 
 namespace AI.Caller.Core {
     public class SIPClient {
@@ -17,6 +19,11 @@ namespace AI.Caller.Core {
         private readonly SIPTransport m_sipTransport;
         private readonly SIPClientOptions _options;
         private readonly WebRTCSettings? _webRTCSettings;
+        
+        // 录音相关
+        private IAudioRecordingManager? _recordingManager;
+        private RecordingOptions? _recordingOptions;
+        private bool _autoRecordingEnabled = false;
 
         public event Action<SIPClient>? CallAnswer;
         public event Action<SIPClient>? CallEnded;
@@ -32,6 +39,11 @@ namespace AI.Caller.Core {
         // 网络状态相关事件
         public event Action<SIPClient>? NetworkDisconnected;
         public event Action<SIPClient>? NetworkReconnected;
+        
+        // 录音相关事件
+        public event Action<SIPClient, string>? RecordingStarted;
+        public event Action<SIPClient, string>? RecordingStopped;
+        public event Action<SIPClient, RecordingErrorEventArgs>? RecordingError;
 
         public SIPDialogue Dialogue => m_userAgent.Dialogue;
 
@@ -41,6 +53,11 @@ namespace AI.Caller.Core {
 
         public RTPSession?        MediaSession      { get; private set; }
         public RTCPeerConnection? RTCPeerConnection { get; private set; }
+        
+        // 录音相关属性
+        public bool IsRecordingEnabled => _recordingManager != null;
+        public bool IsRecording => _recordingManager?.IsRecording ?? false;
+        public RecordingStatus? RecordingStatus => _recordingManager?.CurrentStatus;
 
         private SIPServerUserAgent? m_pendingIncomingCall;
         private CancellationTokenSource _cts = new CancellationTokenSource();
@@ -100,7 +117,7 @@ namespace AI.Caller.Core {
                 Debug.WriteLine($"DNS lookup result for {callURI}: {dstEndpoint}.");
                 SIPCallDescriptor callDescriptor = new SIPCallDescriptor(sipUsername, sipPassword, callURI.ToString(), fromHeader, null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, null, null);
 
-                MediaSession = CreateMediaSession();
+                MediaSession = await CreateMediaSession();
                 MediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
 
                 m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
@@ -114,6 +131,11 @@ namespace AI.Caller.Core {
             try {
                 if (mediaType == SDPMediaTypesEnum.audio && MediaSession != null && m_userAgent.IsCallActive) {
                     MediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
+                    
+                    // 传递音频数据给录音管理器（WebRTC传出音频）
+                    if (_recordingManager != null && IsRecording) {
+                        ForwardAudioToRecording(remote, mediaType, rtpPacket, AudioSource.WebRTC_Outgoing);
+                    }
                 }
             } catch (Exception ex) {
                 _logger.LogError($"Error forwarding media to SIP: {ex.Message}");
@@ -125,6 +147,11 @@ namespace AI.Caller.Core {
             try {
                 if (RTCPeerConnection != null && mediaType == SDPMediaTypesEnum.audio && RTCPeerConnection.connectionState == RTCPeerConnectionState.connected) {
                     RTCPeerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
+                }
+                
+                // 传递音频数据给录音管理器（RTP传入音频）
+                if (_recordingManager != null && IsRecording && mediaType == SDPMediaTypesEnum.audio) {
+                    ForwardAudioToRecording(remote, mediaType, rtpPacket, AudioSource.RTP_Incoming);
                 }
             } catch (Exception ex) {
                 _logger.LogError($"Error sending audio packet: {ex.Message}");
@@ -163,7 +190,7 @@ namespace AI.Caller.Core {
                     hasVideo = offerSDP.Media.Any(x => x.Media == SDPMediaTypesEnum.video && x.MediaStreamStatus != MediaStreamStatusEnum.Inactive);
                 }
 
-                MediaSession = CreateMediaSession();
+                MediaSession = await CreateMediaSession();
                 MediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
 
                 m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
@@ -240,6 +267,8 @@ namespace AI.Caller.Core {
 
             var result = RTCPeerConnection.setRemoteDescription(sdpOffer);
             if (result == SetDescriptionResultEnum.OK) {
+                //await RTCPeerConnection.Start();
+
                 var answerSdp = RTCPeerConnection.createAnswer(new RTCAnswerOptions { });
 
                 await RTCPeerConnection.setLocalDescription(answerSdp);
@@ -379,7 +408,7 @@ namespace AI.Caller.Core {
             Hangup();
         }
 
-        private RTPSession CreateMediaSession() {
+        private async Task<RTPSession> CreateMediaSession() {
             var rtpSession = new RTPSession(false, false, false);
             rtpSession.AcceptRtpFromAny = true;
             MediaStreamTrack audioTrack = new(
@@ -391,13 +420,15 @@ namespace AI.Caller.Core {
                 ]
             );
             rtpSession.addTrack(audioTrack);
+
+            await rtpSession.Start();
+
             return rtpSession;
         }
 
         private RTCConfiguration GetRTCConfiguration() {
             var iceServers = new List<RTCIceServer>();
             
-            // If WebRTCSettings is provided and has ICE servers configured, use them
             if (_webRTCSettings != null && _webRTCSettings.IceServers != null && _webRTCSettings.IceServers.Count > 0)
             {
                 try
@@ -411,14 +442,12 @@ namespace AI.Caller.Core {
                 }
             }
             
-            // If no ICE servers were configured or the configuration is invalid, use a default STUN server
             if (iceServers.Count == 0)
             {
                 _logger.LogWarning("No ICE servers configured, using default STUN server");
-                iceServers.Add(new RTCIceServer { urls = "stun:stun.sipsorcery.com" });
+                //iceServers.Add(new RTCIceServer { urls = "stun:stun.sipsorcery.com" });
             }
             
-            // Determine ICE transport policy
             var iceTransportPolicy = RTCIceTransportPolicy.all;
             if (_webRTCSettings != null && 
                 !string.IsNullOrEmpty(_webRTCSettings.IceTransportPolicy) && 
@@ -442,7 +471,7 @@ namespace AI.Caller.Core {
             
             // Set up event handlers and tracks
             SetupPeerConnectionEvents(peerConnection);
-            
+
             RTCPeerConnection = peerConnection;
         }
         
@@ -519,6 +548,13 @@ namespace AI.Caller.Core {
 
         private void CallAnswered(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call answered: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
+            
+            // 自动开始录音（如果启用）
+            if (_autoRecordingEnabled && _recordingManager != null && _recordingOptions != null)
+            {
+                _ = Task.Run(async () => await StartRecordingAsync());
+            }
+            
             CallAnswer?.Invoke(this);
         }
 
@@ -526,6 +562,12 @@ namespace AI.Caller.Core {
             try {
                 _logger.LogInformation($"CallFinished triggered for user {_options.SIPUsername}");
                 m_pendingIncomingCall = null;
+                
+                // 自动停止录音（如果正在录音）
+                if (IsRecording)
+                {
+                    _ = Task.Run(async () => await StopRecordingAsync());
+                }
                 
                 // 使用统一的资源释放方法
                 ReleaseMediaResources();
@@ -748,5 +790,291 @@ namespace AI.Caller.Core {
                 }
             }
         }
+
+        #region 录音功能
+
+        /// <summary>
+        /// 设置录音管理器
+        /// </summary>
+        /// <param name="recordingManager">录音管理器实例</param>
+        /// <param name="recordingOptions">录音选项</param>
+        /// <param name="autoRecording">是否启用自动录音</param>
+        public void SetRecordingManager(IAudioRecordingManager recordingManager, RecordingOptions recordingOptions, bool autoRecording = true)
+        {
+            _recordingManager = recordingManager ?? throw new ArgumentNullException(nameof(recordingManager));
+            _recordingOptions = recordingOptions ?? throw new ArgumentNullException(nameof(recordingOptions));
+            _autoRecordingEnabled = autoRecording;
+
+            // 订阅录音管理器事件
+            _recordingManager.StatusChanged += OnRecordingStatusChanged;
+            _recordingManager.ErrorOccurred += OnRecordingErrorOccurred;
+
+            _logger.LogInformation($"Recording manager set for SIPClient {_options.SIPUsername}, auto recording: {autoRecording}");
+        }
+
+        /// <summary>
+        /// 手动开始录音
+        /// </summary>
+        /// <param name="options">录音选项，如果为null则使用默认选项</param>
+        /// <returns>是否成功开始录音</returns>
+        public async Task<bool> StartRecordingAsync(RecordingOptions? options = null)
+        {
+            if (_recordingManager == null)
+            {
+                _logger.LogWarning("Cannot start recording: recording manager not set");
+                return false;
+            }
+
+            if (!IsCallActive)
+            {
+                _logger.LogWarning("Cannot start recording: no active call");
+                return false;
+            }
+
+            try
+            {
+                var recordingOptions = options ?? _recordingOptions;
+                if (recordingOptions == null)
+                {
+                    _logger.LogError("Cannot start recording: no recording options available");
+                    return false;
+                }
+
+                var result = await _recordingManager.StartRecordingAsync(recordingOptions);
+                if (result)
+                {
+                    _logger.LogInformation($"Recording started for call {Dialogue?.CallId}");
+                    StatusMessage?.Invoke(this, "Recording started");
+                }
+                else
+                {
+                    _logger.LogWarning("Failed to start recording");
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error starting recording");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 手动停止录音
+        /// </summary>
+        /// <returns>录音文件路径，如果失败返回null</returns>
+        public async Task<string?> StopRecordingAsync()
+        {
+            if (_recordingManager == null)
+            {
+                _logger.LogWarning("Cannot stop recording: recording manager not set");
+                return null;
+            }
+
+            if (!IsRecording)
+            {
+                _logger.LogWarning("Cannot stop recording: not currently recording");
+                return null;
+            }
+
+            try
+            {
+                var filePath = await _recordingManager.StopRecordingAsync();
+                if (filePath != null)
+                {
+                    _logger.LogInformation($"Recording stopped, file saved: {filePath}");
+                    StatusMessage?.Invoke(this, $"Recording stopped, file saved: {Path.GetFileName(filePath)}");
+                }
+                else
+                {
+                    _logger.LogWarning("Recording stopped but no file path returned");
+                }
+
+                return filePath;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error stopping recording");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 暂停录音
+        /// </summary>
+        /// <returns>是否成功暂停</returns>
+        public async Task<bool> PauseRecordingAsync()
+        {
+            if (_recordingManager == null)
+            {
+                _logger.LogWarning("Cannot pause recording: recording manager not set");
+                return false;
+            }
+
+            try
+            {
+                var result = await _recordingManager.PauseRecordingAsync();
+                if (result)
+                {
+                    _logger.LogInformation("Recording paused");
+                    StatusMessage?.Invoke(this, "Recording paused");
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error pausing recording");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 恢复录音
+        /// </summary>
+        /// <returns>是否成功恢复</returns>
+        public async Task<bool> ResumeRecordingAsync()
+        {
+            if (_recordingManager == null)
+            {
+                _logger.LogWarning("Cannot resume recording: recording manager not set");
+                return false;
+            }
+
+            try
+            {
+                var result = await _recordingManager.ResumeRecordingAsync();
+                if (result)
+                {
+                    _logger.LogInformation("Recording resumed");
+                    StatusMessage?.Invoke(this, "Recording resumed");
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error resuming recording");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 取消录音
+        /// </summary>
+        /// <returns>是否成功取消</returns>
+        public async Task<bool> CancelRecordingAsync()
+        {
+            if (_recordingManager == null)
+            {
+                _logger.LogWarning("Cannot cancel recording: recording manager not set");
+                return false;
+            }
+
+            try
+            {
+                var result = await _recordingManager.CancelRecordingAsync();
+                if (result)
+                {
+                    _logger.LogInformation("Recording cancelled");
+                    StatusMessage?.Invoke(this, "Recording cancelled");
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error cancelling recording");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 处理录音状态变化事件
+        /// </summary>
+        private void OnRecordingStatusChanged(object? sender, RecordingStatusEventArgs e)
+        {
+            try
+            {
+                var status = e.Status;
+                _logger.LogDebug($"Recording status changed: {status.State}");
+
+                switch (status.State)
+                {
+                    case RecordingState.Recording:
+                        RecordingStarted?.Invoke(this, status.CurrentFilePath ?? "Unknown");
+                        break;
+                    case RecordingState.Completed:
+                        RecordingStopped?.Invoke(this, status.CurrentFilePath ?? "Unknown");
+                        break;
+                    case RecordingState.Error:
+                        var errorArgs = new RecordingErrorEventArgs(RecordingErrorCode.Unknown, status.ErrorMessage ?? "Unknown error");
+                        RecordingError?.Invoke(this, errorArgs);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling recording status change");
+            }
+        }
+
+        /// <summary>
+        /// 处理录音错误事件
+        /// </summary>
+        private void OnRecordingErrorOccurred(object? sender, RecordingErrorEventArgs e)
+        {
+            try
+            {
+                _logger.LogError($"Recording error occurred: {e.ErrorCode} - {e.ErrorMessage}");
+                RecordingError?.Invoke(this, e);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling recording error event");
+            }
+        }
+
+        /// <summary>
+        /// 将音频数据转发给录音管理器
+        /// </summary>
+        private void ForwardAudioToRecording(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket, AudioSource audioSource)
+        {
+            try
+            {
+                if (_recordingManager == null || !IsRecording || mediaType != SDPMediaTypesEnum.audio)
+                    return;
+
+                // 创建音频帧
+                var audioFormat = new Recording.AudioFormat(
+                    sampleRate: 8000, // 默认SIP音频采样率
+                    channels: 1,      // 单声道
+                    bitsPerSample: 16, // 16位
+                    sampleFormat: AudioSampleFormat.PCM
+                );
+
+                var audioFrame = new AudioFrame(
+                    data: rtpPacket.Payload,
+                    format: audioFormat,
+                    source: audioSource
+                );
+
+                // 通过AudioRecorder传递音频数据
+                // 注意：这里需要获取AudioRecorder实例，我们需要修改AudioRecordingManager来暴露这个接口
+                // 或者直接在AudioRecordingManager中添加接收RTP包的方法
+                if (_recordingManager is AudioRecordingManager recordingManager)
+                {
+                    // 直接调用内部方法处理音频数据
+                    recordingManager.ProcessAudioFrame(audioFrame);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error forwarding audio to recording: {ex.Message}");
+            }
+        }
+
+        #endregion
     }
 }

@@ -63,7 +63,7 @@ namespace AI.Caller.Phone.Services {
                 var sipClient = new SIPClient(_logger, sipOptions, _sipTransportManager.SIPTransport!, _webRTCSettings);
                 // 添加状态消息事件处理
                 sipClient.StatusMessage += (client, message) => {
-                    _logger.LogInformation($"SIP客户端状态: {message}");
+                    _logger.LogDebug($"SIP客户端状态: {message}");
                 };
 
                 if (user.RegisteredAt == null || user.RegisteredAt < DateTime.UtcNow.AddHours(-2) || user.RegisteredAt < _applicationContext.StartAt) {
@@ -140,10 +140,14 @@ namespace AI.Caller.Phone.Services {
             var user = _dbContext.Users.First(x => x.Username == userName);
             if (_applicationContext.SipClients.TryGetValue(user.SipUsername, out var sipClient)) {
                 try {
+                    if(sipClient.RTCPeerConnection == null) throw new Exception("初始化 RTCPeerConnection 异常");
+
                     sipClient.RTCPeerConnection.setRemoteDescription(answerSdp);
 
                     while (!sipClient.RTCPeerConnection.IsSecureContextReady())
                         await Task.Delay(100);
+
+                    //await sipClient.RTCPeerConnection.Start();
 
                     // 接听电话
                     var result = await sipClient.AnswerAsync();

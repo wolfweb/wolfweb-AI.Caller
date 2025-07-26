@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AI.Caller.Phone", "src\AI.C
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AI.Caller.Core", "src\AI.Caller.Core\AI.Caller.Core.csproj", "{EF55B484-8A1D-4F01-91EB-473F85F91744}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AI.Caller.Core.Tests", "src\AI.Caller.Core.Tests\AI.Caller.Core.Tests.csproj", "{4932E5EC-061F-602F-58BA-022F127F53E1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{EF55B484-8A1D-4F01-91EB-473F85F91744}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{EF55B484-8A1D-4F01-91EB-473F85F91744}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{EF55B484-8A1D-4F01-91EB-473F85F91744}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4932E5EC-061F-602F-58BA-022F127F53E1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4932E5EC-061F-602F-58BA-022F127F53E1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4932E5EC-061F-602F-58BA-022F127F53E1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4932E5EC-061F-602F-58BA-022F127F53E1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
