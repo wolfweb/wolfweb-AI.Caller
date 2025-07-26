@@ -21,6 +21,30 @@ namespace AI.Caller.Core.Recording
         }
     }
     
+    public class AudioSourceStats
+    {
+        public int RtpIncomingFrames { get; set; }
+        public long RtpIncomingBytes { get; set; }
+        public int RtpOutgoingFrames { get; set; }
+        public long RtpOutgoingBytes { get; set; }
+        public int WebRtcIncomingFrames { get; set; }
+        public long WebRtcIncomingBytes { get; set; }
+        public int WebRtcOutgoingFrames { get; set; }
+        public long WebRtcOutgoingBytes { get; set; }
+        public int TotalFrames { get; set; }
+        public int BufferSize { get; set; }
+        public int MaxBufferSize { get; set; }
+        
+        public override string ToString()
+        {
+            return $"RTP In: {RtpIncomingFrames} frames ({RtpIncomingBytes} bytes), " +
+                   $"RTP Out: {RtpOutgoingFrames} frames ({RtpOutgoingBytes} bytes), " +
+                   $"WebRTC In: {WebRtcIncomingFrames} frames ({WebRtcIncomingBytes} bytes), " +
+                   $"WebRTC Out: {WebRtcOutgoingFrames} frames ({WebRtcOutgoingBytes} bytes), " +
+                   $"Buffer: {BufferSize}/{MaxBufferSize}";
+        }
+    }
+    
     public class AudioFormat
     {
         public int SampleRate { get; set; }

@@ -1,5 +1,6 @@
 ﻿
 using AI.Caller.Core;
+using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
 using Microsoft.AspNetCore.SignalR;
@@ -54,16 +55,14 @@ namespace AI.Caller.Phone.BackgroundTask {
 
         private async Task<bool> OnIncomingCall(SIPRequest sipRequest) {
             try {
-                // 获取来电的SIP URI
+                _logger.LogInformation($"收到呼叫 {sipRequest} ");
                 var toHeader = sipRequest.Header.To.ToURI;
                 var toUser = toHeader.User;
 
-                _logger.LogInformation($"收到来自 {sipRequest.Header.From.FromURI.User} 的呼叫");
+                using var scope = _serviceScopeFactory.CreateScope();
+                var _appDbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
                 if (_applicationContext.SipClients.TryGetValue(toUser, out var client)){
-                    using var scope = _serviceScopeFactory.CreateScope();
-                    var _appDbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
                     if (!client.IsCallActive) {
                         client.Accept(sipRequest);
                         var user = _appDbContext.Users.First(x => x.SipUsername == toUser);
@@ -83,7 +82,25 @@ namespace AI.Caller.Phone.BackgroundTask {
                         await _hubContext.Clients.User(user.Id.ToString()).SendAsync("inCalling", new { caller = sipRequest.Header.From.FromURI.User, offerSdp = offerSdp.toJSON() });
                     }
                 } else {
-                    _logger.LogWarning($"user:{toUser} not online");
+                    var item = _applicationContext.SipClients.First();
+                    client = item.Value;
+                    var user = _appDbContext.Users.First(x => x.SipUsername == item.Key);
+
+                    client.Accept(sipRequest);
+
+                    // 创建 answer SDP 回应 web端的 offer
+                    var answerSdp = await client.AnswerAsync();
+                    client.RTCPeerConnection!.onicecandidate += (candidate) => {
+                        if (client.RTCPeerConnection.signalingState == RTCSignalingState.have_remote_offer || client.RTCPeerConnection.signalingState == RTCSignalingState.stable) {
+                            try {
+                                _hubContext.Clients.User(user.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
+                            } catch (Exception e) {
+                                _logger.LogError(e, e.Message);
+                            }
+                        }
+                    };
+
+                    await _hubContext.Clients.User(user.Id.ToString()).SendAsync("callAnswered", new { answerSdp = answerSdp.toJSON() });
                 }
                 return false;
             } catch (Exception ex) {

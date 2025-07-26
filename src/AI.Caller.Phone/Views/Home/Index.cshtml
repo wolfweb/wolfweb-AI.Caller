@@ -499,6 +499,44 @@
             startCallTimer();
         });
 
+        signalRConnection.on("callAnswered", async function(x){
+            try {
+                let offerObj;
+                if (typeof x.offerSdp === 'string') {
+                    offerObj = JSON.parse(x.offerSdp);
+                } else if (typeof x.offerSdp === 'object') {
+                    offerObj = x.offerSdp;
+                } else {
+                    console.error("Invalid offer SDP type:", typeof x.offerSdp);
+                    updateStatus('来电数据格式错误', 'danger');
+                    return;
+                }
+
+                const answerSdp = await createPeerConnection(false, offerObj);
+                console.log('接听SDP:', answerSdp);
+                await signalRConnection.invoke("AnswerAsync", {caller: callerName.innerText, answerSdp: JSON.stringify(answerSdp)});
+
+                updateStatus('接听成功', 'success');
+                callStateManager.setState(CallState.CONNECTED);
+                stopCallTimer();
+                startCallTimer();
+                showCallInfo(true);
+
+                signalRConnection.invoke("GetSecureContextState").then(isSecure=>{
+                    if(!isSecure){
+                        updateStatus('当前连接不安全，通话质量可能受影响', 'warning');
+                    }else{
+                        updateStatus('安全链接通话中...', 'info');
+                    }
+                });
+            } catch (parseError) {
+                console.error("Error parsing offer SDP:", parseError);
+                console.error("Original offer data:", x.offerSdp);
+                updateStatus('来电数据解析失败', 'danger');
+                return;
+            }
+        });
+
         signalRConnection.on("answered", function(){
             updateStatus('通话已接听', 'success');
             callStateManager.setState(CallState.CONNECTED);

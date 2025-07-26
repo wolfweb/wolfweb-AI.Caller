@@ -70,10 +70,31 @@ namespace AI.Caller.Core.Recording
             if (!_isCapturing || mediaType != SDPMediaTypesEnum.audio)
                 return;
                 
+            // 验证RTP包
+            if (rtpPacket?.Payload == null || rtpPacket.Payload.Length == 0)
+            {
+                _logger.LogTrace($"Received empty RTP packet from {source}");
+                return;
+            }
+            
+            // 检查包大小是否合理（避免异常大的包）
+            if (rtpPacket.Payload.Length > 8192) // 8KB限制
+            {
+                _logger.LogWarning($"Received oversized RTP packet ({rtpPacket.Payload.Length} bytes) from {source}, skipping");
+                return;
+            }
+                
             try
             {
                 // 创建音频格式（基于RTP包的信息）
                 var audioFormat = CreateAudioFormatFromRtp(rtpPacket);
+                
+                // 验证音频格式
+                if (!IsValidAudioFormat(audioFormat))
+                {
+                    _logger.LogWarning($"Invalid audio format from {source}: {audioFormat}");
+                    return;
+                }
                 
                 // 创建音频帧
                 var audioFrame = new AudioFrame(rtpPacket.Payload, audioFormat, source)
@@ -88,7 +109,7 @@ namespace AI.Caller.Core.Recording
                 // 触发事件
                 AudioDataReceived?.Invoke(this, new AudioDataEventArgs(audioFrame, remote));
                 
-                _logger.LogTrace($"Captured RTP audio frame: {audioFrame.Data.Length} bytes from {source}");
+                _logger.LogTrace($"Captured RTP audio frame: {audioFrame.Data.Length} bytes from {source}, seq: {audioFrame.SequenceNumber}");
             }
             catch (Exception ex)
             {
@@ -101,8 +122,28 @@ namespace AI.Caller.Core.Recording
             if (!_isCapturing)
                 return;
                 
+            // 验证WebRTC音频数据
+            if (audioData == null || audioData.Length == 0)
+            {
+                _logger.LogTrace($"Received empty WebRTC audio data from {source}");
+                return;
+            }
+            
+            if (audioData.Length > 8192) // 8KB限制
+            {
+                _logger.LogWarning($"Received oversized WebRTC audio data ({audioData.Length} bytes) from {source}, skipping");
+                return;
+            }
+                
             try
             {
+                // 验证音频格式
+                if (!IsValidAudioFormat(format))
+                {
+                    _logger.LogWarning($"Invalid WebRTC audio format from {source}: {format}");
+                    return;
+                }
+                
                 // 创建音频帧
                 var audioFrame = new AudioFrame(audioData, format, source)
                 {
@@ -116,7 +157,7 @@ namespace AI.Caller.Core.Recording
                 // 触发事件
                 AudioDataReceived?.Invoke(this, new AudioDataEventArgs(audioFrame, null));
                 
-                _logger.LogTrace($"Captured WebRTC audio frame: {audioFrame.Data.Length} bytes from {source}");
+                _logger.LogTrace($"Captured WebRTC audio frame: {audioFrame.Data.Length} bytes from {source}, seq: {audioFrame.SequenceNumber}");
             }
             catch (Exception ex)
             {
@@ -148,6 +189,41 @@ namespace AI.Caller.Core.Recording
             _logger.LogDebug("Audio buffer cleared");
         }
         
+        public AudioSourceStats GetAudioSourceStats()
+        {
+            var frames = _audioBuffer.ToArray();
+            var stats = new AudioSourceStats();
+            
+            foreach (var frame in frames)
+            {
+                switch (frame.Source)
+                {
+                    case AudioSource.RTP_Incoming:
+                        stats.RtpIncomingFrames++;
+                        stats.RtpIncomingBytes += frame.Data.Length;
+                        break;
+                    case AudioSource.RTP_Outgoing:
+                        stats.RtpOutgoingFrames++;
+                        stats.RtpOutgoingBytes += frame.Data.Length;
+                        break;
+                    case AudioSource.WebRTC_Incoming:
+                        stats.WebRtcIncomingFrames++;
+                        stats.WebRtcIncomingBytes += frame.Data.Length;
+                        break;
+                    case AudioSource.WebRTC_Outgoing:
+                        stats.WebRtcOutgoingFrames++;
+                        stats.WebRtcOutgoingBytes += frame.Data.Length;
+                        break;
+                }
+            }
+            
+            stats.TotalFrames = frames.Length;
+            stats.BufferSize = _audioBuffer.Count;
+            stats.MaxBufferSize = MaxBufferSize;
+            
+            return stats;
+        }
+        
         private void AddToBuffer(AudioFrame frame)
         {
             _audioBuffer.Enqueue(frame);
@@ -155,15 +231,28 @@ namespace AI.Caller.Core.Recording
             // 检查缓冲区溢出
             if (_audioBuffer.Count > MaxBufferSize)
             {
-                // 移除最旧的帧
+                // 移除最旧的帧，保持缓冲区在80%容量
+                var targetSize = (int)(MaxBufferSize * 0.8);
                 var removedCount = 0;
-                while (_audioBuffer.Count > MaxBufferSize * 0.8 && _audioBuffer.TryDequeue(out _))
+                
+                while (_audioBuffer.Count > targetSize && _audioBuffer.TryDequeue(out _))
                 {
                     removedCount++;
                 }
                 
-                _logger.LogWarning($"Audio buffer overflow, removed {removedCount} old frames");
+                _logger.LogWarning($"Audio buffer overflow, removed {removedCount} old frames, current size: {_audioBuffer.Count}");
                 BufferOverflow?.Invoke(this, new BufferOverflowEventArgs(removedCount, _audioBuffer.Count));
+                
+                // 如果缓冲区持续溢出，考虑动态调整大小
+                if (removedCount > MaxBufferSize * 0.5)
+                {
+                    var newMaxSize = Math.Min(MaxBufferSize * 2, 2000); // 最大不超过2000
+                    if (newMaxSize > MaxBufferSize)
+                    {
+                        _logger.LogInformation($"Dynamically increasing buffer size from {MaxBufferSize} to {newMaxSize}");
+                        MaxBufferSize = newMaxSize;
+                    }
+                }
             }
         }
         
@@ -187,6 +276,27 @@ namespace AI.Caller.Core.Recording
             };
             
             return new AudioFormat(sampleRate, 1, 16, sampleFormat);
+        }
+        
+        private bool IsValidAudioFormat(AudioFormat format)
+        {
+            // 验证音频格式的合理性
+            if (format == null)
+                return false;
+                
+            // 检查采样率范围
+            if (format.SampleRate < 8000 || format.SampleRate > 48000)
+                return false;
+                
+            // 检查声道数
+            if (format.Channels < 1 || format.Channels > 2)
+                return false;
+                
+            // 检查位深度
+            if (format.BitsPerSample != 8 && format.BitsPerSample != 16 && format.BitsPerSample != 24 && format.BitsPerSample != 32)
+                return false;
+                
+            return true;
         }
         
         public void Dispose()

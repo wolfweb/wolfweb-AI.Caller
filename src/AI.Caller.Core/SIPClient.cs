@@ -7,7 +7,6 @@ using System.Diagnostics;
 using System.Net;
 using System.Text.RegularExpressions;
 using AI.Caller.Core.Recording;
-using System.Threading.Tasks;
 
 namespace AI.Caller.Core {
     public class SIPClient {
@@ -129,33 +128,41 @@ namespace AI.Caller.Core {
 
         private void OnForwardMediaToSIP(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
-                if (mediaType == SDPMediaTypesEnum.audio && MediaSession != null && m_userAgent.IsCallActive) {
+                if (mediaType != SDPMediaTypesEnum.audio || rtpPacket?.Payload == null || rtpPacket.Payload.Length == 0) {
+                    return;
+                }
+                
+                if (MediaSession != null && m_userAgent.IsCallActive) {
                     MediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
+                    _logger.LogTrace($"Forwarded WebRTC audio to SIP: {rtpPacket.Payload.Length} bytes from {remote}");
                     
-                    // 传递音频数据给录音管理器（WebRTC传出音频）
                     if (_recordingManager != null && IsRecording) {
                         ForwardAudioToRecording(remote, mediaType, rtpPacket, AudioSource.WebRTC_Outgoing);
                     }
+                } else {
+                    _logger.LogTrace($"Cannot forward audio to SIP: MediaSession={MediaSession != null}, CallActive={m_userAgent.IsCallActive}");
                 }
             } catch (Exception ex) {
                 _logger.LogError($"Error forwarding media to SIP: {ex.Message}");
-                // Don't rethrow - we want to continue processing other packets
             }
         }
 
         private void OnRtpPacketReceived(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
-                if (RTCPeerConnection != null && mediaType == SDPMediaTypesEnum.audio && RTCPeerConnection.connectionState == RTCPeerConnectionState.connected) {
-                    RTCPeerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
+                if (mediaType != SDPMediaTypesEnum.audio || rtpPacket?.Payload == null || rtpPacket.Payload.Length == 0) {
+                    return;
                 }
                 
-                // 传递音频数据给录音管理器（RTP传入音频）
-                if (_recordingManager != null && IsRecording && mediaType == SDPMediaTypesEnum.audio) {
+                if (RTCPeerConnection != null && RTCPeerConnection.connectionState == RTCPeerConnectionState.connected) {
+                    RTCPeerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
+                    _logger.LogTrace($"Forwarded RTP audio to WebRTC: {rtpPacket.Payload.Length} bytes from {remote}");
+                }
+                
+                if (_recordingManager != null && IsRecording) {
                     ForwardAudioToRecording(remote, mediaType, rtpPacket, AudioSource.RTP_Incoming);
                 }
             } catch (Exception ex) {
-                _logger.LogError($"Error sending audio packet: {ex.Message}");
-                // Don't rethrow - we want to continue processing other packets
+                _logger.LogError($"Error processing RTP audio packet from {remote}: {ex.Message}");
             }
         }
 
@@ -267,8 +274,6 @@ namespace AI.Caller.Core {
 
             var result = RTCPeerConnection.setRemoteDescription(sdpOffer);
             if (result == SetDescriptionResultEnum.OK) {
-                //await RTCPeerConnection.Start();
-
                 var answerSdp = RTCPeerConnection.createAnswer(new RTCAnswerOptions { });
 
                 await RTCPeerConnection.setLocalDescription(answerSdp);

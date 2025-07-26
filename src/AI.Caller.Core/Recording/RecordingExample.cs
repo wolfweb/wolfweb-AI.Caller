@@ -17,13 +17,16 @@ namespace AI.Caller.Core.Recording
             // 1. 创建录音组件
             var audioRecorder = new AudioRecorder(_logger);
             var audioMixer = new AudioMixer(_logger);
-            var audioEncoder = new FFmpegAudioEncoder(AudioEncodingOptions.CreateDefault(), _logger);
+            var encoderFactory = new AudioEncoderFactory(_logger as ILogger<StreamingAudioEncoder> ?? 
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<StreamingAudioEncoder>.Instance);
             var fileManager = new RecordingFileManager(new RecordingStorageOptions(), _logger);
             var formatConverter = new AudioFormatConverter(_logger);
+            var qualityMonitor = new AudioQualityMonitor(AudioQualitySettings.CreateDefault(), _logger);
+            var diagnostics = new AudioDiagnostics(AudioDiagnosticSettings.CreateDefault(), _logger);
             
             // 2. 创建录音管理器
             _recordingManager = new AudioRecordingManager(
-                audioRecorder, audioMixer, audioEncoder, fileManager, formatConverter, _logger);
+                audioRecorder, audioMixer, encoderFactory, fileManager, formatConverter, qualityMonitor, diagnostics, _logger);
             
             // 3. 配置录音选项
             var options = new RecordingOptions
@@ -63,12 +66,15 @@ namespace AI.Caller.Core.Recording
         {
             var audioRecorder = new AudioRecorder(_logger);
             var audioMixer = new AudioMixer(_logger);
-            var audioEncoder = new FFmpegAudioEncoder(AudioEncodingOptions.CreateHighQuality(), _logger);
+            var encoderFactory = new AudioEncoderFactory(_logger as ILogger<StreamingAudioEncoder> ?? 
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<StreamingAudioEncoder>.Instance);
             var fileManager = new RecordingFileManager(new RecordingStorageOptions(), _logger);
             var formatConverter = new AudioFormatConverter(_logger);
+            var qualityMonitor = new AudioQualityMonitor(AudioQualitySettings.CreateStrict(), _logger);
+            var diagnostics = new AudioDiagnostics(AudioDiagnosticSettings.CreateVerbose(), _logger);
             
             _recordingManager = new AudioRecordingManager(
-                audioRecorder, audioMixer, audioEncoder, fileManager, formatConverter, _logger);
+                audioRecorder, audioMixer, encoderFactory, fileManager, formatConverter, qualityMonitor, diagnostics, _logger);
             
             var options = new RecordingOptions
             {

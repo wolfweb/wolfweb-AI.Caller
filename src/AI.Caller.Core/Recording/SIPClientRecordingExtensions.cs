@@ -8,6 +8,15 @@ namespace AI.Caller.Core.Recording
     
     public static class SIPClientRecordingExtensions
     {
+        // 存储事件处理器引用的字典，用于正确的事件移除
+        private static readonly Dictionary<SIPClient, RecordingEventHandlers> _eventHandlers = new();
+        private static readonly object _lockObject = new object();
+        
+        private class RecordingEventHandlers
+        {
+            public Action<IPEndPoint, SDPMediaTypesEnum, RTPPacket>? MediaSessionHandler { get; set; }
+            public Action<IPEndPoint, SDPMediaTypesEnum, RTPPacket>? RTCPeerConnectionHandler { get; set; }
+        }
         
         public static void EnableRecording(this SIPClient sipClient, AudioRecorder audioRecorder, ILogger logger)
         {
@@ -17,6 +26,17 @@ namespace AI.Caller.Core.Recording
                 throw new ArgumentNullException(nameof(audioRecorder));
             if (logger == null)
                 throw new ArgumentNullException(nameof(logger));
+                
+            lock (_lockObject)
+            {
+                // 如果已经启用了录音，先清理
+                if (_eventHandlers.ContainsKey(sipClient))
+                {
+                    DisableRecording(sipClient, logger);
+                }
+                
+                _eventHandlers[sipClient] = new RecordingEventHandlers();
+            }
                 
             // 监听通话开始事件
             sipClient.CallAnswer += (client) =>
@@ -38,8 +58,8 @@ namespace AI.Caller.Core.Recording
             {
                 try
                 {
-                    DetachRecordingFromMediaSession(client, audioRecorder, logger);
-                    DetachRecordingFromRTCPeerConnection(client, audioRecorder, logger);
+                    DetachRecordingFromMediaSession(client, logger);
+                    DetachRecordingFromRTCPeerConnection(client, logger);
                     logger.LogInformation("Recording detached from ended call");
                 }
                 catch (Exception ex)
@@ -47,6 +67,23 @@ namespace AI.Caller.Core.Recording
                     logger.LogError(ex, "Failed to detach recording from call");
                 }
             };
+        }
+        
+        public static void DisableRecording(this SIPClient sipClient, ILogger logger)
+        {
+            if (sipClient == null)
+                return;
+                
+            lock (_lockObject)
+            {
+                if (_eventHandlers.TryGetValue(sipClient, out var handlers))
+                {
+                    DetachRecordingFromMediaSession(sipClient, logger);
+                    DetachRecordingFromRTCPeerConnection(sipClient, logger);
+                    _eventHandlers.Remove(sipClient);
+                    logger.LogInformation("Recording disabled for SIP client");
+                }
+            }
         }
         
         
@@ -62,6 +99,15 @@ namespace AI.Caller.Core.Recording
                 {
                     // 确定音频源类型（传入）
                     audioRecorder.OnRtpAudioReceived(remote, mediaType, rtpPacket, AudioSource.RTP_Incoming);
+                }
+            }
+            
+            // 保存事件处理器引用
+            lock (_lockObject)
+            {
+                if (_eventHandlers.TryGetValue(sipClient, out var handlers))
+                {
+                    handlers.MediaSessionHandler = OnRtpPacketReceived;
                 }
             }
             
@@ -87,6 +133,15 @@ namespace AI.Caller.Core.Recording
                 }
             }
             
+            // 保存事件处理器引用
+            lock (_lockObject)
+            {
+                if (_eventHandlers.TryGetValue(sipClient, out var handlers))
+                {
+                    handlers.RTCPeerConnectionHandler = OnRtcRtpPacketReceived;
+                }
+            }
+            
             // 附加事件处理器
             sipClient.RTCPeerConnection.OnRtpPacketReceived += OnRtcRtpPacketReceived;
             
@@ -94,16 +149,22 @@ namespace AI.Caller.Core.Recording
         }
         
         
-        private static void DetachRecordingFromMediaSession(SIPClient sipClient, AudioRecorder audioRecorder, ILogger logger)
+        private static void DetachRecordingFromMediaSession(SIPClient sipClient, ILogger logger)
         {
             if (sipClient.MediaSession == null)
                 return;
                 
             try
             {
-                // 注意：这里需要保存事件处理器的引用才能正确移除
-                // 在实际实现中，应该在附加时保存引用
-                logger.LogDebug("Detached recording from MediaSession");
+                lock (_lockObject)
+                {
+                    if (_eventHandlers.TryGetValue(sipClient, out var handlers) && handlers.MediaSessionHandler != null)
+                    {
+                        sipClient.MediaSession.OnRtpPacketReceived -= handlers.MediaSessionHandler;
+                        handlers.MediaSessionHandler = null;
+                        logger.LogDebug("Detached recording from MediaSession");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -112,16 +173,22 @@ namespace AI.Caller.Core.Recording
         }
         
         
-        private static void DetachRecordingFromRTCPeerConnection(SIPClient sipClient, AudioRecorder audioRecorder, ILogger logger)
+        private static void DetachRecordingFromRTCPeerConnection(SIPClient sipClient, ILogger logger)
         {
             if (sipClient.RTCPeerConnection == null)
                 return;
                 
             try
             {
-                // 注意：这里需要保存事件处理器的引用才能正确移除
-                // 在实际实现中，应该在附加时保存引用
-                logger.LogDebug("Detached recording from RTCPeerConnection");
+                lock (_lockObject)
+                {
+                    if (_eventHandlers.TryGetValue(sipClient, out var handlers) && handlers.RTCPeerConnectionHandler != null)
+                    {
+                        sipClient.RTCPeerConnection.OnRtpPacketReceived -= handlers.RTCPeerConnectionHandler;
+                        handlers.RTCPeerConnectionHandler = null;
+                        logger.LogDebug("Detached recording from RTCPeerConnection");
+                    }
+                }
             }
             catch (Exception ex)
             {

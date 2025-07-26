@@ -7,9 +7,12 @@ namespace AI.Caller.Core.Recording
         private readonly ILogger _logger;
         private readonly AudioRecorder _audioRecorder;
         private readonly AudioMixer _audioMixer;
-        private readonly FFmpegAudioEncoder _audioEncoder;
+        private readonly IAudioEncoderFactory _encoderFactory;
+        private IStreamingAudioEncoder? _audioEncoder;
         private readonly RecordingFileManager _fileManager;
         private readonly AudioFormatConverter _formatConverter;
+        private readonly IAudioQualityMonitor _qualityMonitor;
+        private readonly IAudioDiagnostics _diagnostics;
         private readonly object _lockObject = new object();
         
         private RecordingStatus _currentStatus;
@@ -35,16 +38,20 @@ namespace AI.Caller.Core.Recording
         public AudioRecordingManager(
             AudioRecorder audioRecorder,
             AudioMixer audioMixer,
-            FFmpegAudioEncoder audioEncoder,
+            IAudioEncoderFactory encoderFactory,
             RecordingFileManager fileManager,
             AudioFormatConverter formatConverter,
+            IAudioQualityMonitor qualityMonitor,
+            IAudioDiagnostics diagnostics,
             ILogger logger)
         {
             _audioRecorder = audioRecorder ?? throw new ArgumentNullException(nameof(audioRecorder));
             _audioMixer = audioMixer ?? throw new ArgumentNullException(nameof(audioMixer));
-            _audioEncoder = audioEncoder ?? throw new ArgumentNullException(nameof(audioEncoder));
+            _encoderFactory = encoderFactory ?? throw new ArgumentNullException(nameof(encoderFactory));
             _fileManager = fileManager ?? throw new ArgumentNullException(nameof(fileManager));
             _formatConverter = formatConverter ?? throw new ArgumentNullException(nameof(formatConverter));
+            _qualityMonitor = qualityMonitor ?? throw new ArgumentNullException(nameof(qualityMonitor));
+            _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             
             _currentStatus = new RecordingStatus();
@@ -56,9 +63,9 @@ namespace AI.Caller.Core.Recording
             _audioRecorder.AudioDataReceived += OnAudioDataReceived;
             _audioRecorder.BufferOverflow += OnBufferOverflow;
             
-            // 订阅编码器事件
-            _audioEncoder.EncodingProgress += OnEncodingProgress;
-            _audioEncoder.EncodingError += OnEncodingError;
+            // 订阅质量监控器事件
+            _qualityMonitor.QualityChanged += OnQualityChanged;
+            _qualityMonitor.QualityWarning += OnQualityWarning;
             
             _logger.LogInformation("AudioRecordingManager initialized");
         }
@@ -111,7 +118,7 @@ namespace AI.Caller.Core.Recording
                 _currentFilePath = await _fileManager.CreateRecordingFileAsync(fileName, 
                     new AudioFormat(options.SampleRate, options.Channels, 16, AudioSampleFormat.PCM));
                 
-                // 初始化音频编码器
+                // 创建并初始化音频编码器
                 var audioFormat = new AudioFormat(options.SampleRate, options.Channels, 16, AudioSampleFormat.PCM);
                 var encodingOptions = new AudioEncodingOptions
                 {
@@ -121,6 +128,13 @@ namespace AI.Caller.Core.Recording
                     BitRate = options.BitRate,
                     Quality = options.Quality
                 };
+                
+                _audioEncoder = _encoderFactory.CreateStreamingEncoder(encodingOptions);
+                
+                // 订阅编码器事件
+                _audioEncoder.AudioWritten += OnAudioWritten;
+                _audioEncoder.EncodingProgress += OnEncodingProgress;
+                _audioEncoder.EncodingError += OnEncodingError;
                 
                 if (!await _audioEncoder.InitializeAsync(audioFormat, _currentFilePath))
                 {
@@ -148,7 +162,13 @@ namespace AI.Caller.Core.Recording
                 // 启动进度更新定时器
                 _progressTimer.Change(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
                 
+                // 启动质量监控
+                _qualityMonitor.StartMonitoring();
+                
                 _logger.LogInformation($"Recording started: {_currentFilePath}");
+                _diagnostics.LogAudioEvent(AudioEventType.Info, AudioSource.Mixed, 
+                    "Recording started successfully", new { FilePath = _currentFilePath, Options = options });
+                
                 StatusChanged?.Invoke(this, new RecordingStatusEventArgs(_currentStatus.Clone()));
                 
                 return true;
@@ -156,6 +176,7 @@ namespace AI.Caller.Core.Recording
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error starting recording: {ex.Message}");
+                _diagnostics.LogAudioError(AudioSource.Mixed, ex, "StartRecording", new { Options = options });
                 SetErrorState(RecordingErrorCode.InitializationFailed, ex.Message);
                 return false;
             }
@@ -183,11 +204,17 @@ namespace AI.Caller.Core.Recording
                 // 停止进度更新定时器
                 _progressTimer.Change(Timeout.Infinite, Timeout.Infinite);
                 
+                // 停止质量监控
+                _qualityMonitor.StopMonitoring();
+                
                 // 停止音频捕获
                 await _audioRecorder.StopCaptureAsync();
                 
                 // 完成音频编码
-                await _audioEncoder.FinalizeAsync();
+                if (_audioEncoder != null)
+                {
+                    await _audioEncoder.FinalizeAsync();
+                }
                 
                 // 保存元数据
                 if (_currentFilePath != null && _currentOptions != null)
@@ -207,6 +234,10 @@ namespace AI.Caller.Core.Recording
                 }
                 
                 _logger.LogInformation($"Recording completed: {filePath}, Duration: {RecordingDuration}, Bytes: {_totalBytesRecorded}");
+                _diagnostics.LogAudioEvent(AudioEventType.Info, AudioSource.Mixed, 
+                    "Recording completed successfully", 
+                    new { FilePath = filePath, Duration = RecordingDuration, BytesRecorded = _totalBytesRecorded });
+                
                 StatusChanged?.Invoke(this, new RecordingStatusEventArgs(_currentStatus.Clone()));
                 
                 return filePath;
@@ -214,6 +245,7 @@ namespace AI.Caller.Core.Recording
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error stopping recording: {ex.Message}");
+                _diagnostics.LogAudioError(AudioSource.Mixed, ex, "StopRecording");
                 SetErrorState(RecordingErrorCode.EncodingFailed, ex.Message);
                 return null;
             }
@@ -359,18 +391,62 @@ namespace AI.Caller.Core.Recording
                 _logger.LogError(ex, $"Error processing external audio frame: {ex.Message}");
             }
         }
+        
+        /// <summary>
+        /// 获取音频质量统计信息
+        /// </summary>
+        public Dictionary<AudioSource, AudioStreamStats> GetQualityStats()
+        {
+            return _qualityMonitor.GetAllStreamStats();
+        }
+        
+        /// <summary>
+        /// 获取特定音频源的质量统计信息
+        /// </summary>
+        public AudioStreamStats GetQualityStats(AudioSource source)
+        {
+            return _qualityMonitor.GetStreamStats(source);
+        }
+        
+        /// <summary>
+        /// 重置质量统计信息
+        /// </summary>
+        public void ResetQualityStats()
+        {
+            _qualityMonitor.ResetStats();
+        }
+        
+        /// <summary>
+        /// 获取诊断报告
+        /// </summary>
+        public AudioDiagnosticReport GetDiagnosticReport()
+        {
+            return _diagnostics.GetDiagnosticReport();
+        }
+        
+        /// <summary>
+        /// 重置诊断数据
+        /// </summary>
+        public void ResetDiagnostics()
+        {
+            _diagnostics.Reset();
+        }
                 
         private async void OnAudioDataReceived(object? sender, AudioDataEventArgs e)
         {
             if (!IsRecording || _disposed)
                 return;
                 
+            using var perfMeasurement = _diagnostics.StartPerformanceMeasurement("AudioDataProcessing", e.AudioFrame.Source);
+            
             try
             {
                 // 检查录音时长限制
                 if (_currentOptions != null && RecordingDuration >= _currentOptions.MaxDuration)
                 {
                     _logger.LogInformation("Maximum recording duration reached, stopping recording");
+                    _diagnostics.LogAudioEvent(AudioEventType.Info, e.AudioFrame.Source, 
+                        "Maximum recording duration reached", new { Duration = RecordingDuration });
                     _ = Task.Run(async () => await StopRecordingAsync());
                     return;
                 }
@@ -388,16 +464,26 @@ namespace AI.Caller.Core.Recording
                     
                     if (!audioFrame.Format.IsCompatibleWith(targetFormat))
                     {
+                        using var conversionMeasurement = _diagnostics.StartPerformanceMeasurement("AudioFormatConversion", e.AudioFrame.Source);
                         var convertedFrame = _formatConverter.ConvertFormat(audioFrame, targetFormat);
                         if (convertedFrame != null)
                         {
                             audioFrame = convertedFrame;
+                            _diagnostics.LogAudioEvent(AudioEventType.Debug, e.AudioFrame.Source, 
+                                "Audio format converted", new { OriginalFormat = e.AudioFrame.Format, TargetFormat = targetFormat });
                         }
                     }
                 }
                 
-                // 编码音频帧
-                await _audioEncoder.EncodeAudioFrameAsync(audioFrame);
+                // 写入音频帧到文件（实时写入）
+                if (_audioEncoder != null)
+                {
+                    using var encodingMeasurement = _diagnostics.StartPerformanceMeasurement("AudioEncoding", audioFrame.Source);
+                    await _audioEncoder.WriteAudioFrameAsync(audioFrame);
+                }
+                
+                // 质量监控
+                _qualityMonitor.ProcessAudioFrame(audioFrame, audioFrame.Source);
                 
                 // 更新统计信息
                 lock (_lockObject)
@@ -405,10 +491,16 @@ namespace AI.Caller.Core.Recording
                     _totalBytesRecorded += audioFrame.Data.Length;
                     _currentStatus.BytesRecorded = _totalBytesRecorded;
                 }
+                
+                // 记录处理的音频帧
+                _diagnostics.LogPerformanceMetric("AudioFrameSize", audioFrame.Data.Length, "bytes", 
+                    new { Source = audioFrame.Source });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error processing audio data: {ex.Message}");
+                _diagnostics.LogAudioError(e.AudioFrame.Source, ex, "AudioDataProcessing", 
+                    new { FrameSize = e.AudioFrame.Data.Length });
                 ErrorOccurred?.Invoke(this, new RecordingErrorEventArgs(RecordingErrorCode.EncodingFailed, ex.Message, ex));
             }
         }
@@ -418,6 +510,18 @@ namespace AI.Caller.Core.Recording
             _logger.LogWarning($"Audio buffer overflow: {e.RemovedFrameCount} frames removed, current buffer size: {e.CurrentBufferSize}");
         }
                 
+        private void OnAudioWritten(object? sender, AudioWrittenEventArgs e)
+        {
+            if (e.Success)
+            {
+                _logger.LogTrace($"Audio written: {e.BytesWritten} bytes at {e.WriteTime}");
+            }
+            else
+            {
+                _logger.LogError($"Audio write failed: {e.ErrorMessage}");
+            }
+        }
+        
         private void OnEncodingProgress(object? sender, EncodingProgressEventArgs e)
         {
             // 编码进度已在OnAudioDataReceived中处理
@@ -427,6 +531,29 @@ namespace AI.Caller.Core.Recording
         {
             _logger.LogError($"Encoding error: {e.ErrorMessage}");
             ErrorOccurred?.Invoke(this, new RecordingErrorEventArgs(e.ErrorCode, e.ErrorMessage, e.Exception));
+        }
+        
+        private void OnQualityChanged(object? sender, StreamQualityEventArgs e)
+        {
+            _logger.LogTrace($"Audio quality changed: {e.QualityLevel} - {e.StreamStats}");
+            
+            // 如果质量严重下降，可以考虑调整录音参数
+            if (e.QualityLevel == AudioQualityLevel.Critical)
+            {
+                _logger.LogWarning($"Critical audio quality detected: {e.Message}");
+            }
+        }
+        
+        private void OnQualityWarning(object? sender, QualityWarningEventArgs e)
+        {
+            _logger.LogWarning($"Audio quality warning for {e.Source}: {e.Message}");
+            
+            // 可以根据警告类型采取相应措施
+            if (e.QualityLevel == AudioQualityLevel.Poor || e.QualityLevel == AudioQualityLevel.Critical)
+            {
+                // 例如：降低音频质量要求、增加缓冲区大小等
+                _logger.LogInformation($"Considering quality adjustments due to {e.QualityLevel} quality");
+            }
         }
                 
         private void UpdateProgress(object? state)
@@ -504,8 +631,15 @@ namespace AI.Caller.Core.Recording
                 // 取消订阅事件
                 _audioRecorder.AudioDataReceived -= OnAudioDataReceived;
                 _audioRecorder.BufferOverflow -= OnBufferOverflow;
-                _audioEncoder.EncodingProgress -= OnEncodingProgress;
-                _audioEncoder.EncodingError -= OnEncodingError;
+                _qualityMonitor.QualityChanged -= OnQualityChanged;
+                _qualityMonitor.QualityWarning -= OnQualityWarning;
+                
+                if (_audioEncoder != null)
+                {
+                    _audioEncoder.AudioWritten -= OnAudioWritten;
+                    _audioEncoder.EncodingProgress -= OnEncodingProgress;
+                    _audioEncoder.EncodingError -= OnEncodingError;
+                }
                 
                 // 释放资源
                 _audioRecorder?.Dispose();
@@ -513,6 +647,7 @@ namespace AI.Caller.Core.Recording
                 _audioEncoder?.Dispose();
                 _fileManager?.Dispose();
                 _formatConverter?.Dispose();
+                _qualityMonitor?.Dispose();
                 
                 _logger.LogInformation("AudioRecordingManager disposed");
             }
