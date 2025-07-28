@@ -10,9 +10,12 @@ namespace AI.Caller.Core.Tests.Recording
         private readonly Mock<ILogger> _mockLogger;
         private readonly AudioRecorder _audioRecorder;
         private readonly AudioMixer _audioMixer;
-        private readonly FFmpegAudioEncoder _audioEncoder;
+        private readonly Mock<IAudioEncoderFactory> _mockEncoderFactory;
         private readonly RecordingFileManager _fileManager;
         private readonly AudioFormatConverter _formatConverter;
+        private readonly Mock<IAudioQualityMonitor> _mockQualityMonitor;
+        private readonly Mock<IAudioDiagnostics> _mockDiagnostics;
+        private readonly Mock<IAudioErrorRecoveryManager> _mockErrorRecovery;
         private readonly AudioRecordingManager _recordingManager;
         private readonly RecordingOptions _defaultOptions;
         private readonly string _testDirectory;
@@ -26,8 +29,7 @@ namespace AI.Caller.Core.Tests.Recording
             _audioRecorder = new AudioRecorder(_mockLogger.Object);
             _audioMixer = new AudioMixer(_mockLogger.Object);
             
-            var encodingOptions = AudioEncodingOptions.CreateDefault();
-            _audioEncoder = new FFmpegAudioEncoder(encodingOptions, _mockLogger.Object);
+            _mockEncoderFactory = new Mock<IAudioEncoderFactory>();
             
             var storageOptions = new RecordingStorageOptions
             {
@@ -39,12 +41,20 @@ namespace AI.Caller.Core.Tests.Recording
             
             _formatConverter = new AudioFormatConverter(_mockLogger.Object);
             
+            // Create mock dependencies
+            _mockQualityMonitor = new Mock<IAudioQualityMonitor>();
+            _mockDiagnostics = new Mock<IAudioDiagnostics>();
+            _mockErrorRecovery = new Mock<IAudioErrorRecoveryManager>();
+            
             _recordingManager = new AudioRecordingManager(
                 _audioRecorder,
                 _audioMixer,
-                _audioEncoder,
+                _mockEncoderFactory.Object,
                 _fileManager,
                 _formatConverter,
+                _mockQualityMonitor.Object,
+                _mockDiagnostics.Object,
+                _mockErrorRecovery.Object,
                 _mockLogger.Object
             );
             
@@ -77,9 +87,12 @@ namespace AI.Caller.Core.Tests.Recording
             Assert.Throws<ArgumentNullException>(() => new AudioRecordingManager(
                 null!,
                 _audioMixer,
-                _audioEncoder,
+                _mockEncoderFactory.Object,
                 _fileManager,
                 _formatConverter,
+                _mockQualityMonitor.Object,
+                _mockDiagnostics.Object,
+                _mockErrorRecovery.Object,
                 _mockLogger.Object
             ));
         }
@@ -91,9 +104,12 @@ namespace AI.Caller.Core.Tests.Recording
             Assert.Throws<ArgumentNullException>(() => new AudioRecordingManager(
                 _audioRecorder,
                 _audioMixer,
-                _audioEncoder,
+                _mockEncoderFactory.Object,
                 _fileManager,
                 _formatConverter,
+                _mockQualityMonitor.Object,
+                _mockDiagnostics.Object,
+                _mockErrorRecovery.Object,
                 null!
             ));
         }

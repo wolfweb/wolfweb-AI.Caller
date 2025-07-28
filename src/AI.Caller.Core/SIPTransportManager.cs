@@ -40,7 +40,6 @@ namespace AI.Caller.Core {
                 await Task.Run(() => {
                     _isInitialised = true;
 
-                    // Check if a port is available before attempting to bind
                     bool IsPortAvailable(int port)
                     {
                         try
@@ -60,7 +59,6 @@ namespace AI.Caller.Core {
                     SIPTransport = new SIPTransport();
                     SIPUDPChannel? udpChannel = null;
                     try {
-                        // Try to use default port only if it's available
                         if (IsPortAvailable(SIP_DEFAULT_PORT)) {
                             udpChannel = new SIPUDPChannel(new IPEndPoint(IPAddress.Any, SIP_DEFAULT_PORT));
                         } else {
@@ -74,7 +72,6 @@ namespace AI.Caller.Core {
 
                     SIPTCPChannel? tcpChannel = null;
                     try {
-                        // Use the same port as UDP if it's available, otherwise use random
                         if (IsPortAvailable(udpChannel.Port)) {
                             tcpChannel = new SIPTCPChannel(new IPEndPoint(IPAddress.Any, udpChannel.Port));
                         } else {
@@ -88,10 +85,8 @@ namespace AI.Caller.Core {
                     SIPTransport.AddSIPChannel(new List<SIPChannel> { udpChannel, tcpChannel });
                 });
                 if (SIPTransport != null) {
-                    // Wire up the transport layer so incoming SIP requests have somewhere to go.
                     SIPTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;
 
-                    // Log all SIP packets received to a log file.
                     SIPTransport.SIPRequestInTraceEvent += SIPRequestInTraceEvent;
                     SIPTransport.SIPRequestOutTraceEvent += SIPRequestOutTraceEvent;
                     SIPTransport.SIPResponseInTraceEvent += SIPResponseInTraceEvent;

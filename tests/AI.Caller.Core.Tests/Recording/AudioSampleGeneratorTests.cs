@@ -34,7 +34,7 @@ namespace AI.Caller.Core.Tests.Recording
             var outputPath = Path.Combine(_testOutputDir, "test_stereo_tone.wav");
             
             // Act
-            var initResult = await encoder.InitializeAsync(audioFormat, outputPath);
+            var initResult = encoder.Initialize(audioFormat, outputPath);
             Assert.True(initResult);
             
             // Generate 3 seconds of stereo sine wave (440Hz left, 880Hz right)
@@ -77,7 +77,7 @@ namespace AI.Caller.Core.Tests.Recording
             var outputPath = Path.Combine(_testOutputDir, "test_mono_tone.wav");
             
             // Act
-            var initResult = await encoder.InitializeAsync(audioFormat, outputPath);
+            var initResult = encoder.Initialize(audioFormat, outputPath);
             Assert.True(initResult);
             
             // Generate 2 seconds of mono sine wave (1000Hz)
@@ -119,7 +119,7 @@ namespace AI.Caller.Core.Tests.Recording
             var outputPath = Path.Combine(_testOutputDir, "test_complex_audio.wav");
             
             // Act
-            var initResult = await encoder.InitializeAsync(audioFormat, outputPath);
+            var initResult = encoder.Initialize(audioFormat, outputPath);
             Assert.True(initResult);
             
             // Generate 5 seconds of complex audio (simulating speech-like patterns)
@@ -319,7 +319,7 @@ namespace AI.Caller.Core.Tests.Recording
             };
             
             var encoder = new FFmpegAudioEncoder(options, _mockLogger.Object);
-            await encoder.InitializeAsync(frame.Format, filePath);
+            encoder.Initialize(frame.Format, filePath);
             await encoder.EncodeAudioFrameAsync(frame);
             await encoder.FinalizeAsync();
             encoder.Dispose();

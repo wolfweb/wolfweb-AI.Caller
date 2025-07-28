@@ -13,6 +13,7 @@ namespace AI.Caller.Core.Recording
         private readonly AudioFormatConverter _formatConverter;
         private readonly IAudioQualityMonitor _qualityMonitor;
         private readonly IAudioDiagnostics _diagnostics;
+        private readonly IAudioErrorRecoveryManager _errorRecovery;
         private readonly object _lockObject = new object();
         
         private RecordingStatus _currentStatus;
@@ -43,6 +44,7 @@ namespace AI.Caller.Core.Recording
             AudioFormatConverter formatConverter,
             IAudioQualityMonitor qualityMonitor,
             IAudioDiagnostics diagnostics,
+            IAudioErrorRecoveryManager errorRecovery,
             ILogger logger)
         {
             _audioRecorder = audioRecorder ?? throw new ArgumentNullException(nameof(audioRecorder));
@@ -52,6 +54,7 @@ namespace AI.Caller.Core.Recording
             _formatConverter = formatConverter ?? throw new ArgumentNullException(nameof(formatConverter));
             _qualityMonitor = qualityMonitor ?? throw new ArgumentNullException(nameof(qualityMonitor));
             _diagnostics = diagnostics ?? throw new ArgumentNullException(nameof(diagnostics));
+            _errorRecovery = errorRecovery ?? throw new ArgumentNullException(nameof(errorRecovery));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             
             _currentStatus = new RecordingStatus();
@@ -431,6 +434,22 @@ namespace AI.Caller.Core.Recording
         {
             _diagnostics.Reset();
         }
+        
+        /// <summary>
+        /// 获取错误恢复统计信息
+        /// </summary>
+        public RecoveryStatistics GetRecoveryStatistics()
+        {
+            return _errorRecovery.GetRecoveryStatistics();
+        }
+        
+        /// <summary>
+        /// 重置错误恢复统计信息
+        /// </summary>
+        public void ResetRecoveryStatistics()
+        {
+            _errorRecovery.ResetStatistics();
+        }
                 
         private async void OnAudioDataReceived(object? sender, AudioDataEventArgs e)
         {
@@ -527,9 +546,32 @@ namespace AI.Caller.Core.Recording
             // 编码进度已在OnAudioDataReceived中处理
         }
                 
-        private void OnEncodingError(object? sender, EncodingErrorEventArgs e)
+        private async void OnEncodingError(object? sender, EncodingErrorEventArgs e)
         {
             _logger.LogError($"Encoding error: {e.ErrorMessage}");
+            
+            // 尝试错误恢复
+            try
+            {
+                var recovered = await _errorRecovery.RecoverFromEncodingError(e);
+                if (recovered)
+                {
+                    _logger.LogInformation($"Successfully recovered from encoding error: {e.ErrorCode}");
+                    _diagnostics.LogAudioEvent(AudioEventType.Info, AudioSource.Mixed, 
+                        "Encoding error recovery successful", new { ErrorCode = e.ErrorCode });
+                }
+                else
+                {
+                    _logger.LogWarning($"Failed to recover from encoding error: {e.ErrorCode}");
+                    _diagnostics.LogAudioEvent(AudioEventType.Warning, AudioSource.Mixed, 
+                        "Encoding error recovery failed", new { ErrorCode = e.ErrorCode });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error during encoding error recovery: {ex.Message}");
+            }
+            
             ErrorOccurred?.Invoke(this, new RecordingErrorEventArgs(e.ErrorCode, e.ErrorMessage, e.Exception));
         }
         

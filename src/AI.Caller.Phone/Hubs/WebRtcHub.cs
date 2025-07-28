@@ -330,7 +330,7 @@ namespace AI.Caller.Phone.Hubs {
         /// 获取录音状态
         /// </summary>
         /// <returns>录音状态</returns>
-        public async Task<RecordingStatus?> GetRecordingStatusAsync()
+        public async Task<RecordStatus?> GetRecordingStatusAsync()
         {
             try
             {

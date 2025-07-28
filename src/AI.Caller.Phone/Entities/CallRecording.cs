@@ -13,7 +13,7 @@ public class CallRecording
     public string FilePath { get; set; } = string.Empty;
     public long FileSize { get; set; }
     public string AudioFormat { get; set; } = "wav";
-    public RecordingStatus Status { get; set; }
+    public RecordStatus Status { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? DeletedAt { get; set; }
     
@@ -21,8 +21,7 @@ public class CallRecording
     public User User { get; set; } = null!;
 }
 
-public enum RecordingStatus
-{
+public enum RecordStatus {
     Recording = 0,
     Completed = 1,
     Failed = 2,

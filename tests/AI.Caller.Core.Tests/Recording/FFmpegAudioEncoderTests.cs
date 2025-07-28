@@ -174,7 +174,7 @@ namespace AI.Caller.Core.Tests.Recording
             var audioFormat = new AudioFormat(8000, 1, 16, AudioSampleFormat.PCM);
             
             // 初始化编码器
-            await encoder.InitializeAsync(audioFormat, "test.wav");
+            encoder.Initialize(audioFormat, "test.wav");
             
             var audioFrame = new AudioFrame(new byte[0], audioFormat, AudioSource.RTP_Incoming);
             
@@ -207,7 +207,7 @@ namespace AI.Caller.Core.Tests.Recording
         }
         
         [Fact]
-        public async Task InitializeAsync_AfterDispose_ShouldThrowObjectDisposedException()
+        public void Initialize_AfterDispose_ShouldThrowObjectDisposedException()
         {
             // Arrange
             var encoder = new FFmpegAudioEncoder(_defaultOptions, _mockLogger.Object);
@@ -216,8 +216,7 @@ namespace AI.Caller.Core.Tests.Recording
             var audioFormat = new AudioFormat(8000, 1, 16, AudioSampleFormat.PCM);
             
             // Act & Assert
-            await Assert.ThrowsAsync<ObjectDisposedException>(() => 
-                encoder.InitializeAsync(audioFormat, "test.wav"));
+            Assert.Throws<ObjectDisposedException>(() => encoder.Initialize(audioFormat, "test.wav"));
         }
         
         [Fact]

@@ -32,7 +32,7 @@ public static class RecordingServiceValidator
 
             // 测试 3: 获取录音状态
             var status = await recordingService.GetRecordingStatusAsync("test_call_123");
-            if (status != RecordingStatus.Recording)
+            if (status != RecordStatus.Recording)
             {
                 Console.WriteLine($"录音状态不正确: {status}");
                 return false;

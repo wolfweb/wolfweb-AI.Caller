@@ -3,7 +3,7 @@ using AI.Caller.Phone.Models;
 using Microsoft.EntityFrameworkCore;
 using AI.Caller.Core.Recording;
 using AI.Caller.Core;
-using PhoneRecordingStatus = AI.Caller.Phone.Entities.RecordingStatus;
+using PhoneRecordingStatus = AI.Caller.Phone.Entities.RecordStatus;
 using PhoneStorageInfo = AI.Caller.Phone.Models.StorageInfo;
 
 namespace AI.Caller.Phone.Services;

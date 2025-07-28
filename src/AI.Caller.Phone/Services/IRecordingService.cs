@@ -1,6 +1,6 @@
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Models;
-using PhoneRecordingStatus = AI.Caller.Phone.Entities.RecordingStatus;
+using PhoneRecordingStatus = AI.Caller.Phone.Entities.RecordStatus;
 using PhoneStorageInfo = AI.Caller.Phone.Models.StorageInfo;
 
 namespace AI.Caller.Phone.Services;

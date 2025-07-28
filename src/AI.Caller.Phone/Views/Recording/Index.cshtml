@@ -147,13 +147,13 @@
                                             <td>
                                                 @switch (recording.Status)
                                                 {
-                                                    case RecordingStatus.Recording:
+                                                    case RecordStatus.Recording:
                                                         <span class="badge badge-warning">录音中</span>
                                                         break;
-                                                    case RecordingStatus.Completed:
+                                                    case RecordStatus.Completed:
                                                         <span class="badge badge-success">已完成</span>
                                                         break;
-                                                    case RecordingStatus.Failed:
+                                                    case RecordStatus.Failed:
                                                         <span class="badge badge-danger">失败</span>
                                                         break;
                                                     default:
@@ -162,7 +162,7 @@
                                                 }
                                             </td>
                                             <td>
-                                                @if (recording.Status == RecordingStatus.Completed)
+                                                @if (recording.Status == RecordStatus.Completed)
                                                 {
                                                     <div class="btn-group" role="group">
                                                         <button type="button" class="btn btn-sm btn-outline-primary" onclick="playRecording(@recording.Id)" title="播放">
