@@ -1068,17 +1068,33 @@
                 console.log('手动开始录音');
                 updateRecordingStatus('正在开始录音...', 'warning');
                 
-                const calleeNumber = destinationInput.value || callerNumber.textContent || '未知';
-                const result = await signalRConnection.invoke("StartRecordingAsync", calleeNumber);
+                // 检查SignalR连接状态
+                if (signalRConnection.state !== signalR.HubConnectionState.Connected) {
+                    console.error('SignalR连接未建立，当前状态:', signalRConnection.state);
+                    updateRecordingStatus('连接未建立，无法开始录音', 'danger');
+                    return;
+                }
                 
-                if (result.success) {
+                const calleeNumber = destinationInput.value || callerNumber.textContent || '未知';
+                console.log('调用StartRecordingAsync，参数:', calleeNumber);
+                
+                const result = await signalRConnection.invoke("StartRecordingAsync", calleeNumber);
+                console.log('StartRecordingAsync返回结果:', result);
+                
+                if (result && result.success) {
                     console.log('录音开始成功:', result);
+                    updateRecordingStatus('录音已开始', 'success');
                 } else {
-                    console.error('录音开始失败:', result.message);
-                    updateRecordingStatus('录音开始失败: ' + result.message, 'danger');
+                    console.error('录音开始失败:', result);
+                    updateRecordingStatus('录音开始失败: ' + (result?.message || '未知错误'), 'danger');
                 }
             } catch (error) {
                 console.error('开始录音时发生错误:', error);
+                console.error('错误详情:', {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
                 updateRecordingStatus('录音开始失败: ' + error.message, 'danger');
             }
         });
@@ -1088,16 +1104,31 @@
                 console.log('手动停止录音');
                 updateRecordingStatus('正在停止录音...', 'warning');
                 
-                const result = await signalRConnection.invoke("StopRecordingAsync");
+                // 检查SignalR连接状态
+                if (signalRConnection.state !== signalR.HubConnectionState.Connected) {
+                    console.error('SignalR连接未建立，当前状态:', signalRConnection.state);
+                    updateRecordingStatus('连接未建立，无法停止录音', 'danger');
+                    return;
+                }
                 
-                if (result.success) {
+                console.log('调用StopRecordingAsync');
+                const result = await signalRConnection.invoke("StopRecordingAsync");
+                console.log('StopRecordingAsync返回结果:', result);
+                
+                if (result && result.success) {
                     console.log('录音停止成功:', result);
+                    updateRecordingStatus('录音已停止', 'success');
                 } else {
-                    console.error('录音停止失败:', result.message);
-                    updateRecordingStatus('录音停止失败: ' + result.message, 'danger');
+                    console.error('录音停止失败:', result);
+                    updateRecordingStatus('录音停止失败: ' + (result?.message || '未知错误'), 'danger');
                 }
             } catch (error) {
                 console.error('停止录音时发生错误:', error);
+                console.error('错误详情:', {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
                 updateRecordingStatus('录音停止失败: ' + error.message, 'danger');
             }
         });

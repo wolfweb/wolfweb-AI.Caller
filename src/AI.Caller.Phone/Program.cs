@@ -55,7 +55,7 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
             // 注册录音服务 - 使用音频流录音服务替代简单录音服务
-            builder.Services.AddScoped<ISimpleRecordingService, AudioStreamRecordingService>();
+            builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();
             builder.Services.AddScoped<RecordingManager>();
             builder.Services.AddSingleton<HangupMonitoringService>();
 

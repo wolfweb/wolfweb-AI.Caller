@@ -11,10 +11,12 @@ namespace AI.Caller.Phone.Hubs {
     public class WebRtcHub : Hub {
         private readonly SipService _sipService;
         private readonly AppDbContext _appDbContext;
-        
-        public WebRtcHub(SipService sipService, AppDbContext appDbContext) {
+        private readonly ISimpleRecordingService _recordingService;
+
+        public WebRtcHub(SipService sipService, AppDbContext appDbContext, ISimpleRecordingService recordingService) {
             _sipService = sipService;
             _appDbContext = appDbContext;
+            _recordingService = recordingService;
         }
 
         public async Task AnswerAsync(WebRtcAnswerModel model) {
@@ -142,6 +144,71 @@ namespace AI.Caller.Phone.Hubs {
                 });
             } catch (Exception ex) {
                 Console.WriteLine($"Error sending hangup failed notification: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 开始录音
+        /// </summary>
+        public async Task<object> StartRecordingAsync(string calleeNumber) {
+            try {
+                var userName = Context.User?.Identity?.Name;
+                if (string.IsNullOrEmpty(userName)) {
+                    return new { success = false, message = "用户身份验证失败" };
+                }
+
+                // 获取用户的SIP用户名
+                var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Username == userName);
+                if (user == null || string.IsNullOrEmpty(user.SipUsername)) {
+                    return new { success = false, message = "用户SIP账号信息不存在" };
+                }
+
+                var result = await _recordingService.StartRecordingAsync(user.SipUsername);
+
+                if (result) {
+                    await Clients.Caller.SendAsync("recordingStarted", new { 
+                        message = "录音已开始", 
+                        timestamp = DateTime.UtcNow 
+                    });
+                    return new { success = true, message = "录音已开始" };
+                } else {
+                    return new { success = false, message = "录音开始失败" };
+                }
+            } catch (Exception ex) {
+                return new { success = false, message = $"录音开始失败: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// 停止录音
+        /// </summary>
+        public async Task<object> StopRecordingAsync() {
+            try {
+                var userName = Context.User?.Identity?.Name;
+                if (string.IsNullOrEmpty(userName)) {
+                    return new { success = false, message = "用户身份验证失败" };
+                }
+
+                // 获取用户的SIP用户名
+                var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Username == userName);
+                if (user == null || string.IsNullOrEmpty(user.SipUsername)) {
+                    return new { success = false, message = "用户SIP账号信息不存在" };
+                }
+
+                // 通过HTTP调用录音API
+                var result = await _recordingService.StopRecordingAsync(user.SipUsername);
+
+                if (result) {
+                    await Clients.Caller.SendAsync("recordingStopped", new { 
+                        message = "录音已停止", 
+                        timestamp = DateTime.UtcNow 
+                    });
+                    return new { success = true, message = "录音已停止" };
+                } else {
+                    return new { success = false, message = "录音停止失败" };
+                }
+            } catch (Exception ex) {
+                return new { success = false, message = $"录音停止失败: {ex.Message}" };
             }
         }
     }

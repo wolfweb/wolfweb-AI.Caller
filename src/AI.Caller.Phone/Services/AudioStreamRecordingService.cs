@@ -1,10 +1,11 @@
-using System.Collections.Concurrent;
-using Microsoft.EntityFrameworkCore;
-using AI.Caller.Phone.Models;
-using AI.Caller.Phone.Entities;
 using AI.Caller.Core;
-using SIPSorceryMedia.Abstractions;
+using AI.Caller.Phone.Entities;
+using AI.Caller.Phone.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using SIPSorcery.Net;
+using SIPSorceryMedia.Abstractions;
+using System.Collections.Concurrent;
 using System.Net;
 
 namespace AI.Caller.Phone.Services
@@ -14,20 +15,20 @@ namespace AI.Caller.Phone.Services
     /// </summary>
     public class AudioStreamRecordingService : ISimpleRecordingService
     {
-        private readonly AppDbContext _dbContext;
-        private readonly ILogger<AudioStreamRecordingService> _logger;
         private readonly string _recordingsPath;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly ILogger<AudioStreamRecordingService> _logger;
         private readonly ConcurrentDictionary<string, RecordingSession> _activeSessions;
         private readonly ApplicationContext _applicationContext;
 
         public AudioStreamRecordingService(
-            AppDbContext dbContext,
             ILogger<AudioStreamRecordingService> logger,
             IConfiguration configuration,
+            IServiceScopeFactory serviceScopeFactory,
             ApplicationContext applicationContext)
         {
-            _dbContext = dbContext;
             _logger = logger;
+            _serviceScopeFactory = serviceScopeFactory;
             _recordingsPath = configuration.GetValue<string>("RecordingsPath") ?? "recordings";
             _activeSessions = new ConcurrentDictionary<string, RecordingSession>();
             _applicationContext = applicationContext;
@@ -39,6 +40,9 @@ namespace AI.Caller.Phone.Services
         {
             try
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
                 if (_activeSessions.ContainsKey(sipUsername))
                 {
                     _logger.LogWarning($"用户 {sipUsername} 已经在录音中");
@@ -94,6 +98,8 @@ namespace AI.Caller.Phone.Services
                 }
 
                 await session.StopAsync();
+
+                session.Dispose();
                 _logger.LogInformation($"停止录音 - 用户: {sipUsername}");
                 return true;
             }
@@ -108,6 +114,9 @@ namespace AI.Caller.Phone.Services
         {
             try
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
                 var fileName = $"recording_{sipUsername}_{DateTime.Now:yyyyMMdd_HHmmss}.wav";
                 var filePath = Path.Combine(_recordingsPath, fileName);
 
@@ -123,7 +132,7 @@ namespace AI.Caller.Phone.Services
                 _dbContext.Recordings.Add(recording);
                 await _dbContext.SaveChangesAsync();
 
-                return new RecordingSession(recording, sipClient, _dbContext, _logger);
+                return new RecordingSession(_logger, recording, sipClient, _serviceScopeFactory);
             }
             catch (Exception ex)
             {
@@ -137,6 +146,9 @@ namespace AI.Caller.Phone.Services
         {
             try
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
                 return await _dbContext.Recordings
                     .Where(r => r.UserId == userId)
                     .OrderByDescending(r => r.StartTime)
@@ -153,6 +165,8 @@ namespace AI.Caller.Phone.Services
         {
             try
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 var recording = await _dbContext.Recordings
                     .FirstOrDefaultAsync(r => r.Id == recordingId && r.UserId == userId);
 
@@ -178,6 +192,9 @@ namespace AI.Caller.Phone.Services
         {
             try
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
                 var user = await _dbContext.Users.FindAsync(userId);
                 return user?.AutoRecording ?? false;
             }
@@ -192,6 +209,9 @@ namespace AI.Caller.Phone.Services
         {
             try
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
                 var user = await _dbContext.Users.FindAsync(userId);
                 if (user == null) return false;
 
@@ -214,6 +234,9 @@ namespace AI.Caller.Phone.Services
                 {
                     return session.Recording.Status;
                 }
+
+                using var scope = _serviceScopeFactory.CreateScope();
+                AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
                 var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUsername);
                 if (user != null)
@@ -244,20 +267,20 @@ namespace AI.Caller.Phone.Services
         public Recording Recording { get; }
         
         private readonly SIPClient _sipClient;
-        private readonly AppDbContext _dbContext;
+        
         private readonly ILogger _logger;
         private readonly AudioRecorder _audioRecorder;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+
         private bool _disposed = false;
 
-        public RecordingSession(Recording recording, SIPClient sipClient, AppDbContext dbContext, ILogger logger)
+        public RecordingSession(ILogger logger, Recording recording, SIPClient sipClient,  IServiceScopeFactory serviceScopeFactory)
         {
+            _logger = logger;
             Recording = recording;
             _sipClient = sipClient;
-            _dbContext = dbContext;
-            _logger = logger;
+            _serviceScopeFactory = serviceScopeFactory;
             _audioRecorder = new AudioRecorder(recording.FilePath);
-
-            // 订阅音频事件 - 这里是关键，我们通过事件订阅而不是修改SIPClient
             SubscribeToAudioEvents();
         }
 
@@ -330,6 +353,8 @@ namespace AI.Caller.Phone.Services
         {
             if (_disposed) return;
 
+            using var scope = _serviceScopeFactory.CreateScope();
+            AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             try
             {
                 // 取消事件订阅
