@@ -32,6 +32,11 @@ namespace AI.Caller.Core {
         public event Action<SIPClient>? HangupInitiated;
         public event Action<SIPClient>? AudioStopped;
         public event Action<SIPClient>? ResourcesReleased;
+        public event Action<SIPClient, string>? CallInitiated;
+        
+        // 添加音频数据事件，供录音服务使用
+        public event Action<IPEndPoint, SDPMediaTypesEnum, RTPPacket>? AudioDataReceived; // SIP → WebRTC
+        public event Action<IPEndPoint, SDPMediaTypesEnum, RTPPacket>? AudioDataSent;     // WebRTC → SIP
 
         public SIPDialogue Dialogue => m_userAgent.Dialogue;
         public bool IsCallActive => m_userAgent.IsCallActive;
@@ -109,6 +114,9 @@ namespace AI.Caller.Core {
                     return;
                 }
 
+                // 触发音频发送事件，供录音服务使用（本地用户的声音）
+                AudioDataSent?.Invoke(remote, mediaType, rtpPacket);
+
                 if (MediaSession != null) {
                     MediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                     _logger.LogTrace($"Forwarded WebRTC audio to SIP: {rtpPacket.Payload.Length} bytes from {remote}");
@@ -125,6 +133,9 @@ namespace AI.Caller.Core {
                 if (mediaType != SDPMediaTypesEnum.audio || rtpPacket?.Payload == null || rtpPacket.Payload.Length == 0) {
                     return;
                 }
+
+                // 触发音频数据事件，供录音服务使用
+                AudioDataReceived?.Invoke(remote, mediaType, rtpPacket);
 
                 if (RTCPeerConnection != null && RTCPeerConnection.connectionState == RTCPeerConnectionState.connected) {
                     RTCPeerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
@@ -408,6 +419,12 @@ namespace AI.Caller.Core {
         private void OnCallTrying(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call trying: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
             CallTrying?.Invoke(this);
+            
+            // 触发呼叫发起事件，此时可以获取Call-ID
+            if (m_userAgent.Dialogue != null && !string.IsNullOrEmpty(m_userAgent.Dialogue.CallId))
+            {
+                CallInitiated?.Invoke(this, m_userAgent.Dialogue.CallId);
+            }
         }
 
         private void OnCallRinging(ISIPClientUserAgent uac, SIPResponse sipResponse) {

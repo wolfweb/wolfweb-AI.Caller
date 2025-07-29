@@ -61,7 +61,7 @@ namespace AI.Caller.Phone.Services {
 
                 var sipClient = new SIPClient(_applicationContext.SipServer,_logger, _sipTransportManager.SIPTransport!, _webRTCSettings);
 
-                _applicationContext.SipClients[user.SipUsername] = sipClient;
+                _applicationContext.AddSipClient(user.SipUsername, sipClient);
 
                 await _dbContext.SaveChangesAsync();
                 return true;
@@ -117,6 +117,8 @@ namespace AI.Caller.Phone.Services {
                 // 呼叫发起后，从SIP对话中获取实际的Call-ID并注册
                 RegisterOutboundCallAfterInitiation(sipClient, fromTag, sipUsername, destination);
 
+                // 录音功能现在由RecordingManager自动处理
+
                 // 返回WebRTC连接对象，用于前端与SIP通信
                 return (true, "呼叫已发起", sipClient.RTCPeerConnection);
             } catch (Exception ex) {
@@ -146,6 +148,9 @@ namespace AI.Caller.Phone.Services {
                     // 接听电话
                     var result = await sipClient.AnswerAsync();
                     _logger.LogInformation($"用户 {userName} 接听电话{(result ? "成功" : "失败")}");
+                    
+                    // 录音功能现在由RecordingManager自动处理
+                    
                     return result;
                 } catch (Exception ex) {
                     _logger.LogError(ex, $"用户 {userName} 接听电话失败: {ex.Message}");
@@ -213,6 +218,8 @@ namespace AI.Caller.Phone.Services {
 
                     // 等待一小段时间确保挂断操作完成
                     await Task.Delay(100, hangupCts.Token);
+
+                    // 录音功能现在由RecordingManager自动处理
 
                     // 清理呼出通话记录
                     _ = Task.Run(() =>
@@ -524,45 +531,39 @@ namespace AI.Caller.Phone.Services {
         {
             try
             {
-                // 创建一个一次性的事件处理器来监听StatusMessage事件
-                Action<SIPClient, string>? statusHandler = null;
-                statusHandler = (client, message) =>
+                // 创建一个一次性的事件处理器来监听CallInitiated事件
+                Action<SIPClient, string>? callInitiatedHandler = null;
+                callInitiatedHandler = (client, callId) =>
                 {
                     try
                     {
-                        // 当收到"Call trying"消息时，说明呼叫已经发起，可以获取Call-ID
-                        if (message.Contains("Call trying") && client.Dialogue != null && !string.IsNullOrEmpty(client.Dialogue.CallId))
+                        // 注册呼出通话到CallTypeIdentifier
+                        var callTypeIdentifier = GetCallTypeIdentifier();
+                        if (callTypeIdentifier != null)
                         {
-                            var callId = client.Dialogue.CallId;
-                            
-                            // 注册呼出通话到CallTypeIdentifier
-                            var callTypeIdentifier = GetCallTypeIdentifier();
-                            if (callTypeIdentifier != null)
-                            {
-                                callTypeIdentifier.RegisterOutboundCallWithSipTags(callId, fromTag, sipUsername, destination);
-                                _logger.LogInformation($"已注册呼出通话 - CallId: {callId}, FromTag: {fromTag}, SipUsername: {sipUsername}, Destination: {destination}");
-                            }
-                            
-                            // 移除事件处理器，避免重复注册
-                            if (statusHandler != null)
-                            {
-                                client.StatusMessage -= statusHandler;
-                            }
+                            callTypeIdentifier.RegisterOutboundCallWithSipTags(callId, fromTag, sipUsername, destination);
+                            _logger.LogInformation($"已注册呼出通话 - CallId: {callId}, FromTag: {fromTag}, SipUsername: {sipUsername}, Destination: {destination}");
+                        }
+                        
+                        // 移除事件处理器，避免重复注册
+                        if (callInitiatedHandler != null)
+                        {
+                            client.CallInitiated -= callInitiatedHandler;
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, $"处理StatusMessage事件时发生错误 - SipUsername: {sipUsername}");
+                        _logger.LogError(ex, $"处理CallInitiated事件时发生错误 - SipUsername: {sipUsername}");
                         // 移除事件处理器
-                        if (statusHandler != null)
+                        if (callInitiatedHandler != null)
                         {
-                            client.StatusMessage -= statusHandler;
+                            client.CallInitiated -= callInitiatedHandler;
                         }
                     }
                 };
                 
                 // 添加事件处理器
-                sipClient.StatusMessage += statusHandler;
+                sipClient.CallInitiated += callInitiatedHandler;
                 
                 // 设置超时清理，防止事件处理器泄漏
                 _ = Task.Run(async () =>
@@ -570,9 +571,9 @@ namespace AI.Caller.Phone.Services {
                     await Task.Delay(30000); // 30秒超时
                     try
                     {
-                        if (statusHandler != null)
+                        if (callInitiatedHandler != null)
                         {
-                            sipClient.StatusMessage -= statusHandler;
+                            sipClient.CallInitiated -= callInitiatedHandler;
                             _logger.LogDebug($"已清理呼出通话注册事件处理器 - SipUsername: {sipUsername}");
                         }
                     }

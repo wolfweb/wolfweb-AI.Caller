@@ -54,7 +54,9 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<UserService>();
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
-            builder.Services.AddScoped<IFileStorageService, FileStorageService>();
+            // 注册录音服务 - 使用音频流录音服务替代简单录音服务
+            builder.Services.AddScoped<ISimpleRecordingService, AudioStreamRecordingService>();
+            builder.Services.AddSingleton<RecordingManager>();
             builder.Services.AddSingleton<HangupMonitoringService>();
 
             // 添加通话路由相关服务
@@ -98,7 +100,11 @@ namespace AI.Caller.Phone {
 #if DEBUG
                 dbContext.Database.Migrate();
 #endif
-                EnsureDefaultUser(builder.Configuration, dbContext);                
+                EnsureDefaultUser(builder.Configuration, dbContext);
+                
+                // 初始化录音管理器
+                var recordingManager = scope.ServiceProvider.GetRequiredService<RecordingManager>();
+                recordingManager.Initialize();
             }
 
             app.Run();

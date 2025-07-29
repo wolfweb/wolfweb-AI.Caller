@@ -9,7 +9,10 @@ public class User
     public string?   SipUsername    { get; set; }
     public string?   SipPassword    { get; set; }
     public bool      SipRegistered  { get; set; }
-    public DateTime? RegisteredAt   { get; set; } 
+    public DateTime? RegisteredAt   { get; set; }
+    
+    // 录音设置
+    public bool      AutoRecording  { get; set; } = false;
 
     public ICollection<Contact>? Contacts { get; set; }
 }
