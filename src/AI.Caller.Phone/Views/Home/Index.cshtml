@@ -279,7 +279,6 @@
                         }
                     }
 
-                    // 录音按钮的显示逻辑需要考虑当前录音状态
                     if (this.buttons.startRecording) {
                         if (config.startRecording && !isRecording) {
                             this.showButton(this.buttons.startRecording);
@@ -466,8 +465,87 @@
         
         signalRConnection = new signalR.HubConnectionBuilder()        
         .withUrl("/webrtc")
-		.configureLogging(signalR.LogLevel.Debug)
+        .configureLogging(signalR.LogLevel.Debug)
+        .withAutomaticReconnect({
+            nextRetryDelayInMilliseconds: retryContext => {
+                const attempt = retryContext.previousRetryCount;
+                const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+                console.log(`SignalR重连尝试 #${attempt + 1}，等待 ${delay}ms`);
+                return delay;
+            }
+        })
         .build();
+
+        let isReconnecting = false;
+        let reconnectAttempts = 0;
+
+        signalRConnection.onreconnecting((error) => {
+            isReconnecting = true;
+            reconnectAttempts++;
+            console.log(`SignalR连接断开，开始第 ${reconnectAttempts} 次重连尝试:`, error);
+            updateStatus(`连接已断开，正在重连... (尝试 ${reconnectAttempts})`, 'warning');
+        });
+
+        signalRConnection.onreconnected((connectionId) => {
+            isReconnecting = false;
+            console.log(`SignalR重连成功，连接ID: ${connectionId}`);
+            updateStatus('连接已恢复', 'success');
+                        
+            reconnectAttempts = 0;
+        });
+
+        signalRConnection.onclose((error) => {
+            isReconnecting = false;
+            console.error('SignalR连接已关闭:', error);
+            updateStatus('连接已断开，正在尝试重连...', 'danger');
+            
+            startManualReconnect();
+        });
+
+        async function startManualReconnect() {
+            let retryCount = 0;
+            
+            const attemptReconnect = async () => {
+                if (signalRConnection.state === signalR.HubConnectionState.Connected) {
+                    console.log('SignalR连接已恢复');
+                    updateStatus('连接已恢复', 'success');
+                    setTimeout(() => updateStatus('就绪', 'success'), 3000);
+                    return;
+                }
+                
+                try {
+                    retryCount++;
+                    console.log(`手动重连尝试 #${retryCount}`);
+                    updateStatus(`连接断开，重连中... (尝试 ${retryCount})`, 'warning');
+                    
+                    await signalRConnection.start();
+                    console.log('手动重连成功');
+                    updateStatus('连接已恢复', 'success');                    
+                } catch (error) {
+                    console.error(`手动重连失败 #${retryCount}:`, error);
+                    
+                    const delay = Math.min(1000 * Math.pow(2, Math.min(retryCount - 1, 5)), 30000);
+                    console.log(`${delay}ms 后进行下次重连尝试`);
+                    
+                    setTimeout(attemptReconnect, delay);
+                }
+            };            
+            attemptReconnect();
+        }
+
+        window.addEventListener('online', () => {
+            console.log('网络已恢复，检查SignalR连接状态');
+            if (signalRConnection.state !== signalR.HubConnectionState.Connected) {
+                console.log('网络恢复后立即尝试重连');
+                updateStatus('网络已恢复，正在重连...', 'info');
+                startManualReconnect();
+            }
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('网络已断开');
+            updateStatus('网络已断开，等待网络恢复...', 'warning');
+        });
 
         signalRConnection.on("inCalling", function(x){
             console.log("Incoming call received:", x);
@@ -950,6 +1028,7 @@
         
         initializeChecks().then(success => {
             if (success) {
+                startManualReconnect();
                 updateStatus('就绪', 'success');
                 console.log('初始化检查完成，系统就绪');
             } else {
