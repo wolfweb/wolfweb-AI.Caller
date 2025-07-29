@@ -37,10 +37,14 @@ namespace AI.Caller.Phone {
 
             // Configure WebRTC settings
             builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
+            
+            // Configure Call Routing settings
+            builder.Services.Configure<AI.Caller.Phone.CallRouting.Configuration.CallRoutingConfiguration>(
+                builder.Configuration.GetSection("CallRoutingSettings"));
 
             builder.Services.AddSingleton<ApplicationContext>(x => {
                 var ctx = new ApplicationContext();
-                ctx.SipServer = builder.Configuration.GetSection("SipSettings")["SipServer"] ?? "192.168.8.113";
+                ctx.SipServer = builder.Configuration.GetSection("SipSettings")["SipServer"];
                 return ctx;
             });
 
@@ -50,10 +54,15 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<UserService>();
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
-            builder.Services.AddScoped<IRecordingService, RecordingService>();
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
-            builder.Services.AddScoped<IMediaProcessingService, MediaProcessingService>();
             builder.Services.AddSingleton<HangupMonitoringService>();
+
+            // 添加通话路由相关服务
+            builder.Services.AddSingleton<ICallTypeIdentifier, CallRouting.Services.CallTypeIdentifier>();
+            builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
+            builder.Services.AddScoped<ICallRoutingStrategy, CallRouting.Strategies.DirectRoutingStrategy>();
+            builder.Services.AddScoped<CallRouting.Handlers.OutboundCallHandler>();
+            builder.Services.AddScoped<CallRouting.Handlers.InboundCallHandler>();
             builder.Services.AddAuthentication(options => {
                 options.DefaultScheme = "CookieAuth";
                 options.DefaultChallengeScheme = "CookieAuth";

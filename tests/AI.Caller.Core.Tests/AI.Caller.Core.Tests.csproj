@@ -31,4 +31,8 @@
     <ProjectReference Include="..\..\src\AI.Caller.Core\AI.Caller.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Recording\" />
+  </ItemGroup>
+
 </Project>

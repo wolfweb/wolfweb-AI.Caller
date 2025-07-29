@@ -1,5 +1,4 @@
 using AI.Caller.Core;
-using AI.Caller.Core.Recording;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
@@ -15,7 +14,6 @@ namespace AI.Caller.Phone.Services {
     public class SipService {
         private readonly ILogger _logger;
         private readonly AppDbContext _dbContext;
-        private readonly IAudioBridge _audioBridge;
         private readonly HangupRetryPolicy _retryPolicy;
         private readonly WebRTCSettings _webRTCSettings;
         private readonly IHubContext<WebRtcHub> _hubContext;
@@ -23,29 +21,27 @@ namespace AI.Caller.Phone.Services {
         private readonly SIPTransportManager _sipTransportManager;
         private readonly HangupMonitoringService _monitoringService;
 
-        private readonly IRecordingService? _recordingService;
+        private readonly IServiceProvider _serviceProvider;
 
         public SipService(
             ILogger<SipService> logger,
             AppDbContext dbContext,
-            IAudioBridge audioBridge,
             IHubContext<WebRtcHub> hubContext,
             ApplicationContext applicationContext,
             SIPTransportManager sipTransportManager,
             IOptions<WebRTCSettings> webRTCSettings,
-            HangupMonitoringService? monitoringService = null,
-            IRecordingService? recordingService = null
+            IServiceProvider serviceProvider,
+            HangupMonitoringService? monitoringService = null
         ) {
             _logger = logger;
             _dbContext = dbContext;
             _hubContext = hubContext;
-            _audioBridge = audioBridge;
             _webRTCSettings = webRTCSettings.Value;
             _applicationContext = applicationContext;
             _sipTransportManager = sipTransportManager;
             _retryPolicy = new HangupRetryPolicy();
             _monitoringService = monitoringService ?? new HangupMonitoringService(LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<HangupMonitoringService>());
-            _recordingService = recordingService;
+            _serviceProvider = serviceProvider;
         }
 
         /// <summary>
@@ -63,7 +59,7 @@ namespace AI.Caller.Phone.Services {
                     user.RegisteredAt = DateTime.UtcNow;
                 }
 
-                var sipClient = new SIPClient(_applicationContext.SipServer,_logger, _sipTransportManager.SIPTransport!, _audioBridge, _webRTCSettings);
+                var sipClient = new SIPClient(_applicationContext.SipServer,_logger, _sipTransportManager.SIPTransport!, _webRTCSettings);
 
                 _applicationContext.SipClients[user.SipUsername] = sipClient;
 
@@ -109,35 +105,17 @@ namespace AI.Caller.Phone.Services {
                     }
                 };
 
-                await sipClient.CallAsync(destination, new SIPFromHeader(user.Username, new SIPURI(user.SipUsername, _applicationContext.SipServer, null), null));
-
-                if (user != null && await IsAutoRecordingEnabledAsync(user.Id))
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await Task.Delay(2000); 
-                            
-                            if (sipClient.IsCallActive)
-                            {
-                                var recordingResult = await StartRecordingAsync(sipUsername, ExtractPhoneNumber(destination));
-                                if (recordingResult.Success)
-                                {
-                                    _logger.LogInformation($"自动录音已开始 - 用户: {sipUsername}");
-                                }
-                                else
-                                {
-                                    _logger.LogWarning($"自动录音开始失败 - 用户: {sipUsername}, 原因: {recordingResult.Message}");
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, $"自动录音启动失败 - 用户: {sipUsername}");
-                        }
-                    });
-                }
+                // 生成From-tag
+                var fromTag = GenerateFromTag();
+                
+                // 创建带有From-tag的SIPFromHeader
+                var fromHeader = new SIPFromHeader(user.Username, new SIPURI(user.SipUsername, _applicationContext.SipServer, null), fromTag);
+                
+                // 发起呼叫
+                await sipClient.CallAsync(destination, fromHeader);
+                
+                // 呼叫发起后，从SIP对话中获取实际的Call-ID并注册
+                RegisterOutboundCallAfterInitiation(sipClient, fromTag, sipUsername, destination);
 
                 // 返回WebRTC连接对象，用于前端与SIP通信
                 return (true, "呼叫已发起", sipClient.RTCPeerConnection);
@@ -236,24 +214,29 @@ namespace AI.Caller.Phone.Services {
                     // 等待一小段时间确保挂断操作完成
                     await Task.Delay(100, hangupCts.Token);
 
-                    // 自动停止录音
-                    _ = Task.Run(async () =>
+                    // 清理呼出通话记录
+                    _ = Task.Run(() =>
                     {
                         try
                         {
-                            var recordingResult = await StopRecordingAsync(sipUserName);
-                            if (recordingResult.Success)
+                            var callTypeIdentifier = GetCallTypeIdentifier();
+                            if (callTypeIdentifier != null)
                             {
-                                _logger.LogInformation($"通话结束，录音已自动停止 - 用户: {sipUserName}");
-                            }
-                            else if (recordingResult.Message != "没有正在进行的录音")
-                            {
-                                _logger.LogWarning($"自动停止录音失败 - 用户: {sipUserName}, 原因: {recordingResult.Message}");
+                                // 获取所有活跃的呼出通话并清理
+                                var activeOutboundCalls = callTypeIdentifier.GetActiveOutboundCalls()
+                                    .Where(call => call.SipUsername == sipUserName)
+                                    .ToList();
+
+                                foreach (var call in activeOutboundCalls)
+                                {
+                                    callTypeIdentifier.UpdateOutboundCallStatus(call.CallId, AI.Caller.Phone.CallRouting.Models.CallStatus.Ended);
+                                    _logger.LogDebug($"已更新呼出通话状态为结束 - CallId: {call.CallId}");
+                                }
                             }
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, $"自动停止录音时发生异常 - 用户: {sipUserName}");
+                            _logger.LogError(ex, $"清理呼出通话记录时发生异常 - 用户: {sipUserName}");
                         }
                     });
 
@@ -392,7 +375,7 @@ namespace AI.Caller.Phone.Services {
         public bool GetSecureContextReady(string sipUserName) {
             try {
                 if (_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient)) {
-                    return sipClient.RTCPeerConnection!.IsSecureContextReady();
+                    return sipClient.RTCPeerConnection?.IsSecureContextReady() == true;
                 }
                 return false;
             } catch (Exception ex) {
@@ -523,6 +506,101 @@ namespace AI.Caller.Phone.Services {
             return false;
         }
 
+        /// <summary>
+        /// 生成From标签
+        /// </summary>
+        private string GenerateFromTag()
+        {
+            // 生成符合SIP标准的From-tag
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var random = new Random().Next(1000, 9999);
+            return $"tag-{timestamp}-{random}";
+        }
+
+        /// <summary>
+        /// 在呼叫发起后注册呼出通话
+        /// </summary>
+        private void RegisterOutboundCallAfterInitiation(SIPClient sipClient, string fromTag, string sipUsername, string destination)
+        {
+            try
+            {
+                // 创建一个一次性的事件处理器来监听StatusMessage事件
+                Action<SIPClient, string>? statusHandler = null;
+                statusHandler = (client, message) =>
+                {
+                    try
+                    {
+                        // 当收到"Call trying"消息时，说明呼叫已经发起，可以获取Call-ID
+                        if (message.Contains("Call trying") && client.Dialogue != null && !string.IsNullOrEmpty(client.Dialogue.CallId))
+                        {
+                            var callId = client.Dialogue.CallId;
+                            
+                            // 注册呼出通话到CallTypeIdentifier
+                            var callTypeIdentifier = GetCallTypeIdentifier();
+                            if (callTypeIdentifier != null)
+                            {
+                                callTypeIdentifier.RegisterOutboundCallWithSipTags(callId, fromTag, sipUsername, destination);
+                                _logger.LogInformation($"已注册呼出通话 - CallId: {callId}, FromTag: {fromTag}, SipUsername: {sipUsername}, Destination: {destination}");
+                            }
+                            
+                            // 移除事件处理器，避免重复注册
+                            if (statusHandler != null)
+                            {
+                                client.StatusMessage -= statusHandler;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"处理StatusMessage事件时发生错误 - SipUsername: {sipUsername}");
+                        // 移除事件处理器
+                        if (statusHandler != null)
+                        {
+                            client.StatusMessage -= statusHandler;
+                        }
+                    }
+                };
+                
+                // 添加事件处理器
+                sipClient.StatusMessage += statusHandler;
+                
+                // 设置超时清理，防止事件处理器泄漏
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(30000); // 30秒超时
+                    try
+                    {
+                        if (statusHandler != null)
+                        {
+                            sipClient.StatusMessage -= statusHandler;
+                            _logger.LogDebug($"已清理呼出通话注册事件处理器 - SipUsername: {sipUsername}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"清理事件处理器时发生错误 - SipUsername: {sipUsername}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"设置呼出通话注册事件处理器时发生错误 - SipUsername: {sipUsername}");
+            }
+        }
+
+        private ICallTypeIdentifier? GetCallTypeIdentifier()
+        {
+            try
+            {
+                return _serviceProvider.GetService<ICallTypeIdentifier>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取CallTypeIdentifier服务失败");
+                return null;
+            }
+        }
+
         private async Task<bool> RegisterAsync(User user) {
             var tcs = new TaskCompletionSource<bool>();
             var sipRegistrationClient = new SIPRegistrationUserAgent(_sipTransportManager.SIPTransport, user.SipUsername, user.SipPassword, _applicationContext.SipServer, 180);
@@ -542,239 +620,12 @@ namespace AI.Caller.Phone.Services {
             return await tcs.Task;
         }
 
-        #region 录音功能集成
-
-        /// <summary>
-        /// 开始录音
-        /// </summary>
-        /// <param name="sipUserName">SIP用户名</param>
-        /// <param name="calleeNumber">被叫号码</param>
-        /// <returns>录音操作结果</returns>
-        public async Task<RecordingResult> StartRecordingAsync(string sipUserName, string calleeNumber)
-        {
-            if (_recordingService == null)
-            {
-                return new RecordingResult
-                {
-                    Success = false,
-                    Message = "录音服务未启用"
-                };
-            }
-
-            try
-            {
-                // 获取用户信息
-                var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUserName);
-                if (user == null)
-                {
-                    return new RecordingResult
-                    {
-                        Success = false,
-                        Message = "用户不存在"
-                    };
-                }
-
-                // 检查是否有活动通话
-                if (!_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient) || !sipClient.IsCallActive)
-                {
-                    return new RecordingResult
-                    {
-                        Success = false,
-                        Message = "没有活动的通话"
-                    };
-                }
-
-                // 生成通话ID
-                var callId = GenerateCallId(sipUserName, calleeNumber);
-
-                // 开始录音
-                var result = await _recordingService.StartRecordingAsync(callId, user.Id, sipUserName, calleeNumber);
-                
-                if (result.Success)
-                {
-                    _logger.LogInformation($"用户 {sipUserName} 开始录音 - CallId: {callId}");
-                    
-                    // 通知前端录音已开始
-                    await _hubContext.Clients.User(user.Id.ToString())
-                        .SendAsync("recordingStarted", new
-                        {
-                            callId = callId,
-                            recordingId = result.RecordingId,
-                            message = result.Message,
-                            timestamp = DateTime.UtcNow
-                        });
-                }
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"开始录音失败 - SipUserName: {sipUserName}");
-                return new RecordingResult
-                {
-                    Success = false,
-                    Message = $"开始录音失败: {ex.Message}"
-                };
-            }
-        }
-
-        /// <summary>
-        /// 停止录音
-        /// </summary>
-        /// <param name="sipUserName">SIP用户名</param>
-        /// <returns>录音操作结果</returns>
-        public async Task<RecordingResult> StopRecordingAsync(string sipUserName)
-        {
-            if (_recordingService == null)
-            {
-                return new RecordingResult
-                {
-                    Success = false,
-                    Message = "录音服务未启用"
-                };
-            }
-
-            try
-            {
-                // 获取用户信息
-                var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUserName);
-                if (user == null)
-                {
-                    return new RecordingResult
-                    {
-                        Success = false,
-                        Message = "用户不存在"
-                    };
-                }
-
-                // 查找正在录音的通话
-                var activeRecordings = await _dbContext.CallRecordings
-                    .Where(r => r.UserId == user.Id && r.Status == RecordStatus.Recording)
-                    .ToListAsync();
-
-                if (!activeRecordings.Any())
-                {
-                    return new RecordingResult
-                    {
-                        Success = false,
-                        Message = "没有正在进行的录音"
-                    };
-                }
-
-                // 停止所有活动录音（通常只有一个）
-                var results = new List<RecordingResult>();
-                foreach (var recording in activeRecordings)
-                {
-                    var result = await _recordingService.StopRecordingAsync(recording.CallId);
-                    results.Add(result);
-
-                    if (result.Success)
-                    {
-                        _logger.LogInformation($"用户 {sipUserName} 停止录音 - CallId: {recording.CallId}");
-                        
-                        // 通知前端录音已停止
-                        await _hubContext.Clients.User(user.Id.ToString())
-                            .SendAsync("recordingStopped", new
-                            {
-                                callId = recording.CallId,
-                                recordingId = result.RecordingId,
-                                message = result.Message,
-                                timestamp = DateTime.UtcNow
-                            });
-                    }
-                }
-
-                // 返回第一个结果（通常只有一个）
-                return results.FirstOrDefault() ?? new RecordingResult
-                {
-                    Success = false,
-                    Message = "停止录音失败"
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"停止录音失败 - SipUserName: {sipUserName}");
-                return new RecordingResult
-                {
-                    Success = false,
-                    Message = $"停止录音失败: {ex.Message}"
-                };
-            }
-        }
-
-        /// <summary>
-        /// 获取录音状态
-        /// </summary>
-        /// <param name="sipUserName">SIP用户名</param>
-        /// <returns>录音状态</returns>
-        public async Task<RecordStatus?> GetRecordingStatusAsync(string sipUserName)
-        {
-            if (_recordingService == null)
-            {
-                return null;
-            }
-
-            try
-            {
-                var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUserName);
-                if (user == null)
-                {
-                    return null;
-                }
-
-                // 查找最近的录音记录
-                var latestRecording = await _dbContext.CallRecordings
-                    .Where(r => r.UserId == user.Id)
-                    .OrderByDescending(r => r.CreatedAt)
-                    .FirstOrDefaultAsync();
-
-                return latestRecording?.Status;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"获取录音状态失败 - SipUserName: {sipUserName}");
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// 检查用户是否启用了自动录音
-        /// </summary>
-        /// <param name="userId">用户ID</param>
-        /// <returns>是否启用自动录音</returns>
-        public async Task<bool> IsAutoRecordingEnabledAsync(int userId)
-        {
-            try
-            {
-                var settings = await _dbContext.RecordingSettings
-                    .FirstOrDefaultAsync(s => s.UserId == userId);
-
-                return settings?.AutoRecording ?? false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"检查自动录音设置失败 - UserId: {userId}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 生成通话ID
-        /// </summary>
-        /// <param name="callerNumber">主叫号码</param>
-        /// <param name="calleeNumber">被叫号码</param>
-        /// <returns>通话ID</returns>
         private string GenerateCallId(string callerNumber, string calleeNumber)
         {
             var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
             return $"call_{callerNumber}_{calleeNumber}_{timestamp}_{Guid.NewGuid().ToString("N")[..8]}";
         }
 
-        /// <summary>
-        /// 从SIP URI中提取电话号码
-        /// </summary>
-        /// <param name="sipUri">SIP URI (例如: sip:1002@192.168.1.100)</param>
-        /// <returns>电话号码</returns>
         private string ExtractPhoneNumber(string sipUri)
         {
             try
@@ -796,7 +647,5 @@ namespace AI.Caller.Phone.Services {
                 return sipUri;
             }
         }
-
-        #endregion
     }
 }

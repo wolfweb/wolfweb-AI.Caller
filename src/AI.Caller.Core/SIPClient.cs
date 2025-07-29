@@ -6,7 +6,6 @@ using SIPSorceryMedia.Abstractions;
 using System.Diagnostics;
 using System.Net;
 using System.Text.RegularExpressions;
-using AI.Caller.Core.Recording;
 using AI.Caller.Core.Network;
 
 namespace AI.Caller.Core {
@@ -21,11 +20,11 @@ namespace AI.Caller.Core {
         private readonly WebRTCSettings? _webRTCSettings;
 
         private readonly string _clientId;
-        private readonly IAudioBridge? _audioBridge;
         private readonly INetworkMonitoringService? _networkMonitoringService;
 
         public event Action<SIPClient>? CallAnswer;
         public event Action<SIPClient>? CallEnded;
+        public event Action<SIPClient>? CallTrying;
         public event Action<SIPClient>? RemotePutOnHold;
         public event Action<SIPClient>? RemoteTookOffHold;
         public event Action<SIPClient, string>? StatusMessage;
@@ -47,24 +46,22 @@ namespace AI.Caller.Core {
             string sipServer,
             ILogger logger,
             SIPTransport sipTransport,
-            IAudioBridge? audioBridge = null,
             WebRTCSettings? webRTCSettings = null,
             INetworkMonitoringService? networkMonitoringService = null
         ) {
             _logger = logger;
             _sipServer = sipServer;
             m_sipTransport = sipTransport;
-            _audioBridge = audioBridge;
             _webRTCSettings = webRTCSettings;
             _networkMonitoringService = networkMonitoringService;
             _clientId = $"SIPClient_{Guid.NewGuid():N}[{sipServer}]";
 
             m_userAgent = new(m_sipTransport, null);
 
-            m_userAgent.ClientCallFailed += CallFailed;
-            m_userAgent.ClientCallTrying += CallTrying;
-            m_userAgent.ClientCallRinging += CallRinging;
-            m_userAgent.ClientCallAnswered += CallAnswered;
+            m_userAgent.ClientCallFailed += OnCallFailed;
+            m_userAgent.ClientCallTrying += OnCallTrying;
+            m_userAgent.ClientCallRinging += OnCallRinging;
+            m_userAgent.ClientCallAnswered += OnCallAnswered;
 
             m_userAgent.OnDtmfTone += OnDtmfTone;
             m_userAgent.OnCallHungup += CallFinished;
@@ -118,11 +115,6 @@ namespace AI.Caller.Core {
                 } else {
                     _logger.LogTrace($"Cannot forward audio to SIP: MediaSession={MediaSession != null}, CallActive={m_userAgent.IsCallActive}");
                 }
-
-                if (_audioBridge != null) {
-                    var audioFormat = GetAudioFormat();
-                    _audioBridge.ForwardAudioData(AudioSource.WebRTC_Outgoing, rtpPacket.Payload, audioFormat);
-                }
             } catch (Exception ex) {
                 _logger.LogError($"Error forwarding media to SIP: {ex.Message}");
             }
@@ -137,11 +129,6 @@ namespace AI.Caller.Core {
                 if (RTCPeerConnection != null && RTCPeerConnection.connectionState == RTCPeerConnectionState.connected) {
                     RTCPeerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                     _logger.LogTrace($"Forwarded RTP audio to WebRTC: {rtpPacket.Payload.Length} bytes from {remote}");
-                }
-
-                if (_audioBridge != null) {
-                    var audioFormat = GetAudioFormat();
-                    _audioBridge.ForwardAudioData(AudioSource.RTP_Incoming, rtpPacket.Payload, audioFormat);
                 }
             } catch (Exception ex) {
                 _logger.LogError($"Error processing RTP audio packet from {remote}: {ex.Message}");
@@ -309,7 +296,6 @@ namespace AI.Caller.Core {
             _cts.Cancel();
             Hangup();
             
-            // 从网络监控服务注销
             UnregisterFromNetworkMonitoring();
         }
 
@@ -419,20 +405,21 @@ namespace AI.Caller.Core {
             };
         }
 
-        private void CallTrying(ISIPClientUserAgent uac, SIPResponse sipResponse) {
+        private void OnCallTrying(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call trying: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
+            CallTrying?.Invoke(this);
         }
 
-        private void CallRinging(ISIPClientUserAgent uac, SIPResponse sipResponse) {
+        private void OnCallRinging(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call ringing: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
         }
 
-        private void CallFailed(ISIPClientUserAgent uac, string errorMessage, SIPResponse failureResponse) {
+        private void OnCallFailed(ISIPClientUserAgent uac, string errorMessage, SIPResponse failureResponse) {
             StatusMessage?.Invoke(this, "Call failed: " + errorMessage + ".");
             CallFinished(null);
         }
 
-        private void CallAnswered(ISIPClientUserAgent uac, SIPResponse sipResponse) {
+        private void OnCallAnswered(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call answered: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
             CallAnswer?.Invoke(this);
         }
@@ -492,13 +479,6 @@ namespace AI.Caller.Core {
             }
         }
 
-        private Recording.AudioFormat GetAudioFormat() {
-            return new Recording.AudioFormat(8000, 1, 16, AudioSampleFormat.PCM);
-        }
-
-        /// <summary>
-        /// 注册到网络监控服务
-        /// </summary>
         private void RegisterWithNetworkMonitoring()
         {
             try
@@ -516,9 +496,6 @@ namespace AI.Caller.Core {
             }
         }
 
-        /// <summary>
-        /// 从网络监控服务注销
-        /// </summary>
         private void UnregisterFromNetworkMonitoring()
         {
             try
@@ -536,9 +513,6 @@ namespace AI.Caller.Core {
             }
         }
 
-        /// <summary>
-        /// 获取客户端ID
-        /// </summary>
         public string GetClientId()
         {
             return _clientId;

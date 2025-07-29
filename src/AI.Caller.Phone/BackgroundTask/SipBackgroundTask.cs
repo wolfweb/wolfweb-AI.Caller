@@ -3,6 +3,9 @@ using AI.Caller.Core;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
+using AI.Caller.Phone.CallRouting.Interfaces;
+using AI.Caller.Phone.CallRouting.Models;
+using AI.Caller.Phone.CallRouting.Handlers;
 using Microsoft.AspNetCore.SignalR;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
@@ -17,18 +20,21 @@ namespace AI.Caller.Phone.BackgroundTask {
         private readonly ApplicationContext _applicationContext;
         private readonly SIPTransportManager _sipTransportManager;
         private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly ICallTypeIdentifier _callTypeIdentifier;        
         public SipBackgroundTask(
             ILogger<SipBackgroundTask> logger, 
             IHubContext<WebRtcHub> hubContext,
             SIPTransportManager transportManager,
             ApplicationContext applicationContext,
-            IServiceScopeFactory serviceScopeFactory
+            IServiceScopeFactory serviceScopeFactory,
+            ICallTypeIdentifier callTypeIdentifier
             ) {
             _logger = logger;
             _hubContext = hubContext;
             _applicationContext = applicationContext;
             _sipTransportManager = transportManager;
             _serviceScopeFactory = serviceScopeFactory;
+            _callTypeIdentifier = callTypeIdentifier;            
         }
 
         public async Task StartAsync(CancellationToken cancellationToken) {
@@ -55,48 +61,58 @@ namespace AI.Caller.Phone.BackgroundTask {
 
         private async Task<bool> OnIncomingCall(SIPRequest sipRequest) {
             try {
-                _logger.LogInformation($"收到呼叫 {sipRequest} ");
-                var toHeader = sipRequest.Header.To.ToURI;
-                var toUser = toHeader.User;
-
+                var callId = sipRequest.Header.CallId;
+                var fromUser = sipRequest.Header.From?.FromURI?.User;
+                var toUser = sipRequest.Header.To?.ToURI?.User;
                 using var scope = _serviceScopeFactory.CreateScope();
-                var _appDbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                ICallRoutingService _callRoutingService = scope.ServiceProvider.GetRequiredService<ICallRoutingService>();
+                OutboundCallHandler _outboundCallHandler = scope.ServiceProvider.GetRequiredService<OutboundCallHandler>();
+                InboundCallHandler _inboundCallHandler = scope.ServiceProvider.GetRequiredService<InboundCallHandler>();
 
-                if (_applicationContext.SipClients.TryGetValue(toUser, out var client)){
-                    if (!client.IsCallActive) {
-                        client.Accept(sipRequest);
-                        var user = _appDbContext.Users.First(x => x.SipUsername == toUser);
-                        var offerSdp = await client.CreateOfferAsync();
-                        client.RTCPeerConnection!.onicecandidate += (candidate) => {
-                            if (client.RTCPeerConnection.signalingState == RTCSignalingState.have_remote_offer || client.RTCPeerConnection.signalingState == RTCSignalingState.stable) {
-                                try
-                                {
-                                    _hubContext.Clients.User(user.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
-                                }
-                                catch (Exception e)
-                                {
-                                    _logger.LogError(e, e.Message);
-                                }
-                            }
-                        };                        
-                        await _hubContext.Clients.User(user.Id.ToString()).SendAsync("inCalling", new { caller = sipRequest.Header.From.FromURI.User, offerSdp = offerSdp.toJSON() });
-                    }
-                } else {
-                    var item = _applicationContext.SipClients.First();
-                    client = item.Value;
-                    var user = _appDbContext.Users.First(x => x.SipUsername == item.Key);
+                _logger.LogInformation($"收到呼叫 - CallId: {callId}, From: {fromUser}, To: {toUser}, Method: {sipRequest.Method}");
 
-                    if (!client.IsCallActive) {
-                        client.Accept(sipRequest);
+                // 1. 识别来电类型
+                var callType = _callTypeIdentifier.IdentifyCallType(sipRequest);
+                _logger.LogDebug($"来电类型识别结果: {callType} - CallId: {callId}");
 
-                        await client.AnswerAsync().ConfigureAwait(false);
+                // 2. 根据来电类型进行路由
+                CallRoutingResult routingResult;
+                ICallHandler callHandler;
 
-                        await _hubContext.Clients.User(user.Id.ToString()).SendAsync("callAnswered");
-                    }
+                if (callType == CallType.OutboundResponse)
+                {
+                    routingResult = await _callRoutingService.RouteOutboundResponseAsync(sipRequest);
+                    callHandler = _outboundCallHandler;
+                    _logger.LogInformation($"处理呼出应答 - CallId: {callId}, Success: {routingResult.Success}");
                 }
-                return false;
-            } catch (Exception ex) {
-                _logger.LogError(ex, "处理来电时出错");
+                else
+                {
+                    routingResult = await _callRoutingService.RouteInboundCallAsync(sipRequest);
+                    callHandler = _inboundCallHandler;
+                    _logger.LogInformation($"处理新呼入 - CallId: {callId}, Success: {routingResult.Success}, Strategy: {routingResult.Strategy}");
+                }
+
+                if (!routingResult.Success)
+                {
+                    _logger.LogWarning($"路由失败 - CallId: {callId}, Message: {routingResult.Message}");
+                    return false;
+                }
+
+                var handleResult = await callHandler.HandleCallAsync(sipRequest, routingResult);
+                
+                if (handleResult)
+                {
+                    _logger.LogInformation($"通话处理成功 - CallId: {callId}, Type: {callType}, Strategy: {routingResult.Strategy}");
+                }
+                else
+                {
+                    _logger.LogError($"通话处理失败 - CallId: {callId}, Type: {callType}");
+                }
+
+                return handleResult;
+            } 
+            catch (Exception ex) {
+                _logger.LogError(ex, $"处理来电时发生错误 - CallId: {sipRequest.Header.CallId}");
                 return false;
             }
         }
