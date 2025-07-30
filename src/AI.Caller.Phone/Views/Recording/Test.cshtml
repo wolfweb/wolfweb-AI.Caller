@@ -1,0 +1,234 @@
+@{
+    ViewData["Title"] = "录音功能测试";
+}
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-bug"></i> 录音功能测试
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        这是一个测试页面，用于验证录音功能是否正常工作。
+                    </div>
+
+                    <!-- 测试按钮 -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <button id="testAutoRecordingBtn" class="btn btn-primary w-100 mb-2">
+                                <i class="bi bi-gear"></i> 测试自动录音设置
+                            </button>
+                            <button id="testStartRecordingBtn" class="btn btn-success w-100 mb-2">
+                                <i class="bi bi-record-circle"></i> 测试开始录音
+                            </button>
+                            <button id="testStopRecordingBtn" class="btn btn-danger w-100 mb-2">
+                                <i class="bi bi-stop-circle"></i> 测试停止录音
+                            </button>
+                        </div>
+                        <div class="col-md-6">
+                            <button id="testGetRecordingsBtn" class="btn btn-info w-100 mb-2">
+                                <i class="bi bi-list"></i> 测试获取录音列表
+                            </button>
+                            <button id="testDeleteRecordingBtn" class="btn btn-warning w-100 mb-2">
+                                <i class="bi bi-trash"></i> 测试删除录音
+                            </button>
+                            <button id="clearLogBtn" class="btn btn-secondary w-100 mb-2">
+                                <i class="bi bi-x-circle"></i> 清空日志
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 测试结果显示 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">测试结果</h6>
+                        </div>
+                        <div class="card-body">
+                            <pre id="testResults" style="height: 300px; overflow-y: auto; background: #f8f9fa; padding: 1rem; border-radius: 4px; font-size: 0.9rem;"></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        class RecordingTester {
+            constructor() {
+                this.logArea = document.getElementById('testResults');
+                this.bindEvents();
+                this.log('录音功能测试器已初始化');
+            }
+
+            bindEvents() {
+                document.getElementById('testAutoRecordingBtn').addEventListener('click', () => this.testAutoRecording());
+                document.getElementById('testStartRecordingBtn').addEventListener('click', () => this.testStartRecording());
+                document.getElementById('testStopRecordingBtn').addEventListener('click', () => this.testStopRecording());
+                document.getElementById('testGetRecordingsBtn').addEventListener('click', () => this.testGetRecordings());
+                document.getElementById('testDeleteRecordingBtn').addEventListener('click', () => this.testDeleteRecording());
+                document.getElementById('clearLogBtn').addEventListener('click', () => this.clearLog());
+            }
+
+            log(message) {
+                const timestamp = new Date().toLocaleTimeString();
+                this.logArea.textContent += `[${timestamp}] ${message}\n`;
+                this.logArea.scrollTop = this.logArea.scrollHeight;
+            }
+
+            clearLog() {
+                this.logArea.textContent = '';
+                this.log('日志已清空');
+            }
+
+            async testAutoRecording() {
+                this.log('=== 测试自动录音设置 ===');
+                
+                try {
+                    // 获取当前设置
+                    this.log('获取当前自动录音设置...');
+                    const getResponse = await fetch('/api/SimpleRecording/auto-recording');
+                    const getResult = await getResponse.json();
+                    this.log(`当前设置: ${JSON.stringify(getResult)}`);
+
+                    // 切换设置
+                    const newSetting = !getResult.enabled;
+                    this.log(`设置自动录音为: ${newSetting}`);
+                    
+                    const setResponse = await fetch('/api/SimpleRecording/auto-recording', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ enabled: newSetting })
+                    });
+                    
+                    const setResult = await setResponse.json();
+                    this.log(`设置结果: ${JSON.stringify(setResult)}`);
+                    
+                    if (setResult.success) {
+                        this.log('✅ 自动录音设置测试成功');
+                    } else {
+                        this.log('❌ 自动录音设置测试失败');
+                    }
+                    
+                } catch (error) {
+                    this.log(`❌ 测试出错: ${error.message}`);
+                }
+            }
+
+            async testStartRecording() {
+                this.log('=== 测试开始录音 ===');
+                
+                try {
+                    this.log('调用开始录音API...');
+                    const response = await fetch('/api/SimpleRecording/start', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sipUsername: 'test_user' })
+                    });
+                    
+                    const result = await response.json();
+                    this.log(`开始录音结果: ${JSON.stringify(result)}`);
+                    
+                    if (result.success) {
+                        this.log('✅ 开始录音测试成功');
+                    } else {
+                        this.log('❌ 开始录音测试失败');
+                    }
+                    
+                } catch (error) {
+                    this.log(`❌ 测试出错: ${error.message}`);
+                }
+            }
+
+            async testStopRecording() {
+                this.log('=== 测试停止录音 ===');
+                
+                try {
+                    this.log('调用停止录音API...');
+                    const response = await fetch('/api/SimpleRecording/stop', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sipUsername: 'test_user' })
+                    });
+                    
+                    const result = await response.json();
+                    this.log(`停止录音结果: ${JSON.stringify(result)}`);
+                    
+                    if (result.success) {
+                        this.log('✅ 停止录音测试成功');
+                    } else {
+                        this.log('❌ 停止录音测试失败');
+                    }
+                    
+                } catch (error) {
+                    this.log(`❌ 测试出错: ${error.message}`);
+                }
+            }
+
+            async testGetRecordings() {
+                this.log('=== 测试获取录音列表 ===');
+                
+                try {
+                    this.log('调用获取录音列表API...');
+                    const response = await fetch('/api/SimpleRecording/list');
+                    const result = await response.json();
+                    
+                    this.log(`录音列表结果: ${JSON.stringify(result, null, 2)}`);
+                    
+                    if (result.success) {
+                        this.log(`✅ 获取录音列表成功，共 ${result.data?.length || 0} 条记录`);
+                    } else {
+                        this.log('❌ 获取录音列表失败');
+                    }
+                    
+                } catch (error) {
+                    this.log(`❌ 测试出错: ${error.message}`);
+                }
+            }
+
+            async testDeleteRecording() {
+                this.log('=== 测试删除录音 ===');
+                
+                try {
+                    // 先获取录音列表
+                    const listResponse = await fetch('/api/SimpleRecording/list');
+                    const listResult = await listResponse.json();
+                    
+                    if (listResult.success && listResult.data && listResult.data.length > 0) {
+                        const firstRecording = listResult.data[0];
+                        this.log(`尝试删除录音ID: ${firstRecording.id}`);
+                        
+                        const deleteResponse = await fetch(`/api/SimpleRecording/${firstRecording.id}`, {
+                            method: 'DELETE'
+                        });
+                        
+                        const deleteResult = await deleteResponse.json();
+                        this.log(`删除结果: ${JSON.stringify(deleteResult)}`);
+                        
+                        if (deleteResult.success) {
+                            this.log('✅ 删除录音测试成功');
+                        } else {
+                            this.log('❌ 删除录音测试失败');
+                        }
+                    } else {
+                        this.log('⚠️ 没有录音文件可以删除');
+                    }
+                    
+                } catch (error) {
+                    this.log(`❌ 测试出错: ${error.message}`);
+                }
+            }
+        }
+
+        // 页面加载完成后初始化测试器
+        document.addEventListener('DOMContentLoaded', function() {
+            window.recordingTester = new RecordingTester();
+        });
+    </script>
+}

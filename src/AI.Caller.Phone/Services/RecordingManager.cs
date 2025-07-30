@@ -11,19 +11,19 @@ namespace AI.Caller.Phone.Services
     public class RecordingManager
     {
         private readonly ISimpleRecordingService _recordingService;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ApplicationContext _applicationContext;
-        private readonly AppDbContext _dbContext;
         private readonly ILogger<RecordingManager> _logger;
 
         public RecordingManager(
             ISimpleRecordingService recordingService,
-            ApplicationContext applicationContext,
-            AppDbContext dbContext,
+            IServiceScopeFactory serviceScopeFactory,
+            ApplicationContext applicationContext,            
             ILogger<RecordingManager> logger)
         {
             _recordingService = recordingService;
             _applicationContext = applicationContext;
-            _dbContext = dbContext;
+            _serviceScopeFactory = serviceScopeFactory;
             _logger = logger;
         }
 
@@ -84,7 +84,8 @@ namespace AI.Caller.Phone.Services
         {
             try
             {
-                // 检查是否启用自动录音
+                using var scope = _serviceScopeFactory.CreateScope();
+                var _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUsername);
                 if (user != null && user.AutoRecording)
                 {

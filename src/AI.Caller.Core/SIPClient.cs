@@ -114,15 +114,15 @@ namespace AI.Caller.Core {
                     return;
                 }
 
-                // 触发音频发送事件，供录音服务使用（本地用户的声音）
-                AudioDataSent?.Invoke(remote, mediaType, rtpPacket);
-
                 if (MediaSession != null) {
                     MediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                     _logger.LogTrace($"Forwarded WebRTC audio to SIP: {rtpPacket.Payload.Length} bytes from {remote}");
                 } else {
                     _logger.LogTrace($"Cannot forward audio to SIP: MediaSession={MediaSession != null}, CallActive={m_userAgent.IsCallActive}");
                 }
+
+                // 触发音频发送事件，供录音服务使用（本地用户的声音）
+                //AudioDataSent?.Invoke(remote, mediaType, rtpPacket);
             } catch (Exception ex) {
                 _logger.LogError($"Error forwarding media to SIP: {ex.Message}");
             }
@@ -134,13 +134,13 @@ namespace AI.Caller.Core {
                     return;
                 }
 
-                // 触发音频数据事件，供录音服务使用
-                AudioDataReceived?.Invoke(remote, mediaType, rtpPacket);
 
                 if (RTCPeerConnection != null && RTCPeerConnection.connectionState == RTCPeerConnectionState.connected) {
                     RTCPeerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                     _logger.LogTrace($"Forwarded RTP audio to WebRTC: {rtpPacket.Payload.Length} bytes from {remote}");
                 }
+                // 触发音频数据事件，供录音服务使用
+                //AudioDataReceived?.Invoke(remote, mediaType, rtpPacket);
             } catch (Exception ex) {
                 _logger.LogError($"Error processing RTP audio packet from {remote}: {ex.Message}");
             }

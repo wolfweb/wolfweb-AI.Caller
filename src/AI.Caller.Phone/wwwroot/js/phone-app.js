@@ -54,7 +54,7 @@ class PhoneApp {
             await this.signalRManager.initialize();
 
             // 初始化录音管理器
-            this.recordingManager = new RecordingManager(this.elements, this.signalRManager, this.callStateManager);
+            this.recordingManager = new SimpleRecordingManager(this.elements, this.signalRManager, this.callStateManager);
             this.recordingManager.initialize();
 
             // 初始化挂断处理器

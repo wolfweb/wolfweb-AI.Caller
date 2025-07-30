@@ -1,0 +1,213 @@
+@using System.IO
+@model IEnumerable<AI.Caller.Phone.Models.Recording>
+@{
+    ViewData["Title"] = "录音管理";
+}
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="bi bi-mic-fill text-primary"></i> 录音管理</h2>
+                <div>
+                    <button class="btn btn-outline-primary" id="refreshRecordings">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                    <a href="@Url.Action("Settings")" class="btn btn-outline-secondary">
+                        <i class="bi bi-gear"></i> 设置
+                    </a>
+                </div>
+            </div>
+
+            <!-- 状态消息 -->
+            @if (TempData["SuccessMessage"] != null)
+            {
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <i class="bi bi-check-circle"></i> @TempData["SuccessMessage"]
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            }
+            @if (TempData["ErrorMessage"] != null)
+            {
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i> @TempData["ErrorMessage"]
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            }
+
+            <!-- 录音统计 -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card bg-primary text-white">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <h6 class="card-title">总录音数</h6>
+                                    <h3>@(Model?.Count() ?? 0)</h3>
+                                </div>
+                                <div class="align-self-center">
+                                    <i class="bi bi-file-earmark-music fs-1"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-success text-white">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <h6 class="card-title">自动录音</h6>
+                                    <h3>@(ViewBag.AutoRecordingEnabled == true ? "开启" : "关闭")</h3>
+                                </div>
+                                <div class="align-self-center">
+                                    <i class="bi bi-record-circle fs-1"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-info text-white">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <h6 class="card-title">存储空间</h6>
+                                    <h3>计算中...</h3>
+                                </div>
+                                <div class="align-self-center">
+                                    <i class="bi bi-hdd fs-1"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-warning text-dark">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <h6 class="card-title">本月录音</h6>
+                                    <h3>0</h3>
+                                </div>
+                                <div class="align-self-center">
+                                    <i class="bi bi-calendar-month fs-1"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 录音列表 -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">录音文件列表</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>文件名</th>
+                                    <th>通话对象</th>
+                                    <th>录音时间</th>
+                                    <th>时长</th>
+                                    <th>文件大小</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (Model != null && Model.Any())
+                                {
+                                    @foreach (var recording in Model)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <i class="bi bi-file-earmark-music text-primary me-2"></i>
+                                                @(System.IO.Path.GetFileName(recording.FilePath) ?? "未知文件.mp3")
+                                            </td>
+                                            <td>@(recording.SipUsername ?? "未知联系人")</td>
+                                            <td>@recording.StartTime.ToString("yyyy-MM-dd HH:mm")</td>
+                                            <td>@recording.Duration.ToString(@"mm\:ss")</td>
+                                            <td>@(recording.FileSize > 0 ? $"{recording.FileSize / 1024.0:F1} KB" : "0 KB")</td>
+                                            <td>
+                                                <span class="badge bg-success">已完成</span>
+                                            </td>
+                                            <td>
+                                                <div class="btn-group btn-group-sm">
+                                                    <button class="btn btn-outline-primary" title="播放">
+                                                        <i class="bi bi-play-fill"></i>
+                                                    </button>
+                                                    <button class="btn btn-outline-info" title="下载">
+                                                        <i class="bi bi-download"></i>
+                                                    </button>
+                                                    <button class="btn btn-outline-danger delete-btn" 
+                                                            data-recording-id="@recording.Id" title="删除">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                                else
+                                {
+                                    <tr>
+                                        <td colspan="7" class="text-center py-4 text-muted">
+                                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                                            暂无录音文件
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // 简单的录音管理JavaScript
+        document.addEventListener('DOMContentLoaded', function() {
+            // 刷新按钮
+            document.getElementById('refreshRecordings').addEventListener('click', function() {
+                location.reload();
+            });
+
+            // 删除按钮
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const recordingId = this.dataset.recordingId;
+                    
+                    if (confirm('确定要删除这个录音文件吗？')) {
+                        try {
+                            const response = await fetch('/Recording/DeleteRecording', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded',
+                                },
+                                body: `recordingId=${recordingId}`
+                            });
+                            
+                            const result = await response.json();
+                            
+                            if (result.success) {
+                                alert('录音文件已删除');
+                                location.reload();
+                            } else {
+                                alert('删除失败: ' + result.message);
+                            }
+                        } catch (error) {
+                            alert('删除失败: ' + error.message);
+                        }
+                    }
+                });
+            });
+        });
+    </script>
+}

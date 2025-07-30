@@ -30,6 +30,7 @@ class SignalRManager {
                     const attempt = retryContext.previousRetryCount;
                     const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
                     console.log(`SignalR重连尝试 #${attempt + 1}，等待 ${delay}ms`);
+                    this.updateStatus(`SignalR重连尝试 #${attempt + 1}，等待 ${delay}ms`);
                     return delay;
                 }
             })
@@ -92,48 +93,26 @@ class SignalRManager {
 
     setupRecordingEvents() {
         this.connection.on("recordingStarted", (data) => {
-            console.log("录音已开始:", data);
-            window.isRecording = true;
-            window.isAutoRecording = data.isAuto || false;
-            
-            this.updateRecordingStatus(
-                window.isAutoRecording ? '自动录音已开始' : '手动录音已开始', 
-                'success'
-            );
-            this.elements.recordingStatusAlert.classList.remove('d-none');
-            
-            this.startRecordingTimer();
-            this.callStateManager.updateButtonVisibility();
+            if (window.phoneApp && window.phoneApp.recordingManager) {
+                window.phoneApp.recordingManager.handleRecordingStarted(data);
+            }
         });
 
         this.connection.on("recordingStopped", (data) => {
-            console.log("录音已停止:", data);
-            window.isRecording = false;
-            
-            this.updateRecordingStatus('录音已停止并保存', 'info');
-            setTimeout(() => {
-                this.elements.recordingStatusAlert.classList.add('d-none');
-            }, 3000);
-            
-            this.stopRecordingTimer();
-            this.callStateManager.updateButtonVisibility();
+            if (window.phoneApp && window.phoneApp.recordingManager) {
+                window.phoneApp.recordingManager.handleRecordingStopped(data);
+            }
         });
 
         this.connection.on("recordingError", (data) => {
-            console.error("录音错误:", data);
-            window.isRecording = false;
-            
-            this.updateRecordingStatus('录音错误: ' + data.message, 'danger');
-            this.stopRecordingTimer();
-            this.callStateManager.updateButtonVisibility();
+            if (window.phoneApp && window.phoneApp.recordingManager) {
+                window.phoneApp.recordingManager.handleRecordingError(data);
+            }
         });
 
         this.connection.on("recordingStatusUpdate", (data) => {
             console.log("录音状态更新:", data);
-            if (data.status) {
-                const statusText = this.getRecordingStatusText(data.status);
-                this.updateRecordingStatus(statusText, data.status === 'Failed' ? 'danger' : 'info');
-            }
+            // 简化处理，只记录日志
         });
     }
 

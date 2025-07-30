@@ -1,0 +1,116 @@
+@{
+    ViewData["Title"] = "录音设置";
+}
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-6">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2><i class="bi bi-gear text-primary"></i> 录音设置</h2>
+                <a href="@Url.Action("Index")" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left"></i> 返回
+                </a>
+            </div>
+
+            <!-- 状态消息 -->
+            @if (TempData["SuccessMessage"] != null)
+            {
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <i class="bi bi-check-circle"></i> @TempData["SuccessMessage"]
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            }
+            @if (TempData["ErrorMessage"] != null)
+            {
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i> @TempData["ErrorMessage"]
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            }
+
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">基本设置</h5>
+                </div>
+                <div class="card-body">
+                    <form id="settingsForm">
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="autoRecordingSwitch" 
+                                       @(ViewBag.AutoRecordingEnabled == true ? "checked" : "")>
+                                <label class="form-check-label" for="autoRecordingSwitch">
+                                    <strong>自动录音</strong>
+                                    <br><small class="text-muted">通话开始时自动开始录音</small>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="recordingQuality" class="form-label">录音质量</label>
+                            <select class="form-select" id="recordingQuality">
+                                <option value="low">低质量 (64kbps)</option>
+                                <option value="medium" selected>中等质量 (128kbps)</option>
+                                <option value="high">高质量 (256kbps)</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="recordingFormat" class="form-label">录音格式</label>
+                            <select class="form-select" id="recordingFormat">
+                                <option value="mp3" selected>MP3</option>
+                                <option value="wav">WAV</option>
+                                <option value="aac">AAC</option>
+                            </select>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-lg"></i> 保存设置
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('settingsForm');
+            
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const autoRecordingEnabled = document.getElementById('autoRecordingSwitch').checked;
+                const recordingQuality = document.getElementById('recordingQuality').value;
+                const recordingFormat = document.getElementById('recordingFormat').value;
+                
+                try {
+                    const response = await fetch('/Recording/UpdateSettings', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            autoRecordingEnabled: autoRecordingEnabled,
+                            recordingQuality: recordingQuality,
+                            recordingFormat: recordingFormat
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        alert('设置已保存');
+                    } else {
+                        alert('保存失败: ' + result.message);
+                    }
+                } catch (error) {
+                    alert('保存失败: ' + error.message);
+                }
+            });
+        });
+    </script>
+}

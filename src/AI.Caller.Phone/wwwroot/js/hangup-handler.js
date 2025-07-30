@@ -133,7 +133,6 @@ class HangupHandler {
 
         this.connection.onreconnected(() => {
             this.updateStatus('连接已恢复', 'success');
-            this.hideStatus(3000);
         });
     }
 
@@ -251,10 +250,7 @@ class HangupHandler {
         if (this.stateManager && typeof this.stateManager.setState === 'function') {
             // 如果挂断失败，通常应该恢复到CONNECTED状态
             this.stateManager.setState('CONNECTED');
-        }
-        
-        // 5秒后隐藏错误状态
-        this.hideStatus(5000);
+        }        
     }
 
     /**

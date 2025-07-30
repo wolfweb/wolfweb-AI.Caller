@@ -21,7 +21,7 @@ namespace AI.Caller.Phone.Services {
         private readonly SIPTransportManager _sipTransportManager;
         private readonly HangupMonitoringService _monitoringService;
 
-        private readonly IServiceProvider _serviceProvider;
+        private readonly IServiceScopeFactory _serviceScopeProvider;
 
         public SipService(
             ILogger<SipService> logger,
@@ -30,7 +30,7 @@ namespace AI.Caller.Phone.Services {
             ApplicationContext applicationContext,
             SIPTransportManager sipTransportManager,
             IOptions<WebRTCSettings> webRTCSettings,
-            IServiceProvider serviceProvider,
+            IServiceScopeFactory serviceScopeProvider,
             HangupMonitoringService? monitoringService = null
         ) {
             _logger = logger;
@@ -41,7 +41,7 @@ namespace AI.Caller.Phone.Services {
             _sipTransportManager = sipTransportManager;
             _retryPolicy = new HangupRetryPolicy();
             _monitoringService = monitoringService ?? new HangupMonitoringService(LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<HangupMonitoringService>());
-            _serviceProvider = serviceProvider;
+            _serviceScopeProvider = serviceScopeProvider;
         }
 
         /// <summary>
@@ -54,15 +54,16 @@ namespace AI.Caller.Phone.Services {
             }
 
             try {
-                if (user.RegisteredAt == null || user.RegisteredAt < DateTime.UtcNow.AddHours(-2) || user.RegisteredAt < _applicationContext.StartAt) {                    
-                    user.SipRegistered = await RegisterAsync(user);
+                if (user.RegisteredAt == null || user.RegisteredAt < DateTime.UtcNow.AddHours(-2) || user.RegisteredAt < _applicationContext.StartAt) {
+                    RegisterAsync(user);
+                    user.SipRegistered = true; 
                     user.RegisteredAt = DateTime.UtcNow;
                 }
 
                 var sipClient = new SIPClient(_applicationContext.SipServer,_logger, _sipTransportManager.SIPTransport!, _webRTCSettings);
 
                 _applicationContext.AddSipClient(user.SipUsername, sipClient);
-
+                _logger.LogInformation($"用户 {user.Username} : {user.SipUsername} 的SIP账号注册成功");
                 await _dbContext.SaveChangesAsync();
                 return true;
             } catch (Exception ex) {
@@ -108,18 +109,12 @@ namespace AI.Caller.Phone.Services {
                 // 生成From-tag
                 var fromTag = GenerateFromTag();
                 
-                // 创建带有From-tag的SIPFromHeader
                 var fromHeader = new SIPFromHeader(user.Username, new SIPURI(user.SipUsername, _applicationContext.SipServer, null), fromTag);
                 
-                // 发起呼叫
                 await sipClient.CallAsync(destination, fromHeader);
                 
-                // 呼叫发起后，从SIP对话中获取实际的Call-ID并注册
                 RegisterOutboundCallAfterInitiation(sipClient, fromTag, sipUsername, destination);
 
-                // 录音功能现在由RecordingManager自动处理
-
-                // 返回WebRTC连接对象，用于前端与SIP通信
                 return (true, "呼叫已发起", sipClient.RTCPeerConnection);
             } catch (Exception ex) {
                 _logger.LogError(ex, $"发起呼叫失败: {destination}");
@@ -591,9 +586,10 @@ namespace AI.Caller.Phone.Services {
 
         private ICallTypeIdentifier? GetCallTypeIdentifier()
         {
+            using var scope = _serviceScopeProvider.CreateScope();
             try
             {
-                return _serviceProvider.GetService<ICallTypeIdentifier>();
+                return scope.ServiceProvider.GetService<ICallTypeIdentifier>();
             }
             catch (Exception ex)
             {
@@ -602,23 +598,23 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        private async Task<bool> RegisterAsync(User user) {
-            var tcs = new TaskCompletionSource<bool>();
+        private void RegisterAsync(User user) {
+            //var tcs = new TaskCompletionSource<bool>();
             var sipRegistrationClient = new SIPRegistrationUserAgent(_sipTransportManager.SIPTransport, user.SipUsername, user.SipPassword, _applicationContext.SipServer, 180);
 
             sipRegistrationClient.RegistrationSuccessful += (uri, resp) => {
                 _logger.LogDebug($"register success for {uri} => {resp}");
-                tcs.TrySetResult(true);
+                //tcs.TrySetResult(true);
             };
 
             sipRegistrationClient.RegistrationFailed += (uri, resp, err) => {
                 _logger.LogError($"register failed for {uri} => {resp}, {err}");
-                tcs.TrySetResult(false);
+                //tcs.TrySetResult(false);
             };
 
             sipRegistrationClient.Start();
 
-            return await tcs.Task;
+            //return await tcs.Task;
         }
 
         private string GenerateCallId(string callerNumber, string calleeNumber)

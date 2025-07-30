@@ -1,0 +1,247 @@
+/* 录音管理相关样式 */
+
+/* 录音控制面板 */
+#recordingPanel {
+    border: 2px solid #ffc107;
+    box-shadow: 0 4px 8px rgba(255, 193, 7, 0.2);
+}
+
+#recordingPanel .card-header {
+    background: linear-gradient(135deg, #ffc107, #ffca2c);
+}
+
+/* 录音状态指示器 */
+.recording-active {
+    animation: pulse-recording 1.5s infinite;
+}
+
+@keyframes pulse-recording {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
+}
+
+/* 音量指示器动画 */
+#volumeIndicator {
+    transition: width 0.1s ease-in-out;
+}
+
+/* 录音按钮样式 */
+.btn-recording {
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-recording::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: width 0.3s, height 0.3s;
+}
+
+.btn-recording:hover::before {
+    width: 100px;
+    height: 100px;
+}
+
+/* 录音列表表格样式 */
+.recording-table {
+    font-size: 0.9rem;
+}
+
+.recording-table .recording-filename {
+    font-weight: 500;
+    color: #495057;
+}
+
+.recording-table .btn-group-sm .btn {
+    padding: 0.25rem 0.4rem;
+    font-size: 0.8rem;
+}
+
+/* 录音统计卡片 */
+.stats-card {
+    transition: transform 0.2s ease-in-out;
+}
+
+.stats-card:hover {
+    transform: translateY(-2px);
+}
+
+/* 播放器样式 */
+.audio-player audio {
+    width: 100%;
+    height: 40px;
+}
+
+.audio-player .progress {
+    height: 6px;
+    margin-top: 10px;
+}
+
+/* 搜索和筛选区域 */
+.filter-section {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+/* 录音设置页面样式 */
+.settings-card {
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 1.5rem;
+}
+
+.settings-card .card-header {
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+    border-bottom: none;
+}
+
+.form-switch .form-check-input {
+    width: 2.5rem;
+    height: 1.25rem;
+}
+
+.form-switch .form-check-input:checked {
+    background-color: #28a745;
+    border-color: #28a745;
+}
+
+/* 命名预览 */
+#namingPreview {
+    background: #e9ecef;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    color: #495057;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    #recordingPanel .row {
+        margin-bottom: 1rem;
+    }
+    
+    #recordingPanel .col-md-6 {
+        margin-bottom: 0.5rem;
+    }
+    
+    .recording-table {
+        font-size: 0.8rem;
+    }
+    
+    .btn-group-sm .btn {
+        padding: 0.2rem 0.3rem;
+        font-size: 0.7rem;
+    }
+}
+
+/* 加载动画 */
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(0,0,0,.3);
+    border-radius: 50%;
+    border-top-color: #007bff;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 消息提示样式 */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+}
+
+/* 文件大小和时长显示 */
+.file-info {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+/* 录音质量徽章 */
+.quality-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+
+/* 批量操作工具栏 */
+.batch-toolbar {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 4px;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.batch-toolbar.show {
+    display: block !important;
+}
+
+/* 空状态样式 */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #6c757d;
+}
+
+.empty-state i {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+/* 分页样式 */
+.pagination-sm .page-link {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+/* 录音面板折叠动画 */
+#recordingPanelBody {
+    transition: all 0.3s ease-in-out;
+}
+
+#recordingPanelIcon {
+    transition: transform 0.3s ease-in-out;
+}
+
+/* 音频波形效果（装饰性） */
+.audio-waveform {
+    display: flex;
+    align-items: center;
+    height: 30px;
+    gap: 2px;
+}
+
+.audio-waveform .bar {
+    width: 3px;
+    background: #007bff;
+    border-radius: 2px;
+    animation: wave 1.5s ease-in-out infinite;
+}
+
+.audio-waveform .bar:nth-child(2) { animation-delay: 0.1s; }
+.audio-waveform .bar:nth-child(3) { animation-delay: 0.2s; }
+.audio-waveform .bar:nth-child(4) { animation-delay: 0.3s; }
+.audio-waveform .bar:nth-child(5) { animation-delay: 0.4s; }
+
+@keyframes wave {
+    0%, 100% { height: 5px; }
+    50% { height: 25px; }
+}
