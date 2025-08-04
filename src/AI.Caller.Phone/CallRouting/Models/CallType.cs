@@ -13,6 +13,26 @@ namespace AI.Caller.Phone.CallRouting.Models
         /// <summary>
         /// 新呼入 - 全新的来电
         /// </summary>
-        InboundCall
+        InboundCall,
+
+        /// <summary>
+        /// Web到Web呼叫
+        /// </summary>
+        WebToWeb,
+
+        /// <summary>
+        /// Web到手机呼叫
+        /// </summary>
+        WebToMobile,
+
+        /// <summary>
+        /// 手机到Web呼叫
+        /// </summary>
+        MobileToWeb,
+
+        /// <summary>
+        /// 手机到手机呼叫
+        /// </summary>
+        MobileToMobile
     }
 }

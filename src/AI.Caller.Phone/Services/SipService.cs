@@ -75,26 +75,25 @@ namespace AI.Caller.Phone.Services {
         /// <summary>
         /// 发起呼叫
         /// </summary>
-        public async Task<(bool Success, string Message, RTCPeerConnection? Data)> MakeCallAsync(string destination, string sipUsername, RTCSessionDescriptionInit sdpOffer) {
+        public async Task<(bool Success, string Message)> MakeCallAsync(string destination, string sipUsername, RTCSessionDescriptionInit sdpOffer) {
             var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUsername);
             try {
                 if (!_applicationContext.SipClients.TryGetValue(sipUsername, out var sipClient)) {
                     if (user == null || !user.SipRegistered) {
-                        return (false, "用户未注册SIP账号或SIP账号未激活", null);
+                        return (false, "用户未注册SIP账号或SIP账号未激活");
                     }
 
                     var registered = await RegisterUserAsync(user);
                     if (!registered || !_applicationContext.SipClients.TryGetValue(sipUsername, out sipClient)) {
-                        return (false, "无法获取SIP客户端", null);
+                        return (false, "无法获取SIP客户端");
                     }
                 }
 
                 var offer = await sipClient.OfferAsync(sdpOffer);
                 await _hubContext.Clients.User(user.Id.ToString()).SendAsync("sdpAnswered", offer.toJSON());
 
-                if (sipClient.RTCPeerConnection == null) throw new InvalidOperationException("RTCPeerConnection is null, call OfferAsync first.");
-
-                sipClient.RTCPeerConnection.onicecandidate += async (candidate) => {
+                // Use event-driven approach through MediaSessionManager
+                sipClient.MediaSessionManager.IceCandidateGenerated += async (candidate) => {
                     if (candidate != null) {
                         try
                         {
@@ -115,11 +114,11 @@ namespace AI.Caller.Phone.Services {
                 
                 RegisterOutboundCallAfterInitiation(sipClient, fromTag, sipUsername, destination);
 
-                return (true, "呼叫已发起", sipClient.RTCPeerConnection);
+                return (true, "呼叫已发起");
             } catch (Exception ex) {
                 _logger.LogError(ex, $"发起呼叫失败: {destination}");
                 await _hubContext.Clients.User(user.Id.ToString()).SendAsync("callTimeout");
-                return (false, $"呼叫失败: {ex.Message}", null);
+                return (false, $"呼叫失败: {ex.Message}");
             }
         }
 
@@ -131,21 +130,13 @@ namespace AI.Caller.Phone.Services {
             var user = _dbContext.Users.First(x => x.Username == userName);
             if (_applicationContext.SipClients.TryGetValue(user.SipUsername, out var sipClient)) {
                 try {
-                    if(sipClient.RTCPeerConnection == null) throw new Exception("初始化 RTCPeerConnection 异常");
+                    sipClient.SetRemoteDescription(answerSdp);
 
-                    sipClient.RTCPeerConnection.setRemoteDescription(answerSdp);
-
-                    while (!sipClient.RTCPeerConnection.IsSecureContextReady())
+                    while (!sipClient.IsSecureContextReady())
                         await Task.Delay(100);
 
-                    //await sipClient.RTCPeerConnection.Start();
-
-                    // 接听电话
                     var result = await sipClient.AnswerAsync();
-                    _logger.LogInformation($"用户 {userName} 接听电话{(result ? "成功" : "失败")}");
-                    
-                    // 录音功能现在由RecordingManager自动处理
-                    
+                    _logger.LogInformation($"用户 {userName} 接听电话{(result ? "成功" : "失败")}");                    
                     return result;
                 } catch (Exception ex) {
                     _logger.LogError(ex, $"用户 {userName} 接听电话失败: {ex.Message}");
@@ -354,7 +345,7 @@ namespace AI.Caller.Phone.Services {
         public void AddIceCandidate(string userName, RTCIceCandidateInit candidate) {
             var user = _dbContext.Users.First(x => x.Username == userName);
             if (_applicationContext.SipClients.TryGetValue(user.SipUsername, out var sipClient)) {
-                sipClient.RTCPeerConnection?.addIceCandidate(candidate);
+                sipClient.AddIceCandidate(candidate);
             }
         }
 
@@ -377,7 +368,7 @@ namespace AI.Caller.Phone.Services {
         public bool GetSecureContextReady(string sipUserName) {
             try {
                 if (_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient)) {
-                    return sipClient.RTCPeerConnection?.IsSecureContextReady() == true;
+                    return sipClient.IsSecureContextReady() == true;
                 }
                 return false;
             } catch (Exception ex) {

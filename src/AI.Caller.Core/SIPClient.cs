@@ -1,12 +1,13 @@
+using AI.Caller.Core.Network;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
 using SIPSorcery.SIP.App;
-using SIPSorceryMedia.Abstractions;
 using System.Diagnostics;
 using System.Net;
 using System.Text.RegularExpressions;
-using AI.Caller.Core.Network;
+using System.Threading.Tasks;
+using WebSocketSharp;
 
 namespace AI.Caller.Core {
     public class SIPClient {
@@ -33,17 +34,15 @@ namespace AI.Caller.Core {
         public event Action<SIPClient>? AudioStopped;
         public event Action<SIPClient>? ResourcesReleased;
         public event Action<SIPClient, string>? CallInitiated;
-        
-        // 添加音频数据事件，供录音服务使用
+
         public event Action<IPEndPoint, SDPMediaTypesEnum, RTPPacket>? AudioDataReceived; // SIP → WebRTC
         public event Action<IPEndPoint, SDPMediaTypesEnum, RTPPacket>? AudioDataSent;     // WebRTC → SIP
 
         public SIPDialogue Dialogue => m_userAgent.Dialogue;
         public bool IsCallActive => m_userAgent.IsCallActive;
         public bool IsOnHold => m_userAgent.IsOnLocalHold || m_userAgent.IsOnRemoteHold;
-        public RTPSession? MediaSession { get; private set; }
-        public RTCPeerConnection? RTCPeerConnection { get; private set; }
 
+        private MediaSessionManager? _mediaManager;
         private CancellationTokenSource _cts = new();
         private SIPServerUserAgent? m_pendingIncomingCall;
 
@@ -57,7 +56,7 @@ namespace AI.Caller.Core {
             _logger = logger;
             _sipServer = sipServer;
             m_sipTransport = sipTransport;
-            _webRTCSettings = webRTCSettings;
+            _webRTCSettings = webRTCSettings;            
             _networkMonitoringService = networkMonitoringService;
             _clientId = $"SIPClient_{Guid.NewGuid():N}[{sipServer}]";
 
@@ -74,12 +73,13 @@ namespace AI.Caller.Core {
 
             m_userAgent.ServerCallCancelled += IncomingCallCancelled;
 
-            // 注册到网络监控服务
             RegisterWithNetworkMonitoring();
         }
 
         public async Task CallAsync(string destination, SIPFromHeader fromHeader) {
             SIPURI callURI;
+
+            EnsureMediaSessionInitialized();
 
             if (destination.Contains("@")) {
                 callURI = SIPURI.ParseSIPURIRelaxed(destination);
@@ -93,57 +93,20 @@ namespace AI.Caller.Core {
 
             if (dstEndpoint == null) {
                 StatusMessage?.Invoke(this, $"Call failed, could not resolve {callURI}.");
-            } else {
-                StatusMessage?.Invoke(this, $"Call progressing, resolved {callURI} to {dstEndpoint}.");
-                Debug.WriteLine($"DNS lookup result for {callURI}: {dstEndpoint}.");
-                SIPCallDescriptor callDescriptor = new SIPCallDescriptor(null, null, callURI.ToString(), fromHeader.ToString(), null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, null, null);
-
-                MediaSession = await CreateMediaSession();
-                MediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
-
-                m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
-                m_userAgent.RemoteTookOffHold += OnRemoteTookOffHold;
-
-                await m_userAgent.InitiateCallAsync(callDescriptor, MediaSession);
+                return;
             }
-        }
 
-        private void OnForwardMediaToSIP(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
-            try {
-                if (mediaType != SDPMediaTypesEnum.audio || rtpPacket?.Payload == null || rtpPacket.Payload.Length == 0) {
-                    return;
-                }
+            StatusMessage?.Invoke(this, $"Call progressing, resolved {callURI} to {dstEndpoint}.");
+            Debug.WriteLine($"DNS lookup result for {callURI}: {dstEndpoint}.");
+            SIPCallDescriptor callDescriptor = new SIPCallDescriptor(null, null, callURI.ToString(), fromHeader.ToString(), null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, null, null);
 
-                if (MediaSession != null) {
-                    MediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
-                    _logger.LogTrace($"Forwarded WebRTC audio to SIP: {rtpPacket.Payload.Length} bytes from {remote}");
-                } else {
-                    _logger.LogTrace($"Cannot forward audio to SIP: MediaSession={MediaSession != null}, CallActive={m_userAgent.IsCallActive}");
-                }
+            await _mediaManager!.InitializeMediaSession();
+            _mediaManager.InitializePeerConnection(GetRTCConfiguration());
 
-                // 触发音频发送事件，供录音服务使用（本地用户的声音）
-                //AudioDataSent?.Invoke(remote, mediaType, rtpPacket);
-            } catch (Exception ex) {
-                _logger.LogError($"Error forwarding media to SIP: {ex.Message}");
-            }
-        }
+            m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
+            m_userAgent.RemoteTookOffHold += OnRemoteTookOffHold;
 
-        private void OnRtpPacketReceived(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
-            try {
-                if (mediaType != SDPMediaTypesEnum.audio || rtpPacket?.Payload == null || rtpPacket.Payload.Length == 0) {
-                    return;
-                }
-
-
-                if (RTCPeerConnection != null && RTCPeerConnection.connectionState == RTCPeerConnectionState.connected) {
-                    RTCPeerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
-                    _logger.LogTrace($"Forwarded RTP audio to WebRTC: {rtpPacket.Payload.Length} bytes from {remote}");
-                }
-                // 触发音频数据事件，供录音服务使用
-                //AudioDataReceived?.Invoke(remote, mediaType, rtpPacket);
-            } catch (Exception ex) {
-                _logger.LogError($"Error processing RTP audio packet from {remote}: {ex.Message}");
-            }
+            await m_userAgent.InitiateCallAsync(callDescriptor, _mediaManager.MediaSession);
         }
 
         public void Cancel() {
@@ -159,59 +122,67 @@ namespace AI.Caller.Core {
             if (m_pendingIncomingCall == null) {
                 StatusMessage?.Invoke(this, $"There was no pending call available to answer.");
                 return false;
-            } else {
-                var sipRequest = m_pendingIncomingCall.ClientTransaction.TransactionRequest;
-
-                bool hasAudio = true;
-                bool hasVideo = false;
-
-                if (sipRequest.Body != null) {
-                    SDP offerSDP = SDP.ParseSDPDescription(sipRequest.Body);
-                    hasAudio = offerSDP.Media.Any(x => x.Media == SDPMediaTypesEnum.audio && x.MediaStreamStatus != MediaStreamStatusEnum.Inactive);
-                    hasVideo = offerSDP.Media.Any(x => x.Media == SDPMediaTypesEnum.video && x.MediaStreamStatus != MediaStreamStatusEnum.Inactive);
-                }
-
-                if (MediaSession == null) {
-                    MediaSession = await CreateMediaSession();
-                    MediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
-                }
-
-                m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
-                m_userAgent.RemoteTookOffHold += OnRemoteTookOffHold;
-
-                bool result = await m_userAgent.Answer(m_pendingIncomingCall, MediaSession);
-                m_pendingIncomingCall = null;
-
-                return result;
             }
+
+            EnsureMediaSessionInitialized();
+
+            var sipRequest = m_pendingIncomingCall.ClientTransaction.TransactionRequest;
+
+            await _mediaManager!.InitializeMediaSession();
+            _mediaManager.InitializePeerConnection(GetRTCConfiguration());
+
+            if (sipRequest.Body != null) {
+                var remoteOffer = new RTCSessionDescriptionInit {
+                    type = RTCSdpType.offer,
+                    sdp = sipRequest.Body
+                };
+                await _mediaManager.SetSipRemoteDescriptionAsync(remoteOffer);
+                await _mediaManager.CreateAnswerAsync(); // This will trigger SdpAnswerGenerated event
+            } else {
+                //todo: 如果在OnCallRinging或者OnCallAnswered已处理过SDP，此处应该对此进行判断
+                _logger.LogWarning("SIP INVITE request body is empty, generating SDP Offer.");
+                await _mediaManager.CreateOfferAsync(); // This will trigger SdpOfferGenerated event
+            }
+
+            m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
+            m_userAgent.RemoteTookOffHold += OnRemoteTookOffHold;
+
+            bool result = await m_userAgent.Answer(m_pendingIncomingCall, _mediaManager.MediaSession);
+            m_pendingIncomingCall = null;
+
+            return result;
         }
 
         public void Redirect(string destination) {
             m_pendingIncomingCall?.Redirect(SIPResponseStatusCodesEnum.MovedTemporarily, SIPURI.ParseSIPURIRelaxed(destination));
         }
 
-        public async Task<RTCSessionDescriptionInit> CreateOfferAsync() {
-            CreatePeerConnection();
+        public void AddIceCandidate(RTCIceCandidateInit candidate) {
+            EnsureMediaSessionInitialized();
+            _mediaManager!.AddIceCandidate(candidate);
+        }
 
-            if (RTCPeerConnection == null) throw new Exception("初始化 RTCPeerConnection 异常");
-            var offerSdp = RTCPeerConnection.createOffer();
-            await RTCPeerConnection.setLocalDescription(offerSdp);
-            return offerSdp;
+        public void SetRemoteDescription(RTCSessionDescriptionInit description) {
+            EnsureMediaSessionInitialized();
+            _mediaManager!.SetWebRtcRemoteDescription(description);
+        }
+
+        public async Task<RTCSessionDescriptionInit> CreateOfferAsync() {
+            // Requirement 7.2: Call MediaSessionManager methods without expecting direct responses
+            EnsureMediaSessionInitialized();
+            _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+            return await _mediaManager!.CreateOfferAsync();
         }
 
         public async Task<RTCSessionDescriptionInit?> OfferAsync(RTCSessionDescriptionInit sdpOffer) {
-            CreatePeerConnection();
-
-            if (RTCPeerConnection == null) throw new Exception("初始化 RTCPeerConnection 异常");
-
-            var result = RTCPeerConnection.setRemoteDescription(sdpOffer);
-            if (result == SetDescriptionResultEnum.OK) {
-                var answerSdp = RTCPeerConnection.createAnswer(new RTCAnswerOptions { });
-
-                await RTCPeerConnection.setLocalDescription(answerSdp);
-                return answerSdp;
+            try {
+                _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+                _mediaManager.SetWebRtcRemoteDescription(sdpOffer);
+                return await _mediaManager.CreateAnswerAsync(); // This will trigger SdpAnswerGenerated event
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error in OfferAsync");
+                return null;
             }
-            return null;
         }
 
         public void Reject() {
@@ -236,15 +207,7 @@ namespace AI.Caller.Core {
 
         public void StopAudioStreams() {
             try {
-                if (MediaSession != null) {
-                    MediaSession.OnRtpPacketReceived -= OnRtpPacketReceived;
-                    StatusMessage?.Invoke(this, "Audio streams stopped.");
-                }
-
-                if (RTCPeerConnection != null) {
-                    RTCPeerConnection.OnRtpPacketReceived -= OnForwardMediaToSIP;
-                }
-
+                _mediaManager!.Cancel();
                 AudioStopped?.Invoke(this);
             } catch (Exception ex) {
                 _logger.LogError($"Error stopping audio streams: {ex.Message}");
@@ -252,42 +215,8 @@ namespace AI.Caller.Core {
         }
 
         public void ReleaseMediaResources() {
-            bool rtcConnectionClosed = false;
-            bool mediaSessionClosed = false;
-
-            if (RTCPeerConnection != null) {
-                try {
-                    RTCPeerConnection.close();
-                    RTCPeerConnection = null;
-                    rtcConnectionClosed = true;
-                    StatusMessage?.Invoke(this, "RTCPeerConnection resources released successfully.");
-                } catch (Exception ex) {
-                    _logger.LogError($"Error closing RTCPeerConnection : {ex.Message}");
-                    StatusMessage?.Invoke(this, $"Warning: RTCPeerConnection close failed: {ex.Message}");
-                    RTCPeerConnection = null;
-                }
-            }
-
-            if (MediaSession != null) {
-                try {
-                    MediaSession.Close("Resources released");
-                    MediaSession = null;
-                    mediaSessionClosed = true;
-                    StatusMessage?.Invoke(this, "MediaSession resources released successfully.");
-                } catch (Exception ex) {
-                    _logger.LogError($"Error closing MediaSession : {ex.Message}");
-                    StatusMessage?.Invoke(this, $"Warning: MediaSession close failed: {ex.Message}");
-                    MediaSession = null;
-                }
-            }
-
-            if (rtcConnectionClosed || mediaSessionClosed || RTCPeerConnection == null || MediaSession == null) {
-                try {
-                    ResourcesReleased?.Invoke(this);
-                } catch (Exception ex) {
-                    _logger.LogError($"Error triggering ResourcesReleased event : {ex.Message}");
-                }
-            }
+            _mediaManager?.Cancel();
+            ResourcesReleased?.Invoke(this);
         }
 
         public Task<bool> BlindTransferAsync(string destination) {
@@ -303,29 +232,13 @@ namespace AI.Caller.Core {
             return m_userAgent.AttendedTransfer(transferee, TimeSpan.FromSeconds(TRANSFER_RESPONSE_TIMEOUT_SECONDS), _cts.Token);
         }
 
+        public bool IsSecureContextReady() => _mediaManager?.PeerConnection?.IsSecureContextReady() == true;
+
         public void Shutdown() {
             _cts.Cancel();
             Hangup();
-            
+
             UnregisterFromNetworkMonitoring();
-        }
-
-        private async Task<RTPSession> CreateMediaSession() {
-            var rtpSession = new RTPSession(false, false, false);
-            rtpSession.AcceptRtpFromAny = true;
-            MediaStreamTrack audioTrack = new(
-                SDPMediaTypesEnum.audio,
-                false,
-                [
-                    new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMA),
-                    new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMU)
-                ]
-            );
-            rtpSession.addTrack(audioTrack);
-
-            await rtpSession.Start();
-
-            return rtpSession;
         }
 
         private RTCConfiguration GetRTCConfiguration() {
@@ -359,76 +272,27 @@ namespace AI.Caller.Core {
             };
         }
 
-        private void CreatePeerConnection() {
-            var pcConfiguration = GetRTCConfiguration();
-            var peerConnection = new RTCPeerConnection(pcConfiguration);
-
-            SetupPeerConnectionEvents(peerConnection);
-
-            RTCPeerConnection = peerConnection;
-        }
-
-        private void SetupPeerConnectionEvents(RTCPeerConnection peerConnection) {
-            if (peerConnection == null)
-                return;
-
-            MediaStreamTrack track = new MediaStreamTrack(
-                SDPMediaTypesEnum.audio,
-                false,
-                [
-                    new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMA),
-                    new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMU)
-                ]
-            );
-            peerConnection.addTrack(track);
-
-            peerConnection.OnRtpPacketReceived += OnForwardMediaToSIP;
-
-            peerConnection.onconnectionstatechange += (state) => {
-                if (
-                    state == RTCPeerConnectionState.closed ||
-                    state == RTCPeerConnectionState.disconnected ||
-                    state == RTCPeerConnectionState.failed
-                ) {
-                    CallFinished(null);
-                } else if (state == RTCPeerConnectionState.connected) {
-                    StatusMessage?.Invoke(this, "Peer connection connected.");
-                }
-            };
-
-            peerConnection.oniceconnectionstatechange += (state) => {
-                _logger.LogInformation($"ICE connection state changed to: {state}");
-            };
-
-            peerConnection.onicegatheringstatechange += (state) => {
-                _logger.LogInformation($"ICE gathering state changed to: {state}");
-            };
-
-            peerConnection.onicecandidate += (candidate) => {
-                if (candidate != null) {
-                    _logger.LogDebug($"ICE candidate: {candidate.candidate}, Type: {candidate.type}");
-
-                    if (candidate.candidate != null && candidate.candidate.Contains("typ relay")) {
-                        _logger.LogInformation("Using TURN relay for media");
-                        StatusMessage?.Invoke(this, "Using TURN relay for media connection");
-                    }
-                }
-            };
-        }
-
         private void OnCallTrying(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call trying: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
             CallTrying?.Invoke(this);
-            
-            // 触发呼叫发起事件，此时可以获取Call-ID
-            if (m_userAgent.Dialogue != null && !string.IsNullOrEmpty(m_userAgent.Dialogue.CallId))
-            {
+
+            // 触发呼叫发起事件，此时可以获取Call-ID，如果进入else怎么办
+            if (m_userAgent.Dialogue != null && !string.IsNullOrEmpty(m_userAgent.Dialogue.CallId)) {
                 CallInitiated?.Invoke(this, m_userAgent.Dialogue.CallId);
             }
         }
 
-        private void OnCallRinging(ISIPClientUserAgent uac, SIPResponse sipResponse) {
+        private async void OnCallRinging(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call ringing: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
+
+            // todo: 需要处理SDP信息并验证，另外此处的SdpType类型是answer还是offer需要根据实际情况判断
+            if (sipResponse.Body != null) {
+                var remoteAnswer = new RTCSessionDescriptionInit {
+                    type = RTCSdpType.answer,
+                    sdp = sipResponse.Body
+                };
+                await _mediaManager!.SetSipRemoteDescriptionAsync(remoteAnswer);
+            }
         }
 
         private void OnCallFailed(ISIPClientUserAgent uac, string errorMessage, SIPResponse failureResponse) {
@@ -436,15 +300,27 @@ namespace AI.Caller.Core {
             CallFinished(null);
         }
 
-        private void OnCallAnswered(ISIPClientUserAgent uac, SIPResponse sipResponse) {
-            StatusMessage?.Invoke(this, "Call answered: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
+        private async void OnCallAnswered(ISIPClientUserAgent uac, SIPResponse response) {
+            StatusMessage?.Invoke(this, "Call answered: " + response.StatusCode + " " + response.ReasonPhrase + ".");
+
+            // todo: 需要处理SDP信息并验证，另外此处的SdpType类型是answer还是offer需要根据实际情况判断
+            if (!string.IsNullOrEmpty(response.Body)) {
+                var remoteAnswer = new RTCSessionDescriptionInit {
+                    type = RTCSdpType.answer,
+                    sdp = response.Body
+                };
+                await _mediaManager!.SetSipRemoteDescriptionAsync(remoteAnswer);
+            }
+
             CallAnswer?.Invoke(this);
         }
 
         private void CallFinished(SIPDialogue? dialogue) {
             try {
                 m_pendingIncomingCall = null;
-                ReleaseMediaResources();
+                _mediaManager?.Dispose();
+                _mediaManager = null;
+
                 StatusMessage?.Invoke(this, "Call finished and resources cleaned up.");
             } catch (Exception ex) {
                 _logger.LogError($"Error in CallFinished : {ex.Message}");
@@ -496,43 +372,102 @@ namespace AI.Caller.Core {
             }
         }
 
-        private void RegisterWithNetworkMonitoring()
-        {
-            try
-            {
-                if (_networkMonitoringService != null)
-                {
+        private void RegisterWithNetworkMonitoring() {
+            try {
+                if (_networkMonitoringService != null) {
                     _networkMonitoringService.RegisterSipClient(_clientId, this);
                     _logger.LogDebug("SIP client {ClientId} registered with network monitoring service", _clientId);
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to register SIP client {ClientId} with network monitoring service: {Message}", 
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Failed to register SIP client {ClientId} with network monitoring service: {Message}",
                     _clientId, ex.Message);
             }
         }
 
-        private void UnregisterFromNetworkMonitoring()
-        {
-            try
-            {
-                if (_networkMonitoringService != null)
-                {
+        private void UnregisterFromNetworkMonitoring() {
+            try {
+                if (_networkMonitoringService != null) {
                     _networkMonitoringService.UnregisterSipClient(_clientId);
                     _logger.LogDebug("SIP client {ClientId} unregistered from network monitoring service", _clientId);
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to unregister SIP client {ClientId} from network monitoring service: {Message}", 
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Failed to unregister SIP client {ClientId} from network monitoring service: {Message}",
                     _clientId, ex.Message);
             }
         }
 
-        public string GetClientId()
-        {
+        public string GetClientId() {
             return _clientId;
+        }
+
+        public MediaSessionManager? MediaSessionManager => _mediaManager;
+
+        private void EnsureMediaSessionInitialized() {
+            _mediaManager ??= new MediaSessionManager(_logger);
+            SetupMediaSessionEvents();
+        }
+
+        private void SetupMediaSessionEvents() {
+            _mediaManager!.SdpOfferGenerated += OnSdpOfferGenerated;
+            _mediaManager!.SdpAnswerGenerated += OnSdpAnswerGenerated;
+            _mediaManager!.IceCandidateGenerated += OnIceCandidateGenerated;
+            _mediaManager!.ConnectionStateChanged += OnConnectionStateChanged;
+        }
+
+        private void OnSdpOfferGenerated(RTCSessionDescriptionInit offer) {
+            try {
+                _logger.LogInformation("SDP Offer generated by MediaSessionManager, handling SIP-specific logic");
+                // todo: handle SDP offer generation logic
+                // SIP-specific logic for handling generated SDP offer
+                // This is where we would send the offer via SIP protocol
+                StatusMessage?.Invoke(this, $"SDP Offer generated and ready for SIP transmission");
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error handling SDP offer generated event");
+            }
+        }
+
+        private void OnSdpAnswerGenerated(RTCSessionDescriptionInit answer) {
+            try {
+                _logger.LogInformation("SDP Answer generated by MediaSessionManager, handling SIP-specific logic");
+                //todo : handle SDP answer generation logic
+                // SIP-specific logic for handling generated SDP answer
+                // This is where we would send the answer via SIP protocol
+                StatusMessage?.Invoke(this, $"SDP Answer generated and ready for SIP transmission");
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error handling SDP answer generated event");
+            }
+        }
+
+        private void OnIceCandidateGenerated(RTCIceCandidateInit candidate) {
+            try {
+                _logger.LogDebug($"ICE candidate generated by MediaSessionManager: {candidate.candidate}");
+                //todo: handle ICE candidate generation logic
+                // SIP-specific logic for handling ICE candidates
+                // This could be sent via SIP INFO messages or other mechanisms
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error handling ICE candidate generated event");
+            }
+        }
+
+        private void OnConnectionStateChanged(RTCPeerConnectionState state) {
+            try {
+                _logger.LogInformation($"MediaSession connection state changed to: {state}");
+                StatusMessage?.Invoke(this, $"Media connection state: {state}");
+
+                //todo: handle connection state changes
+                switch (state) {
+                    case RTCPeerConnectionState.connected:
+                        _logger.LogInformation("Media connection established successfully");
+                        break;
+                    case RTCPeerConnectionState.disconnected:
+                    case RTCPeerConnectionState.failed:
+                        _logger.LogWarning($"Media connection issue: {state}");
+                        break;
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error handling connection state change event");
+            }
         }
     }
 }
+        

@@ -1,17 +1,9 @@
-﻿
-using AI.Caller.Core;
-using AI.Caller.Phone.Entities;
+﻿using AI.Caller.Core;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
-using AI.Caller.Phone.CallRouting.Interfaces;
-using AI.Caller.Phone.CallRouting.Models;
 using AI.Caller.Phone.CallRouting.Handlers;
 using Microsoft.AspNetCore.SignalR;
-using SIPSorcery.Net;
 using SIPSorcery.SIP;
-using SIPSorceryMedia.Abstractions;
-using System.Net;
-using WebSocketSharp.Server;
 
 namespace AI.Caller.Phone.BackgroundTask {
     public class SipBackgroundTask : IHostedService {
@@ -79,7 +71,7 @@ namespace AI.Caller.Phone.BackgroundTask {
                 CallRoutingResult routingResult;
                 ICallHandler callHandler;
 
-                if (callType == CallType.OutboundResponse)
+                if (callType == "OutboundResponse")
                 {
                     routingResult = await _callRoutingService.RouteOutboundResponseAsync(sipRequest);
                     callHandler = _outboundCallHandler;

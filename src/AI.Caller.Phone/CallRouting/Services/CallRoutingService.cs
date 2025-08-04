@@ -5,6 +5,7 @@ using AI.Caller.Phone.CallRouting.Interfaces;
 using AI.Caller.Phone.CallRouting.Models;
 using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Entities;
+using System.Linq;
 
 namespace AI.Caller.Phone.CallRouting.Services
 {
@@ -171,6 +172,91 @@ namespace AI.Caller.Phone.CallRouting.Services
                 _logger.LogError(ex, "确定通话处理策略时发生错误");
                 return CallHandlingStrategy.NonWebToWeb; // 默认策略
             }
+        }
+
+        /// <summary>
+        /// 路由外呼请求
+        /// </summary>
+        public async Task<CallRoutingResult> RouteOutboundCallAsync(OutboundCallInfo outboundCallInfo)
+        {
+            try
+            {
+                _logger.LogInformation($"开始路由外呼请求 - SipUsername: {outboundCallInfo.SipUsername}, Destination: {outboundCallInfo.Destination}");
+
+                // 1. 验证发起呼叫的用户
+                if (!_applicationContext.SipClients.TryGetValue(outboundCallInfo.SipUsername, out var sipClient))
+                {
+                    _logger.LogWarning($"发起呼叫的客户端不存在 - SipUsername: {outboundCallInfo.SipUsername}");
+                    return CallRoutingResult.CreateFailure($"发起呼叫的客户端不存在: {outboundCallInfo.SipUsername}");
+                }
+
+                // 2. 查找发起呼叫的用户
+                var callerUser = await _dbContext.Users
+                    .FirstOrDefaultAsync(u => u.SipUsername == outboundCallInfo.SipUsername);
+
+                if (callerUser == null)
+                {
+                    _logger.LogWarning($"发起呼叫的用户不存在 - SipUsername: {outboundCallInfo.SipUsername}");
+                    return CallRoutingResult.CreateFailure($"发起呼叫的用户不存在: {outboundCallInfo.SipUsername}");
+                }
+
+                // 3. 检查发起呼叫的客户端是否忙碌
+                if (sipClient.IsCallActive)
+                {
+                    _logger.LogInformation($"发起呼叫的用户正在通话中 - SipUsername: {outboundCallInfo.SipUsername}");
+                    return CallRoutingResult.CreateFailure($"用户忙碌: {outboundCallInfo.SipUsername}", CallHandlingStrategy.Fallback);
+                }
+
+                // 4. 识别呼叫类型 - 创建一个模拟的SIP请求用于类型识别
+                // 注意：这里应该传入实际的SIPRequest，但为了简化，我们直接根据目标号码判断类型
+                
+                // 5. 确定路由策略
+                CallHandlingStrategy strategy;
+                if (IsPstnNumber(outboundCallInfo.Destination))
+                {
+                    strategy = CallHandlingStrategy.WebToNonWeb; // Web到PSTN
+                }
+                else if (_applicationContext.SipClients.ContainsKey(outboundCallInfo.Destination))
+                {
+                    strategy = CallHandlingStrategy.WebToWeb; // Web到Web
+                }
+                else
+                {
+                    strategy = CallHandlingStrategy.WebToNonWeb; // 默认为Web到非Web
+                }
+
+                // 6. 创建成功的路由结果
+                var result = CallRoutingResult.CreateSuccess(
+                    sipClient, 
+                    callerUser, 
+                    strategy, 
+                    $"成功路由外呼请求: {outboundCallInfo.SipUsername} -> {outboundCallInfo.Destination}");
+                
+                result.OutboundCallInfo = outboundCallInfo;
+
+                _logger.LogInformation($"外呼请求路由成功 - SipUsername: {outboundCallInfo.SipUsername}, Strategy: {strategy}");
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "路由外呼请求时发生错误");
+                return CallRoutingResult.CreateFailure($"路由失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 判断是否为PSTN号码
+        /// </summary>
+        private static bool IsPstnNumber(string number)
+        {
+            if (string.IsNullOrEmpty(number))
+                return false;
+
+            // 简单的PSTN号码识别逻辑
+            // 通常PSTN号码是纯数字，可能包含+号开头
+            return number.All(c => char.IsDigit(c) || c == '+') && 
+                   number.Length >= 10 && 
+                   number.Length <= 15;
         }
 
         /// <summary>
