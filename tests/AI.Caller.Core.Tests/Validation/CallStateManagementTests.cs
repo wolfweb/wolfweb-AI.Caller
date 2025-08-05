@@ -322,7 +322,25 @@ public class CallStateManagementTests : IDisposable
                         break;
 
                     case StateTransition.CallAnswered:
-                        var offer = await mediaManager.CreateOfferAsync();
+                        // 模拟接收到远程offer的场景
+                        var mockRemoteOffer = new RTCSessionDescriptionInit
+                        {
+                            type = RTCSdpType.offer,
+                            sdp = @"v=0
+o=- 123456 654321 IN IP4 192.168.1.100
+s=-
+c=IN IP4 192.168.1.100
+t=0 0
+m=audio 5004 RTP/AVP 0 8
+a=rtpmap:0 PCMU/8000
+a=rtpmap:8 PCMA/8000
+a=sendrecv"
+                        };
+                        
+                        // 先初始化PeerConnection，然后设置远程offer，最后创建answer（正确的WebRTC流程）
+                        await mediaManager.InitializeMediaSession();
+                        mediaManager.InitializePeerConnection(new RTCConfiguration());
+                        mediaManager.SetWebRtcRemoteDescription(mockRemoteOffer);
                         var answer = await mediaManager.CreateAnswerAsync();
                         break;
                 }

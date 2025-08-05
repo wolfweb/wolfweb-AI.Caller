@@ -116,11 +116,14 @@ namespace AI.Caller.Core.Tests
         }
 
         [Fact]
-        public async Task CreateOfferAsync_WithoutInitialization_ShouldThrowInvalidOperationException()
+        public async Task CreateOfferAsync_WithoutInitialization_ShouldAutoInitialize()
         {
-            // Act & Assert
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                () => _mediaSessionManager.CreateOfferAsync());
+            // Act - Should not throw exception, should auto-initialize
+            var offer = await _mediaSessionManager.CreateOfferAsync();
+            
+            // Assert
+            Assert.NotNull(offer);
+            Assert.NotEmpty(offer.sdp);
         }
 
         [Fact]

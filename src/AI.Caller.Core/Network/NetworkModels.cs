@@ -1,10 +1,8 @@
-namespace AI.Caller.Core.Network
-{
+namespace AI.Caller.Core.Network {
     /// <summary>
     /// 网络状态
     /// </summary>
-    public class NetworkStatus
-    {
+    public class NetworkStatus {
         /// <summary>
         /// 是否连接到网络
         /// </summary>
@@ -50,8 +48,7 @@ namespace AI.Caller.Core.Network
         /// </summary>
         public bool IsHealthy => IsConnected && Quality != NetworkQuality.Poor && Issues.Count == 0;
 
-        public override string ToString()
-        {
+        public override string ToString() {
             return $"Connected: {IsConnected}, Type: {NetworkType}, Quality: {Quality}, " +
                    $"Latency: {LatencyMs}ms, Loss: {PacketLossRate:F1}%, Bandwidth: {BandwidthKbps}Kbps";
         }
@@ -60,8 +57,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 客户端网络状态
     /// </summary>
-    public class ClientNetworkStatus
-    {
+    public class ClientNetworkStatus {
         /// <summary>
         /// 客户端ID
         /// </summary>
@@ -117,8 +113,7 @@ namespace AI.Caller.Core.Network
         /// </summary>
         public List<NetworkIssue> Issues { get; set; } = new();
 
-        public override string ToString()
-        {
+        public override string ToString() {
             return $"Client: {ClientId}, Status: {ConnectionStatus}, Online: {IsOnline}, " +
                    $"Duration: {ConnectionDuration?.ToString(@"hh\:mm\:ss") ?? "N/A"}";
         }
@@ -127,8 +122,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 客户端网络统计
     /// </summary>
-    public class ClientNetworkStats
-    {
+    public class ClientNetworkStats {
         /// <summary>
         /// 发送的数据包数量
         /// </summary>
@@ -174,8 +168,7 @@ namespace AI.Caller.Core.Network
         /// </summary>
         public double PacketLossRate => PacketsSent > 0 ? (double)PacketsLost / PacketsSent * 100 : 0;
 
-        public override string ToString()
-        {
+        public override string ToString() {
             return $"Sent: {PacketsSent} packets ({BytesSent} bytes), " +
                    $"Received: {PacketsReceived} packets ({BytesReceived} bytes), " +
                    $"Loss: {PacketLossRate:F1}%, RTT: {AverageRttMs:F1}ms";
@@ -185,8 +178,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 网络问题
     /// </summary>
-    public class NetworkIssue
-    {
+    public class NetworkIssue {
         /// <summary>
         /// 问题类型
         /// </summary>
@@ -220,12 +212,11 @@ namespace AI.Caller.Core.Network
         /// <summary>
         /// 持续时间
         /// </summary>
-        public TimeSpan Duration => IsResolved && ResolvedAt.HasValue ? 
-            ResolvedAt.Value - OccurredAt : 
+        public TimeSpan Duration => IsResolved && ResolvedAt.HasValue ?
+            ResolvedAt.Value - OccurredAt :
             DateTime.UtcNow - OccurredAt;
 
-        public override string ToString()
-        {
+        public override string ToString() {
             return $"{Type}: {Description} ({Severity}) - {Duration:mm\\:ss}";
         }
     }
@@ -233,8 +224,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 网络监控统计
     /// </summary>
-    public class NetworkMonitoringStats
-    {
+    public class NetworkMonitoringStats {
         /// <summary>
         /// 监控开始时间
         /// </summary>
@@ -295,8 +285,7 @@ namespace AI.Caller.Core.Network
         /// </summary>
         public TimeSpan MonitoringDuration => DateTime.UtcNow - MonitoringStarted;
 
-        public override string ToString()
-        {
+        public override string ToString() {
             return $"Monitoring: {MonitoringDuration:dd\\:hh\\:mm\\:ss}, " +
                    $"Checks: {TotalChecks} ({SuccessRate:F1}% success), " +
                    $"Clients: {OnlineClientsCount}/{RegisteredClientsCount}, " +
@@ -307,8 +296,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 网络类型枚举
     /// </summary>
-    public enum NetworkType
-    {
+    public enum NetworkType {
         Unknown,
         Ethernet,
         WiFi,
@@ -320,8 +308,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 网络质量枚举
     /// </summary>
-    public enum NetworkQuality
-    {
+    public enum NetworkQuality {
         Unknown,
         Excellent,
         Good,
@@ -333,8 +320,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 连接状态枚举
     /// </summary>
-    public enum ConnectionStatus
-    {
+    public enum ConnectionStatus {
         Disconnected,
         Connecting,
         Connected,
@@ -346,8 +332,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 网络问题类型枚举
     /// </summary>
-    public enum NetworkIssueType
-    {
+    public enum NetworkIssueType {
         ConnectionLost,
         HighLatency,
         PacketLoss,
@@ -363,8 +348,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 网络问题严重程度枚举
     /// </summary>
-    public enum NetworkIssueSeverity
-    {
+    public enum NetworkIssueSeverity {
         Info,
         Warning,
         Error,

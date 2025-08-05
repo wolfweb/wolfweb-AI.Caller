@@ -2,23 +2,19 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace AI.Caller.Core.Network
-{
+namespace AI.Caller.Core.Network {
     /// <summary>
     /// 网络监控服务使用示例
     /// </summary>
-    public class NetworkMonitoringUsageExample
-    {
+    public class NetworkMonitoringUsageExample {
         /// <summary>
         /// 基本网络监控配置示例
         /// </summary>
         /// <param name="services">服务集合</param>
         /// <returns>配置后的服务集合</returns>
-        public static IServiceCollection ConfigureBasicNetworkMonitoring(IServiceCollection services)
-        {
+        public static IServiceCollection ConfigureBasicNetworkMonitoring(IServiceCollection services) {
             // 添加日志服务
-            services.AddLogging(builder =>
-            {
+            services.AddLogging(builder => {
                 builder.AddConsole();
                 builder.SetMinimumLevel(LogLevel.Information);
             });
@@ -37,12 +33,10 @@ namespace AI.Caller.Core.Network
         /// </summary>
         /// <param name="args">命令行参数</param>
         /// <returns>配置后的主机</returns>
-        public static async Task<IHost> CreateHostWithNetworkMonitoringAsync(string[] args)
-        {
+        public static async Task<IHost> CreateHostWithNetworkMonitoringAsync(string[] args) {
             var builder = Host.CreateDefaultBuilder(args);
 
-            builder.ConfigureServices((context, services) =>
-            {
+            builder.ConfigureServices((context, services) => {
                 // 配置网络监控
                 services.AddNetworkMonitoring();
                 services.AddNetworkMonitoringHostedService();
@@ -55,10 +49,9 @@ namespace AI.Caller.Core.Network
 
             // 验证配置
             var validationResult = host.Services.ValidateNetworkServices();
-            if (!validationResult.IsValid)
-            {
+            if (!validationResult.IsValid) {
                 var logger = host.Services.GetRequiredService<ILogger<NetworkMonitoringUsageExample>>();
-                logger.LogError("Network service configuration validation failed: {Errors}", 
+                logger.LogError("Network service configuration validation failed: {Errors}",
                     string.Join(", ", validationResult.Errors));
                 throw new InvalidOperationException("Network service configuration is invalid");
             }
@@ -71,28 +64,23 @@ namespace AI.Caller.Core.Network
         /// </summary>
         /// <param name="serviceProvider">服务提供者</param>
         /// <returns>使用示例任务</returns>
-        public static async Task UseNetworkMonitoringExampleAsync(IServiceProvider serviceProvider)
-        {
+        public static async Task UseNetworkMonitoringExampleAsync(IServiceProvider serviceProvider) {
             var logger = serviceProvider.GetRequiredService<ILogger<NetworkMonitoringUsageExample>>();
             var networkService = serviceProvider.GetRequiredService<INetworkMonitoringService>();
 
-            try
-            {
+            try {
                 logger.LogInformation("Starting network monitoring usage example...");
 
                 // 订阅网络事件
-                networkService.NetworkStatusChanged += (sender, e) =>
-                {
+                networkService.NetworkStatusChanged += (sender, e) => {
                     logger.LogInformation("Network status changed: {Status}", e.CurrentStatus);
                 };
 
-                networkService.NetworkConnectionLost += (sender, e) =>
-                {
+                networkService.NetworkConnectionLost += (sender, e) => {
                     logger.LogWarning("Network connection lost: {Reason}", e.Reason);
                 };
 
-                networkService.NetworkConnectionRestored += (sender, e) =>
-                {
+                networkService.NetworkConnectionRestored += (sender, e) => {
                     logger.LogInformation("Network connection restored after {Duration}", e.OutageDuration);
                 };
 
@@ -121,9 +109,7 @@ namespace AI.Caller.Core.Network
                 await networkService.StopMonitoringAsync();
 
                 logger.LogInformation("Network monitoring usage example completed");
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 logger.LogError(ex, "Error in network monitoring usage example: {Message}", ex.Message);
                 throw;
             }
@@ -136,9 +122,8 @@ namespace AI.Caller.Core.Network
         /// <param name="logger">日志记录器</param>
         /// <returns>注册任务</returns>
         private static async Task RegisterSampleClientsAsync(
-            INetworkMonitoringService networkService, 
-            ILogger logger)
-        {
+            INetworkMonitoringService networkService,
+            ILogger logger) {
             logger.LogInformation("Registering sample SIP clients...");
 
             // 注册几个模拟的SIP客户端
@@ -149,11 +134,9 @@ namespace AI.Caller.Core.Network
                 new { Id = "client-003", Type = "SIPClient", Endpoint = "10.0.0.50:5060" }
             };
 
-            foreach (var client in sampleClients)
-            {
+            foreach (var client in sampleClients) {
                 // 创建一个模拟的SIP客户端对象
-                var mockSipClient = new MockSipClient
-                {
+                var mockSipClient = new MockSipClient {
                     Id = client.Id,
                     Type = client.Type,
                     Endpoint = client.Endpoint
@@ -173,31 +156,26 @@ namespace AI.Caller.Core.Network
         /// <param name="cancellationToken">取消令牌</param>
         /// <returns>监控任务</returns>
         public static async Task MonitorNetworkChangesAsync(
-            IServiceProvider serviceProvider, 
-            CancellationToken cancellationToken)
-        {
+            IServiceProvider serviceProvider,
+            CancellationToken cancellationToken) {
             var logger = serviceProvider.GetRequiredService<ILogger<NetworkMonitoringUsageExample>>();
             var networkService = serviceProvider.GetRequiredService<INetworkMonitoringService>();
 
             logger.LogInformation("Starting network change monitoring...");
 
-            try
-            {
-                while (!cancellationToken.IsCancellationRequested)
-                {
+            try {
+                while (!cancellationToken.IsCancellationRequested) {
                     // 手动检查网络状态
                     var networkStatus = await networkService.CheckNetworkStatusAsync();
-                    
+
                     logger.LogInformation("Network check - Connected: {IsConnected}, Quality: {Quality}, " +
                                         "Latency: {Latency}ms, Loss: {PacketLoss}%",
-                        networkStatus.IsConnected, networkStatus.Quality, 
+                        networkStatus.IsConnected, networkStatus.Quality,
                         networkStatus.LatencyMs, networkStatus.PacketLossRate);
 
                     // 检查是否有网络问题
-                    if (networkStatus.Issues.Count > 0)
-                    {
-                        foreach (var issue in networkStatus.Issues)
-                        {
+                    if (networkStatus.Issues.Count > 0) {
+                        foreach (var issue in networkStatus.Issues) {
                             logger.LogWarning("Network issue detected: {Issue}", issue);
                         }
                     }
@@ -205,9 +183,8 @@ namespace AI.Caller.Core.Network
                     // 获取客户端状态
                     var clientStatuses = networkService.GetAllClientNetworkStatus();
                     var onlineClients = clientStatuses.Values.Count(c => c.IsOnline);
-                    
-                    if (clientStatuses.Count > 0)
-                    {
+
+                    if (clientStatuses.Count > 0) {
                         logger.LogInformation("Client status - Online: {OnlineCount}/{TotalCount}",
                             onlineClients, clientStatuses.Count);
                     }
@@ -215,13 +192,9 @@ namespace AI.Caller.Core.Network
                     // 等待30秒再次检查
                     await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
                 }
-            }
-            catch (OperationCanceledException)
-            {
+            } catch (OperationCanceledException) {
                 logger.LogInformation("Network change monitoring cancelled");
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 logger.LogError(ex, "Error during network change monitoring: {Message}", ex.Message);
             }
         }
@@ -231,22 +204,19 @@ namespace AI.Caller.Core.Network
         /// </summary>
         /// <param name="serviceProvider">服务提供者</param>
         /// <returns>自适应任务</returns>
-        public static async Task NetworkQualityAdaptationExampleAsync(IServiceProvider serviceProvider)
-        {
+        public static async Task NetworkQualityAdaptationExampleAsync(IServiceProvider serviceProvider) {
             var logger = serviceProvider.GetRequiredService<ILogger<NetworkMonitoringUsageExample>>();
             var networkService = serviceProvider.GetRequiredService<INetworkMonitoringService>();
 
             logger.LogInformation("Starting network quality adaptation example...");
 
             // 订阅网络质量变化事件
-            networkService.NetworkQualityChanged += (sender, e) =>
-            {
+            networkService.NetworkQualityChanged += (sender, e) => {
                 logger.LogInformation("Adapting to network quality change: {PreviousQuality} -> {CurrentQuality}",
                     e.PreviousQuality, e.CurrentQuality);
 
                 // 根据网络质量调整应用行为
-                switch (e.CurrentQuality)
-                {
+                switch (e.CurrentQuality) {
                     case NetworkQuality.Excellent:
                         logger.LogInformation("Enabling high-quality features (HD audio, video, etc.)");
                         break;
@@ -278,14 +248,12 @@ namespace AI.Caller.Core.Network
         /// <summary>
         /// 模拟SIP客户端类
         /// </summary>
-        private class MockSipClient
-        {
+        private class MockSipClient {
             public string Id { get; set; } = string.Empty;
             public string Type { get; set; } = string.Empty;
             public string Endpoint { get; set; } = string.Empty;
 
-            public override string ToString()
-            {
+            public override string ToString() {
                 return $"{Type} {Id} ({Endpoint})";
             }
         }

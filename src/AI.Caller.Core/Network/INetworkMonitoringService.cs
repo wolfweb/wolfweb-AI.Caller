@@ -1,10 +1,8 @@
-namespace AI.Caller.Core.Network
-{
+namespace AI.Caller.Core.Network {
     /// <summary>
     /// 网络监控服务接口
     /// </summary>
-    public interface INetworkMonitoringService : IDisposable
-    {
+    public interface INetworkMonitoringService : IDisposable {
         /// <summary>
         /// 网络状态变化事件
         /// </summary>

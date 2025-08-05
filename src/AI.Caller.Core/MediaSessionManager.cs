@@ -213,6 +213,9 @@ namespace AI.Caller.Core {
         public async Task<RTCSessionDescriptionInit> CreateOfferAsync() {
             ThrowIfDisposed();
 
+            // 确保RTCPeerConnection已初始化
+            await EnsurePeerConnectionInitializedAsync();
+
             lock (_lock) {
                 if (_peerConnection == null) {
                     throw new InvalidOperationException("RTCPeerConnection is not initialized");
@@ -242,6 +245,9 @@ namespace AI.Caller.Core {
 
         public async Task<RTCSessionDescriptionInit> CreateAnswerAsync() {
             ThrowIfDisposed();
+
+            // 确保RTCPeerConnection已初始化
+            await EnsurePeerConnectionInitializedAsync();
 
             lock (_lock) {
                 if (_peerConnection == null) {
@@ -377,6 +383,29 @@ namespace AI.Caller.Core {
             if (_disposed) {
                 throw new ObjectDisposedException(nameof(MediaSessionManager));
             }
+        }
+
+        private async Task EnsurePeerConnectionInitializedAsync() {
+            lock (_lock) {
+                if (_peerConnection != null) {
+                    return; // 已经初始化
+                }
+            }
+
+            // 如果MediaSession也没有初始化，先初始化它
+            if (_mediaSession == null) {
+                await InitializeMediaSession();
+            }
+
+            // 使用默认配置初始化RTCPeerConnection
+            var defaultConfig = new RTCConfiguration {
+                iceServers = new List<RTCIceServer> {
+                    new RTCIceServer { urls = "stun:stun.l.google.com:19302" }
+                }
+            };
+
+            InitializePeerConnection(defaultConfig);
+            _logger.LogInformation("RTCPeerConnection auto-initialized with default configuration");
         }
 
         public void Dispose() {

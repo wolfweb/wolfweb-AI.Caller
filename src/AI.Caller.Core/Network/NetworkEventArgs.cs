@@ -1,10 +1,8 @@
-namespace AI.Caller.Core.Network
-{
+namespace AI.Caller.Core.Network {
     /// <summary>
     /// 网络状态变化事件参数
     /// </summary>
-    public class NetworkStatusEventArgs : EventArgs
-    {
+    public class NetworkStatusEventArgs : EventArgs {
         /// <summary>
         /// 当前网络状态
         /// </summary>
@@ -30,21 +28,18 @@ namespace AI.Caller.Core.Network
         /// </summary>
         public bool IsDegradation { get; }
 
-        public NetworkStatusEventArgs(NetworkStatus currentStatus, NetworkStatus? previousStatus = null)
-        {
+        public NetworkStatusEventArgs(NetworkStatus currentStatus, NetworkStatus? previousStatus = null) {
             CurrentStatus = currentStatus ?? throw new ArgumentNullException(nameof(currentStatus));
             PreviousStatus = previousStatus;
             ChangedAt = DateTime.UtcNow;
 
-            if (previousStatus != null)
-            {
+            if (previousStatus != null) {
                 IsImprovement = DetermineImprovement(currentStatus, previousStatus);
                 IsDegradation = DetermineDegradation(currentStatus, previousStatus);
             }
         }
 
-        private static bool DetermineImprovement(NetworkStatus current, NetworkStatus previous)
-        {
+        private static bool DetermineImprovement(NetworkStatus current, NetworkStatus previous) {
             // 连接状态改善
             if (!previous.IsConnected && current.IsConnected)
                 return true;
@@ -64,8 +59,7 @@ namespace AI.Caller.Core.Network
             return false;
         }
 
-        private static bool DetermineDegradation(NetworkStatus current, NetworkStatus previous)
-        {
+        private static bool DetermineDegradation(NetworkStatus current, NetworkStatus previous) {
             // 连接丢失
             if (previous.IsConnected && !current.IsConnected)
                 return true;
@@ -85,8 +79,7 @@ namespace AI.Caller.Core.Network
             return false;
         }
 
-        public override string ToString()
-        {
+        public override string ToString() {
             var change = IsImprovement ? "Improved" : IsDegradation ? "Degraded" : "Changed";
             return $"Network status {change}: {CurrentStatus}";
         }
@@ -95,8 +88,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 网络连接丢失事件参数
     /// </summary>
-    public class NetworkConnectionLostEventArgs : EventArgs
-    {
+    public class NetworkConnectionLostEventArgs : EventArgs {
         /// <summary>
         /// 连接丢失时间
         /// </summary>
@@ -118,18 +110,16 @@ namespace AI.Caller.Core.Network
         public IReadOnlyList<string> AffectedClientIds { get; }
 
         public NetworkConnectionLostEventArgs(
-            NetworkStatus lastKnownStatus, 
-            string reason, 
-            IEnumerable<string>? affectedClientIds = null)
-        {
+            NetworkStatus lastKnownStatus,
+            string reason,
+            IEnumerable<string>? affectedClientIds = null) {
             LostAt = DateTime.UtcNow;
             LastKnownStatus = lastKnownStatus ?? throw new ArgumentNullException(nameof(lastKnownStatus));
             Reason = reason ?? throw new ArgumentNullException(nameof(reason));
             AffectedClientIds = affectedClientIds?.ToList().AsReadOnly() ?? new List<string>().AsReadOnly();
         }
 
-        public override string ToString()
-        {
+        public override string ToString() {
             return $"Network connection lost at {LostAt:HH:mm:ss}: {Reason} " +
                    $"(Affected clients: {AffectedClientIds.Count})";
         }
@@ -138,8 +128,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 网络连接恢复事件参数
     /// </summary>
-    public class NetworkConnectionRestoredEventArgs : EventArgs
-    {
+    public class NetworkConnectionRestoredEventArgs : EventArgs {
         /// <summary>
         /// 连接恢复时间
         /// </summary>
@@ -161,18 +150,16 @@ namespace AI.Caller.Core.Network
         public IReadOnlyList<string> RestoredClientIds { get; }
 
         public NetworkConnectionRestoredEventArgs(
-            NetworkStatus currentStatus, 
+            NetworkStatus currentStatus,
             TimeSpan outageDuration,
-            IEnumerable<string>? restoredClientIds = null)
-        {
+            IEnumerable<string>? restoredClientIds = null) {
             RestoredAt = DateTime.UtcNow;
             CurrentStatus = currentStatus ?? throw new ArgumentNullException(nameof(currentStatus));
             OutageDuration = outageDuration;
             RestoredClientIds = restoredClientIds?.ToList().AsReadOnly() ?? new List<string>().AsReadOnly();
         }
 
-        public override string ToString()
-        {
+        public override string ToString() {
             return $"Network connection restored at {RestoredAt:HH:mm:ss} " +
                    $"after {OutageDuration:mm\\:ss} outage " +
                    $"(Restored clients: {RestoredClientIds.Count})";
@@ -182,8 +169,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 网络质量变化事件参数
     /// </summary>
-    public class NetworkQualityChangedEventArgs : EventArgs
-    {
+    public class NetworkQualityChangedEventArgs : EventArgs {
         /// <summary>
         /// 当前网络质量
         /// </summary>
@@ -215,18 +201,16 @@ namespace AI.Caller.Core.Network
         public bool IsDegradation => CurrentQuality < PreviousQuality;
 
         public NetworkQualityChangedEventArgs(
-            NetworkQuality currentQuality, 
+            NetworkQuality currentQuality,
             NetworkQuality previousQuality,
-            NetworkStatus currentStatus)
-        {
+            NetworkStatus currentStatus) {
             CurrentQuality = currentQuality;
             PreviousQuality = previousQuality;
             ChangedAt = DateTime.UtcNow;
             CurrentStatus = currentStatus ?? throw new ArgumentNullException(nameof(currentStatus));
         }
 
-        public override string ToString()
-        {
+        public override string ToString() {
             var change = IsImprovement ? "improved" : IsDegradation ? "degraded" : "changed";
             return $"Network quality {change} from {PreviousQuality} to {CurrentQuality} at {ChangedAt:HH:mm:ss}";
         }
@@ -235,8 +219,7 @@ namespace AI.Caller.Core.Network
     /// <summary>
     /// 客户端网络状态变化事件参数
     /// </summary>
-    public class ClientNetworkStatusChangedEventArgs : EventArgs
-    {
+    public class ClientNetworkStatusChangedEventArgs : EventArgs {
         /// <summary>
         /// 客户端ID
         /// </summary>
@@ -269,25 +252,22 @@ namespace AI.Caller.Core.Network
 
         public ClientNetworkStatusChangedEventArgs(
             string clientId,
-            ClientNetworkStatus currentStatus, 
-            ClientNetworkStatus? previousStatus = null)
-        {
+            ClientNetworkStatus currentStatus,
+            ClientNetworkStatus? previousStatus = null) {
             ClientId = clientId ?? throw new ArgumentNullException(nameof(clientId));
             CurrentStatus = currentStatus ?? throw new ArgumentNullException(nameof(currentStatus));
             PreviousStatus = previousStatus;
             ChangedAt = DateTime.UtcNow;
 
-            if (previousStatus != null)
-            {
+            if (previousStatus != null) {
                 IsConnectionEstablished = !previousStatus.IsOnline && currentStatus.IsOnline;
                 IsConnectionLost = previousStatus.IsOnline && !currentStatus.IsOnline;
             }
         }
 
-        public override string ToString()
-        {
-            var status = IsConnectionEstablished ? "Connected" : 
-                        IsConnectionLost ? "Disconnected" : 
+        public override string ToString() {
+            var status = IsConnectionEstablished ? "Connected" :
+                        IsConnectionLost ? "Disconnected" :
                         "Status Changed";
             return $"Client {ClientId} {status}: {CurrentStatus.ConnectionStatus}";
         }
