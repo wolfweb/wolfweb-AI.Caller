@@ -33,9 +33,6 @@ namespace AI.Caller.Core {
         public event Action<SIPClient>? ResourcesReleased;
         public event Action<SIPClient, string>? CallInitiated;
 
-        public event Action<IPEndPoint, SDPMediaTypesEnum, RTPPacket>? AudioDataReceived; // SIP → WebRTC
-        public event Action<IPEndPoint, SDPMediaTypesEnum, RTPPacket>? AudioDataSent;     // WebRTC → SIP
-
         public SIPDialogue Dialogue => m_userAgent.Dialogue;
         public bool IsCallActive => m_userAgent.IsCallActive;
         public bool IsOnHold => m_userAgent.IsOnLocalHold || m_userAgent.IsOnRemoteHold;
