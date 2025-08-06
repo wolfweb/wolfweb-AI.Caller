@@ -45,7 +45,7 @@ namespace AI.Caller.Phone.Services
             try
             {
                 // 订阅通话相关事件
-                sipClient.CallAnswer += async (client) => await OnCallAnswered(sipUsername, client);
+                sipClient.CallAnswered += async (client) => await OnCallAnswered(sipUsername, client);
                 sipClient.CallEnded += async (client) => await OnCallEnded(sipUsername, client);
                 
                 _logger.LogDebug($"已为SIP客户端 {sipUsername} 订阅录音事件");
@@ -63,7 +63,6 @@ namespace AI.Caller.Phone.Services
         {
             try
             {
-                // 确保停止任何活跃的录音
                 _ = Task.Run(async () =>
                 {
                     await _recordingService.StopRecordingAsync(sipUsername);

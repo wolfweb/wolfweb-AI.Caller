@@ -21,7 +21,7 @@ namespace AI.Caller.Core {
         private readonly string _clientId;
         private readonly INetworkMonitoringService? _networkMonitoringService;
 
-        public event Action<SIPClient>? CallAnswer;
+        public event Action<SIPClient>? CallAnswered;
         public event Action<SIPClient>? CallEnded;
         public event Action<SIPClient>? CallTrying;
         public event Action<SIPClient>? RemotePutOnHold;
@@ -309,7 +309,7 @@ namespace AI.Caller.Core {
                 await _mediaManager!.SetSipRemoteDescriptionAsync(remoteAnswer);
             }
 
-            CallAnswer?.Invoke(this);
+            CallAnswered?.Invoke(this);
         }
 
         private void CallFinished(SIPDialogue? dialogue) {
@@ -397,12 +397,12 @@ namespace AI.Caller.Core {
             return _clientId;
         }
 
-        public MediaSessionManager? MediaSessionManager 
+        public MediaSessionManager MediaSessionManager 
         { 
             get 
             {
                 EnsureMediaSessionInitialized();
-                return _mediaManager;
+                return _mediaManager!;
             }
         }
 

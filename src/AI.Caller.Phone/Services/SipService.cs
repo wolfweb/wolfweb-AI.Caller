@@ -62,6 +62,14 @@ namespace AI.Caller.Phone.Services {
 
                 var sipClient = new SIPClient(_applicationContext.SipServer,_logger, _sipTransportManager.SIPTransport!, _webRTCSettings);
 
+                sipClient.StatusMessage += (_, message) => {
+                    _logger.LogDebug($"SIP客户端状态更新: {message}");
+                };
+
+                sipClient.CallAnswered += async _ => {
+                    await _hubContext.Clients.User(user.Id.ToString()).SendAsync("answered");
+                };
+
                 _applicationContext.AddSipClient(user.SipUsername, sipClient);
                 _logger.LogInformation($"用户 {user.Username} : {user.SipUsername} 的SIP账号注册成功");
                 await _dbContext.SaveChangesAsync();
