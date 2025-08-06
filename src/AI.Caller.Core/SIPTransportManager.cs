@@ -106,6 +106,7 @@ namespace AI.Caller.Core {
                   sipRequest.Header.From.FromTag != null &&
                   sipRequest.Header.To != null &&
                   sipRequest.Header.To.ToTag != null) {
+                _logger.LogDebug("SIP request for established dialogue received, letting SIPClient handle.");
             } else if (sipRequest.Method == SIPMethodsEnum.INVITE) {
                 bool? callAccepted = await IncomingCall?.Invoke(sipRequest);
                 if (callAccepted == false) {

@@ -75,15 +75,7 @@ namespace AI.Caller.Core {
         }
 
         public async Task CallAsync(string destination, SIPFromHeader fromHeader) {
-            SIPURI callURI;
-
-            EnsureMediaSessionInitialized();
-
-            if (destination.Contains("@")) {
-                callURI = SIPURI.ParseSIPURIRelaxed(destination);
-            } else {
-                callURI = SIPURI.ParseSIPURIRelaxed(destination + "@" + _sipServer);
-            }
+            SIPURI callURI = destination.Contains("@") ? SIPURI.ParseSIPURIRelaxed(destination) : SIPURI.ParseSIPURIRelaxed(destination + "@" + _sipServer);
 
             StatusMessage?.Invoke(this, $"Starting call to {callURI}.");
 
@@ -98,6 +90,7 @@ namespace AI.Caller.Core {
             Debug.WriteLine($"DNS lookup result for {callURI}: {dstEndpoint}.");
             SIPCallDescriptor callDescriptor = new SIPCallDescriptor(null, null, callURI.ToString(), fromHeader.ToString(), null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, null, null);
 
+            EnsureMediaSessionInitialized();
             await _mediaManager!.InitializeMediaSession();
             _mediaManager.InitializePeerConnection(GetRTCConfiguration());
 
@@ -172,6 +165,7 @@ namespace AI.Caller.Core {
 
         public async Task<RTCSessionDescriptionInit?> OfferAsync(RTCSessionDescriptionInit sdpOffer) {
             try {
+                EnsureMediaSessionInitialized();
                 _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
                 _mediaManager.SetWebRtcRemoteDescription(sdpOffer);
                 return await _mediaManager.CreateAnswerAsync(); // This will trigger SdpAnswerGenerated event
@@ -281,6 +275,11 @@ namespace AI.Caller.Core {
             StatusMessage?.Invoke(this, "Call ringing: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
 
             if (sipResponse.Body != null) {
+                if (_mediaManager!.MediaSession?.RemoteDescription != null) {
+                    _logger.LogDebug("SDP already set, skipping duplicate processing in 200 OK.");
+                    return;
+                }
+
                 var remoteAnswer = new RTCSessionDescriptionInit {
                     type = RTCSdpType.answer,
                     sdp = sipResponse.Body
