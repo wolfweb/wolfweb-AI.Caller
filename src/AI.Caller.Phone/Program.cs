@@ -50,16 +50,15 @@ namespace AI.Caller.Phone {
 
             builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
             builder.Services.AddHostedService<SipBackgroundTask>();
+            builder.Services.AddHostedService<UserSessionCleanupService>();
             builder.Services.AddSingleton<SIPTransportManager>();
             builder.Services.AddScoped<UserService>();
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
-            // 注册录音服务 - 使用音频流录音服务替代简单录音服务
             builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();
             builder.Services.AddScoped<RecordingManager>();
             builder.Services.AddSingleton<HangupMonitoringService>();
 
-            // 添加通话路由相关服务
             builder.Services.AddSingleton<ICallTypeIdentifier, CallRouting.Services.CallTypeIdentifier>();
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
             builder.Services.AddScoped<ICallRoutingStrategy, CallRouting.Strategies.DirectRoutingStrategy>();
@@ -102,7 +101,6 @@ namespace AI.Caller.Phone {
 #endif
                 EnsureDefaultUser(builder.Configuration, dbContext);
                 
-                // 初始化录音管理器
                 var recordingManager = scope.ServiceProvider.GetRequiredService<RecordingManager>();
                 recordingManager.Initialize();
             }

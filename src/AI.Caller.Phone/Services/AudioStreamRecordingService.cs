@@ -238,15 +238,19 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void SubscribeToAudioEvents() {
-            _sipClient.MediaSessionManager.AudioDataReceived += OnAudioPacketReceived; // 对方的声音（SIP → WebRTC）
-            _sipClient.MediaSessionManager.AudioDataSent += OnAudioPacketSent;         // 本地用户的声音（WebRTC → SIP）
+            if (_sipClient.MediaSessionManager != null) {
+                _sipClient.MediaSessionManager.AudioDataReceived += OnAudioPacketReceived; // 对方的声音（SIP → WebRTC）
+                _sipClient.MediaSessionManager.AudioDataSent += OnAudioPacketSent;         // 本地用户的声音（WebRTC → SIP）
+            }
 
             _sipClient.CallEnded += OnCallEnded;
         }
 
         private void UnsubscribeFromAudioEvents() {
-            _sipClient.MediaSessionManager.AudioDataReceived -= OnAudioPacketReceived;
-            _sipClient.MediaSessionManager.AudioDataSent -= OnAudioPacketSent;
+            if (_sipClient.MediaSessionManager != null) {
+                _sipClient.MediaSessionManager.AudioDataReceived -= OnAudioPacketReceived;
+                _sipClient.MediaSessionManager.AudioDataSent -= OnAudioPacketSent;
+            }
             _sipClient.CallEnded -= OnCallEnded;
         }
 

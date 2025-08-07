@@ -100,8 +100,7 @@ namespace AI.Caller.Phone.Services {
                 var offer = await sipClient.OfferAsync(sdpOffer);
                 await _hubContext.Clients.User(user.Id.ToString()).SendAsync("sdpAnswered", offer.toJSON());
 
-                // Use event-driven approach through MediaSessionManager
-                sipClient.MediaSessionManager.IceCandidateGenerated += async (candidate) => {
+                sipClient.MediaSessionManager!.IceCandidateGenerated += async (candidate) => {
                     if (candidate != null) {
                         try
                         {
@@ -113,7 +112,6 @@ namespace AI.Caller.Phone.Services {
                     }
                 };
 
-                // 生成From-tag
                 var fromTag = GenerateFromTag();
                 
                 var fromHeader = new SIPFromHeader(user.Username, new SIPURI(user.SipUsername, _applicationContext.SipServer, null), fromTag);
@@ -121,6 +119,8 @@ namespace AI.Caller.Phone.Services {
                 await sipClient.CallAsync(destination, fromHeader);
                 
                 RegisterOutboundCallAfterInitiation(sipClient, fromTag, sipUsername, destination);
+                
+                _applicationContext.UpdateUserActivity(sipUsername);
 
                 return (true, "呼叫已发起");
             } catch (Exception ex) {
@@ -144,7 +144,12 @@ namespace AI.Caller.Phone.Services {
                         await Task.Delay(100);
 
                     var result = await sipClient.AnswerAsync();
-                    _logger.LogInformation($"用户 {userName} 接听电话{(result ? "成功" : "失败")}");                    
+                    _logger.LogInformation($"用户 {userName} 接听电话{(result ? "成功" : "失败")}");
+                    
+                    if (result) {
+                        _applicationContext.UpdateUserActivity(user.SipUsername);
+                    }
+                    
                     return result;
                 } catch (Exception ex) {
                     _logger.LogError(ex, $"用户 {userName} 接听电话失败: {ex.Message}");
@@ -156,126 +161,41 @@ namespace AI.Caller.Phone.Services {
         }
 
         /// <summary>
-        /// 异步挂断电话（增强版本，带超时处理和监控）
+        /// 简化的挂断电话方法
         /// </summary>
         public async Task<bool> HangupCallAsync(string sipUserName, string? reason = null) {
             var hangupReason = reason ?? "User requested hangup";
-            var hangupId = _monitoringService.StartHangupMonitoring(sipUserName, hangupReason);
-
-            using var hangupCts = new CancellationTokenSource(_retryPolicy.HangupTimeout);
-
+            
             try {
-                _logger.LogInformation($"开始挂断电话 - 用户: {sipUserName}, 原因: {hangupReason}, 超时: {_retryPolicy.HangupTimeout.TotalSeconds}秒, 监控ID: {hangupId}");
+                _logger.LogInformation($"开始挂断电话 - 用户: {sipUserName}, 原因: {hangupReason}");
 
                 if (!_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient)) {
                     _logger.LogWarning($"用户 {sipUserName} 的SIP客户端不存在，无法挂断");
-                    _monitoringService.LogHangupStep(hangupId, "ValidationFailed", "SIP客户端不存在");
                     await NotifyHangupStatusAsync(sipUserName, "hangupFailed", "SIP客户端不存在");
-                    _monitoringService.CompleteHangupMonitoring(hangupId, false, "SIP客户端不存在");
                     return false;
                 }
-
-                _monitoringService.LogHangupStep(hangupId, "SipClientFound", $"找到SIP客户端: {sipUserName}");
 
                 if (!sipClient.IsCallActive) {
                     _logger.LogInformation($"用户 {sipUserName} 没有活动的通话，无需挂断");
-                    _monitoringService.LogHangupStep(hangupId, "NoActiveCall", "没有活动通话");
                     await NotifyHangupStatusAsync(sipUserName, "callEnded", "没有活动通话");
-                    _monitoringService.CompleteHangupMonitoring(hangupId, true, "没有活动通话");
                     return true;
                 }
-
-                _monitoringService.LogHangupStep(hangupId, "ActiveCallFound", "发现活动通话");
-
-                // 发送"正在挂断"状态通知
-                await NotifyHangupStatusAsync(sipUserName, "hangupInitiated", hangupReason);
-                _monitoringService.LogHangupStep(hangupId, "InitiatedNotificationSent", "已发送挂断开始通知");
 
                 _logger.LogInformation($"用户 {sipUserName} 有活动通话，执行挂断");
 
-                // 使用超时机制执行挂断操作
-                var hangupTask = Task.Run(() => {
-                    _monitoringService.LogHangupStep(hangupId, "HangupStarted", "开始执行SIP挂断");
-                    sipClient.Hangup();
-                    _monitoringService.LogHangupStep(hangupId, "HangupCompleted", "SIP挂断完成");
-                }, hangupCts.Token);
-
-                // 等待挂断完成或超时
-                var completedTask = await Task.WhenAny(
-                    hangupTask,
-                    Task.Delay(_retryPolicy.HangupTimeout, hangupCts.Token)
-                );
-
-                if (completedTask == hangupTask) {
-                    // 挂断操作完成
-                    await hangupTask; // 确保任何异常被抛出
-
-                    // 等待一小段时间确保挂断操作完成
-                    await Task.Delay(100, hangupCts.Token);
-
-                    // 录音功能现在由RecordingManager自动处理
-
-                    // 清理呼出通话记录
-                    _ = Task.Run(() =>
-                    {
-                        try
-                        {
-                            var callTypeIdentifier = GetCallTypeIdentifier();
-                            if (callTypeIdentifier != null)
-                            {
-                                // 获取所有活跃的呼出通话并清理
-                                var activeOutboundCalls = callTypeIdentifier.GetActiveOutboundCalls()
-                                    .Where(call => call.SipUsername == sipUserName)
-                                    .ToList();
-
-                                foreach (var call in activeOutboundCalls)
-                                {
-                                    callTypeIdentifier.UpdateOutboundCallStatus(call.CallId, AI.Caller.Phone.CallRouting.Models.CallStatus.Ended);
-                                    _logger.LogDebug($"已更新呼出通话状态为结束 - CallId: {call.CallId}");
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, $"清理呼出通话记录时发生异常 - 用户: {sipUserName}");
-                        }
-                    });
-
-                    // 发送"通话已结束"确认
-                    await NotifyHangupStatusAsync(sipUserName, "callEnded", hangupReason);
-                    _monitoringService.LogHangupStep(hangupId, "EndNotificationSent", "已发送通话结束通知");
-
-                    _logger.LogInformation($"用户 {sipUserName} 挂断电话成功");
-                    _monitoringService.CompleteHangupMonitoring(hangupId, true);
-                    return true;
-                } else {
-                    // 挂断操作超时
-                    _logger.LogWarning($"用户 {sipUserName} 挂断操作超时，执行强制终止");
-                    _monitoringService.LogHangupStep(hangupId, "HangupTimeout", "挂断操作超时");
-
-                    // 强制终止连接
-                    await ForceTerminateConnectionAsync(sipUserName, sipClient);
-                    _monitoringService.LogHangupStep(hangupId, "ForceTerminated", "已强制终止连接");
-
-                    // 发送超时通知
-                    await NotifyHangupStatusAsync(sipUserName, "hangupFailed", "挂断操作超时，已强制终止连接");
-
-                    _monitoringService.CompleteHangupMonitoring(hangupId, false, "挂断操作超时");
-                    return false;
-                }
-            } catch (OperationCanceledException) when (hangupCts.Token.IsCancellationRequested) {
-                _logger.LogWarning($"用户 {sipUserName} 挂断操作被取消或超时");
-                _monitoringService.LogHangupStep(hangupId, "OperationCancelled", "操作被取消或超时");
-                await NotifyHangupStatusAsync(sipUserName, "hangupFailed", "挂断操作超时");
-                _monitoringService.CompleteHangupMonitoring(hangupId, false, "操作被取消");
-                return false;
+                sipClient.Hangup();
+                
+                await Task.Delay(500);
+                
+                await NotifyHangupStatusAsync(sipUserName, "callEnded", hangupReason);
+                
+                _applicationContext.UpdateUserActivity(sipUserName);
+                
+                _logger.LogInformation($"用户 {sipUserName} 挂断电话成功");
+                return true;
             } catch (Exception ex) {
-                _logger.LogError(ex, $"用户 {sipUserName} 挂断电话失败: {ex.Message}");
-                _monitoringService.LogHangupStep(hangupId, "ExceptionOccurred", $"异常: {ex.Message}");
-
-                // 发送挂断失败通知
+                _logger.LogError(ex, $"用户 {sipUserName} 挂断电话失败");
                 await NotifyHangupStatusAsync(sipUserName, "hangupFailed", $"挂断失败: {ex.Message}");
-                _monitoringService.CompleteHangupMonitoring(hangupId, false, ex.Message);
                 return false;
             }
         }

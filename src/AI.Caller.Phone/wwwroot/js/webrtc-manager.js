@@ -10,6 +10,10 @@ class WebRTCManager {
         this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
         this.iceTransportPolicy = 'all';
         this.preferredAudioDevices = null;
+        
+        // 添加SDP协商状态管理
+        this.sdpNegotiationComplete = false;
+        this.pendingIceCandidates = [];
     }
 
     async initialize() {
@@ -237,6 +241,10 @@ class WebRTCManager {
         console.log('Creating RTCPeerConnection with config:', rtcConfig);
         this.pc = new RTCPeerConnection(rtcConfig);
         
+        // 重置状态
+        this.sdpNegotiationComplete = false;
+        this.pendingIceCandidates = [];
+        
         // 添加本地媒体流
         this.localStream.getTracks().forEach(track => {
             this.pc.addTrack(track, this.localStream);
@@ -248,11 +256,21 @@ class WebRTCManager {
         if (isCaller) {
             const offer = await this.pc.createOffer();
             await this.pc.setLocalDescription(offer);
+            
+            // 标记SDP协商完成并发送缓存的ICE候选者
+            this.sdpNegotiationComplete = true;
+            await this.sendPendingIceCandidates();
+            
             return this.pc.localDescription;
         } else {
             await this.pc.setRemoteDescription(remoteSdp);
             const answer = await this.pc.createAnswer();
             await this.pc.setLocalDescription(answer);
+            
+            // 标记SDP协商完成并发送缓存的ICE候选者
+            this.sdpNegotiationComplete = true;
+            await this.sendPendingIceCandidates();
+            
             return this.pc.localDescription;
         }
     }
@@ -263,15 +281,17 @@ class WebRTCManager {
             this.elements.remoteAudio.srcObject = evt.streams[0];
         };
 
-        // ICE候选者处理
+        // ICE候选者处理 - 修复时序问题
         this.pc.onicecandidate = async evt => {
             if (evt.candidate) {
                 console.log("新ICE候选者:", evt.candidate);
-                try {
-                    await window.phoneApp.signalRManager.connection.invoke("SendIceCandidateAsync", evt.candidate);
-                    console.log("ICE候选者发送成功");
-                } catch (error) {
-                    console.error("发送ICE候选者失败:", error);
+                if (this.sdpNegotiationComplete) {
+                    // SDP协商完成后立即发送
+                    await this.sendIceCandidate(evt.candidate);
+                } else {
+                    // SDP协商未完成，暂存候选者
+                    console.log("SDP协商未完成，暂存ICE候选者");
+                    this.pendingIceCandidates.push(evt.candidate);
                 }
             }
         };
@@ -294,12 +314,33 @@ class WebRTCManager {
         };
     }
 
+    async sendPendingIceCandidates() {
+        console.log(`发送 ${this.pendingIceCandidates.length} 个缓存的ICE候选者`);
+        for (const candidate of this.pendingIceCandidates) {
+            await this.sendIceCandidate(candidate);
+        }
+        this.pendingIceCandidates = [];
+    }
+
+    async sendIceCandidate(candidate) {
+        try {
+            await window.phoneApp.signalRManager.connection.invoke("SendIceCandidateAsync", candidate);
+            console.log("ICE候选者发送成功:", candidate.candidate);
+        } catch (error) {
+            console.error("发送ICE候选者失败:", error);
+        }
+    }
+
     closePeerConnection() {
         if (this.pc) {
             console.log('关闭WebRTC连接');
             this.pc.close();
             this.pc = null;
         }
+        
+        // 重置状态
+        this.sdpNegotiationComplete = false;
+        this.pendingIceCandidates = [];
     }
 
     stopLocalStream() {

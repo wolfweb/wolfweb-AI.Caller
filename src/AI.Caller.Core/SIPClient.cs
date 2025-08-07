@@ -40,6 +40,7 @@ namespace AI.Caller.Core {
         private MediaSessionManager? _mediaManager;
         private CancellationTokenSource _cts = new();
         private SIPServerUserAgent? m_pendingIncomingCall;
+        private string? _lastRemoteSdp = null;
 
         public SIPClient(
             string sipServer,
@@ -54,6 +55,8 @@ namespace AI.Caller.Core {
             _webRTCSettings = webRTCSettings;            
             _networkMonitoringService = networkMonitoringService;
             _clientId = $"SIPClient_{Guid.NewGuid():N}[{sipServer}]";
+
+            // MediaSessionManager将在每次通话时创建
 
             m_userAgent = new(m_sipTransport, null);
 
@@ -71,9 +74,9 @@ namespace AI.Caller.Core {
             RegisterWithNetworkMonitoring();
         }
 
-        public async Task CallAsync(string destination, SIPFromHeader fromHeader) {
+        public async Task CallAsync(string destination, SIPFromHeader fromHeader) {            
             SIPURI callURI = destination.Contains("@") ? SIPURI.ParseSIPURIRelaxed(destination) : SIPURI.ParseSIPURIRelaxed(destination + "@" + _sipServer);
-
+            
             StatusMessage?.Invoke(this, $"Starting call to {callURI}.");
 
             var dstEndpoint = await SIPDns.ResolveAsync(callURI, false, _cts.Token);
@@ -87,13 +90,23 @@ namespace AI.Caller.Core {
             Debug.WriteLine($"DNS lookup result for {callURI}: {dstEndpoint}.");
             SIPCallDescriptor callDescriptor = new SIPCallDescriptor(null, null, callURI.ToString(), fromHeader.ToString(), null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, null, null);
 
+            // 1. 为每次通话创建新的MediaSessionManager
+            StatusMessage?.Invoke(this, "Creating fresh MediaSessionManager for call...");
             EnsureMediaSessionInitialized();
-            await _mediaManager!.InitializeMediaSession();
-            _mediaManager.InitializePeerConnection(GetRTCConfiguration());
 
+            // 2. 只初始化SIP媒体会话，延迟WebRTC初始化
+            StatusMessage?.Invoke(this, "Initializing SIP media session...");
+            await _mediaManager!.InitializeMediaSession();
+
+            // 3. RTCPeerConnection将在真正需要WebRTC功能时才创建
+            StatusMessage?.Invoke(this, "SIP media session initialized, RTCPeerConnection will be created when needed.");
+            _logger.LogInformation("MediaSessionManager ready, RTCPeerConnection will be lazy-initialized");
+
+            // 4. 现在开始SIP通话
             m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
             m_userAgent.RemoteTookOffHold += OnRemoteTookOffHold;
 
+            StatusMessage?.Invoke(this, "Starting SIP call...");
             await m_userAgent.InitiateCallAsync(callDescriptor, _mediaManager.MediaSession);
         }
 
@@ -112,12 +125,13 @@ namespace AI.Caller.Core {
                 return false;
             }
 
-            EnsureMediaSessionInitialized();
-
             var sipRequest = m_pendingIncomingCall.ClientTransaction.TransactionRequest;
 
-            await _mediaManager!.InitializeMediaSession();
-            _mediaManager.InitializePeerConnection(GetRTCConfiguration());
+            // 为接听通话创建新的MediaSessionManager
+            EnsureMediaSessionInitialized();
+            
+            _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+            await _mediaManager.InitializeMediaSession();
 
             if (sipRequest.Body != null) {
                 var remoteOffer = new RTCSessionDescriptionInit {
@@ -146,24 +160,30 @@ namespace AI.Caller.Core {
 
         public void AddIceCandidate(RTCIceCandidateInit candidate) {
             EnsureMediaSessionInitialized();
-            _mediaManager!.AddIceCandidate(candidate);
+            // 只有在需要WebRTC功能时才初始化RTCPeerConnection
+            _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+            _mediaManager.AddIceCandidate(candidate);
         }
 
         public void SetRemoteDescription(RTCSessionDescriptionInit description) {
             EnsureMediaSessionInitialized();
-            _mediaManager!.SetWebRtcRemoteDescription(description);
+            // 只有在需要WebRTC功能时才初始化RTCPeerConnection
+            _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+            _mediaManager.SetWebRtcRemoteDescription(description);
         }
 
         public async Task<RTCSessionDescriptionInit> CreateOfferAsync() {
             EnsureMediaSessionInitialized();
             _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
-            return await _mediaManager!.CreateOfferAsync();
+            await _mediaManager.InitializeMediaSession();
+            return await _mediaManager.CreateOfferAsync();
         }
 
         public async Task<RTCSessionDescriptionInit?> OfferAsync(RTCSessionDescriptionInit sdpOffer) {
             try {
                 EnsureMediaSessionInitialized();
                 _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+                await _mediaManager.InitializeMediaSession();
                 _mediaManager.SetWebRtcRemoteDescription(sdpOffer);
                 return await _mediaManager.CreateAnswerAsync(); // This will trigger SdpAnswerGenerated event
             } catch (Exception ex) {
@@ -194,7 +214,7 @@ namespace AI.Caller.Core {
 
         public void StopAudioStreams() {
             try {
-                _mediaManager!.Cancel();
+                _mediaManager?.Cancel();
                 AudioStopped?.Invoke(this);
             } catch (Exception ex) {
                 _logger.LogError($"Error stopping audio streams: {ex.Message}");
@@ -224,7 +244,7 @@ namespace AI.Caller.Core {
         public void Shutdown() {
             _cts.Cancel();
             Hangup();
-
+            _mediaManager?.Cancel();
             UnregisterFromNetworkMonitoring();
         }
 
@@ -255,7 +275,9 @@ namespace AI.Caller.Core {
             return new RTCConfiguration {
                 iceServers = iceServers.ToList(),
                 iceTransportPolicy = iceTransportPolicy,
-                X_DisableExtendedMasterSecretKey = true
+                X_DisableExtendedMasterSecretKey = true,
+                // 尝试更激进的配置来避免DTLS问题
+                iceCandidatePoolSize = 0  // 禁用ICE候选者池
             };
         }
 
@@ -271,9 +293,10 @@ namespace AI.Caller.Core {
         private async void OnCallRinging(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call ringing: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
 
-            if (sipResponse.Body != null) {
-                if (_mediaManager!.MediaSession?.RemoteDescription != null) {
-                    _logger.LogDebug("SDP already set, skipping duplicate processing in 200 OK.");
+            if (!string.IsNullOrEmpty(sipResponse.Body)) {
+                // 检查SDP内容是否相同，避免重复设置
+                if (_lastRemoteSdp == sipResponse.Body) {
+                    _logger.LogDebug("Same SDP already processed, skipping duplicate processing in ringing response");
                     return;
                 }
 
@@ -282,6 +305,8 @@ namespace AI.Caller.Core {
                     sdp = sipResponse.Body
                 };
                 await _mediaManager!.SetSipRemoteDescriptionAsync(remoteAnswer);
+                _lastRemoteSdp = sipResponse.Body;
+                _logger.LogDebug("Processed new SDP in ringing response");
             }
         }
 
@@ -294,16 +319,18 @@ namespace AI.Caller.Core {
             StatusMessage?.Invoke(this, "Call answered: " + response.StatusCode + " " + response.ReasonPhrase + ".");
 
             if (!string.IsNullOrEmpty(response.Body)) {
-                if (_mediaManager!.MediaSession?.RemoteDescription != null) {
-                    _logger.LogDebug("SDP already set, skipping duplicate processing in 200 OK.");
-                    return;
+                // 检查SDP内容是否相同，避免重复设置
+                if (_lastRemoteSdp == response.Body) {
+                    _logger.LogDebug("Same SDP already processed, skipping duplicate processing in call answered");
+                } else {
+                    var remoteAnswer = new RTCSessionDescriptionInit {
+                        type = RTCSdpType.answer,
+                        sdp = response.Body
+                    };
+                    await _mediaManager!.SetSipRemoteDescriptionAsync(remoteAnswer);
+                    _lastRemoteSdp = response.Body;
+                    _logger.LogDebug("Processed new SDP in call answered response");
                 }
-
-                var remoteAnswer = new RTCSessionDescriptionInit {
-                    type = RTCSdpType.answer,
-                    sdp = response.Body
-                };
-                await _mediaManager!.SetSipRemoteDescriptionAsync(remoteAnswer);
             }
 
             CallAnswered?.Invoke(this);
@@ -312,10 +339,21 @@ namespace AI.Caller.Core {
         private void CallFinished(SIPDialogue? dialogue) {
             try {
                 m_pendingIncomingCall = null;
-                _mediaManager?.Dispose();
-                _mediaManager = null;
-
-                StatusMessage?.Invoke(this, "Call finished and resources cleaned up.");
+                
+                // 完全销毁MediaSessionManager，下次通话时重新创建
+                if (_mediaManager != null) {
+                    try {
+                        _mediaManager.Dispose();
+                        _logger.LogInformation("MediaSessionManager disposed after call finished");
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "Error disposing MediaSessionManager");
+                    } finally {
+                        _mediaManager = null;
+                    }
+                }
+                
+                _lastRemoteSdp = null;
+                StatusMessage?.Invoke(this, "Call finished and MediaSessionManager disposed.");
             } catch (Exception ex) {
                 _logger.LogError($"Error in CallFinished : {ex.Message}");
                 StatusMessage?.Invoke(this, $"Error during call cleanup: {ex.Message}");
@@ -394,18 +432,14 @@ namespace AI.Caller.Core {
             return _clientId;
         }
 
-        public MediaSessionManager MediaSessionManager 
-        { 
-            get 
-            {
-                EnsureMediaSessionInitialized();
-                return _mediaManager!;
-            }
-        }
+        public MediaSessionManager? MediaSessionManager => _mediaManager;
 
         private void EnsureMediaSessionInitialized() {
-            _mediaManager ??= new MediaSessionManager(_logger);
-            SetupMediaSessionEvents();
+            if (_mediaManager == null) {
+                _mediaManager = new MediaSessionManager(_logger);
+                SetupMediaSessionEvents();
+                _logger.LogInformation("Created new MediaSessionManager for call");
+            }
         }
 
         private void SetupMediaSessionEvents() {

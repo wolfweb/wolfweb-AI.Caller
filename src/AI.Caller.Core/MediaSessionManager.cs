@@ -213,7 +213,6 @@ namespace AI.Caller.Core {
         public async Task<RTCSessionDescriptionInit> CreateOfferAsync() {
             ThrowIfDisposed();
 
-            // 确保RTCPeerConnection已初始化
             await EnsurePeerConnectionInitializedAsync();
 
             lock (_lock) {
@@ -246,7 +245,6 @@ namespace AI.Caller.Core {
         public async Task<RTCSessionDescriptionInit> CreateAnswerAsync() {
             ThrowIfDisposed();
 
-            // 确保RTCPeerConnection已初始化
             await EnsurePeerConnectionInitializedAsync();
 
             lock (_lock) {
@@ -310,12 +308,16 @@ namespace AI.Caller.Core {
                     return;
                 }
 
-                if (_peerConnection != null && _peerConnection.connectionState == RTCPeerConnectionState.connected) {
-                    _peerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
-                    _logger.LogTrace($"Forwarded RTP audio to WebRTC: {rtpPacket.Payload.Length} bytes from {remote}");
-                    AudioDataReceived?.Invoke(remote, mediaType, rtpPacket);
+                if (_peerConnection != null) {
+                    try {
+                        _peerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
+                        _logger.LogTrace($"Forwarded RTP audio to WebRTC: {rtpPacket.Payload.Length} bytes from {remote}");
+                        AudioDataReceived?.Invoke(remote, mediaType, rtpPacket);
+                    } catch (Exception ex) {
+                        _logger.LogDebug($"Error sending audio to RTCPeerConnection (DTLS may not be ready): {ex.Message}");
+                    }
                 } else {
-                    _logger.LogWarning($"Cannot forward audio to WebRTC: RTCPeerConnection={(_peerConnection != null ? "Exists" : "Null")}, State={(_peerConnection?.connectionState.ToString() ?? "N/A")}");
+                    _logger.LogDebug("RTCPeerConnection not available, skipping WebRTC audio forwarding");
                 }
             } catch (Exception ex) {
                 _logger.LogError($"Error processing RTP audio packet from {remote}: {ex.Message}");
@@ -353,11 +355,29 @@ namespace AI.Caller.Core {
             pc.onconnectionstatechange += (state) => {
                 _logger.LogInformation($"RTCPeerConnection state changed to: {state}");
                 if (state == RTCPeerConnectionState.connected) {
-                    _logger.LogInformation("Peer connection connected.");
+                    _logger.LogInformation("Peer connection connected - DTLS transport should be available now.");
                 } else if (state == RTCPeerConnectionState.failed || state == RTCPeerConnectionState.disconnected) {
-                    _logger.LogWarning($"RTCPeerConnection failed or disconnected: {state}");
+                    _logger.LogWarning($"RTCPeerConnection failed or disconnected: {state} - DTLS transport may be unavailable");
                 }
                 ConnectionStateChanged?.Invoke(state);
+            };
+
+            pc.oniceconnectionstatechange += (state) => {
+                _logger.LogInformation($"ICE connection state changed to: {state}");
+                if (state == RTCIceConnectionState.connected) {
+                    _logger.LogInformation("ICE connection established - preparing DTLS transport");
+                } else if (state == RTCIceConnectionState.failed || state == RTCIceConnectionState.disconnected) {
+                    _logger.LogWarning($"ICE connection issue: {state} - may affect DTLS transport");
+                }
+            };
+
+            pc.onicegatheringstatechange += (state) => {
+                _logger.LogInformation($"ICE gathering state changed to: {state}");
+            };
+
+            pc.onsignalingstatechange += () => {
+                var state = pc.signalingState;
+                _logger.LogInformation($"Signaling state changed to: {state}");
             };
 
             pc.onicecandidate += (candidate) => {
@@ -379,6 +399,40 @@ namespace AI.Caller.Core {
         public RTPSession? MediaSession => _mediaSession;
         public RTCPeerConnection? PeerConnection => _peerConnection;
 
+        public async Task<bool> WaitForConnectionAsync(int timeoutMs = 10000) {
+            if (_peerConnection == null) {
+                return false;
+            }
+
+            if (_peerConnection.connectionState == RTCPeerConnectionState.connected) {
+                return true;
+            }
+
+            var tcs = new TaskCompletionSource<bool>();
+            var timeout = Task.Delay(timeoutMs);
+
+            void OnStateChange(RTCPeerConnectionState state) {
+                if (state == RTCPeerConnectionState.connected) {
+                    tcs.TrySetResult(true);
+                } else if (state == RTCPeerConnectionState.failed || state == RTCPeerConnectionState.closed) {
+                    tcs.TrySetResult(false);
+                }
+            }
+
+            ConnectionStateChanged += OnStateChange;
+
+            try {
+                var completedTask = await Task.WhenAny(tcs.Task, timeout);
+                if (completedTask == timeout) {
+                    _logger.LogWarning("Timeout waiting for RTCPeerConnection to connect");
+                    return false;
+                }
+                return await tcs.Task;
+            } finally {
+                ConnectionStateChanged -= OnStateChange;
+            }
+        }
+
         private void ThrowIfDisposed() {
             if (_disposed) {
                 throw new ObjectDisposedException(nameof(MediaSessionManager));
@@ -388,16 +442,13 @@ namespace AI.Caller.Core {
         private async Task EnsurePeerConnectionInitializedAsync() {
             lock (_lock) {
                 if (_peerConnection != null) {
-                    return; // 已经初始化
+                    return;
                 }
             }
-
-            // 如果MediaSession也没有初始化，先初始化它
             if (_mediaSession == null) {
                 await InitializeMediaSession();
             }
 
-            // 使用默认配置初始化RTCPeerConnection
             var defaultConfig = new RTCConfiguration {
                 iceServers = new List<RTCIceServer> {
                     new RTCIceServer { urls = "stun:stun.l.google.com:19302" }
