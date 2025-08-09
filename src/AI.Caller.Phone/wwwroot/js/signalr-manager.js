@@ -50,6 +50,21 @@ class SignalRManager {
             console.log(`SignalR重连成功，连接ID: ${connectionId}`);
             this.updateStatus('连接已恢复', 'success');
             this.reconnectAttempts = 0;
+
+            if(!this.webRTCManager.pc) 
+                this.webRTCManager.initialize();
+
+            if (this.webRTCManager.pc && 
+                (this.webRTCManager.pc.iceConnectionState === 'disconnected' || 
+                 this.webRTCManager.pc.iceConnectionState === 'failed' || 
+                 this.webRTCManager.pc.connectionState === 'failed')) {
+                console.log('WebRTC connection disrupted after SignalR reconnect, initiating WebRTC reconnect');
+                this.webRTCManager.handleWebRTCReconnect();
+            } else if (this.callStateManager.getCurrentState() === CallState.CONNECTED) {
+                // 如果通话仍在进行，确保 WebRTC 状态正常
+                console.log('Verifying WebRTC connection after SignalR reconnect');
+                this.webRTCManager.checkSecureConnection();
+            }
         });
 
         this.connection.onclose((error) => {

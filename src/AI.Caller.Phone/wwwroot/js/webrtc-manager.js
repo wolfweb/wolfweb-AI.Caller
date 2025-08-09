@@ -303,6 +303,13 @@ class WebRTCManager {
         
         this.pc.oniceconnectionstatechange = () => {
             console.log("ICE connection state: " + this.pc.iceConnectionState);
+            if (this.pc.iceConnectionState === 'disconnected' || this.pc.iceConnectionState === 'failed') {
+                console.warn('WebRTC connection disrupted, triggering reconnect');
+                this.handleWebRTCReconnect();
+            } else if (this.pc.iceConnectionState === 'connected') {
+                console.log('WebRTC connection established');
+                this.updateStatus('WebRTC连接已建立', 'success');
+            }
         };
         
         this.pc.onsignalingstatechange = () => {
@@ -311,7 +318,31 @@ class WebRTCManager {
         
         this.pc.onconnectionstatechange = () => {
             console.log("Connection state: " + this.pc.connectionState);
+            if (this.pc.connectionState === 'failed') {
+                console.warn('WebRTC connection failed, triggering reconnect');
+                this.handleWebRTCReconnect();
+            }
         };
+    }
+
+    async handleWebRTCReconnect() {
+        if (!window.phoneApp || !window.phoneApp.signalRManager || window.phoneApp.signalRManager.connection.state !== 'Connected') {
+            console.warn('SignalR not connected, waiting for reconnect before WebRTC recovery');
+            return;
+        }
+    
+        try {
+            this.updateStatus('WebRTC连接断开，正在重新连接...', 'warning');
+            this.closePeerConnection(); 
+        
+            await window.phoneApp.signalRManager.connection.invoke("ReconnectWebRTCAsync");
+    
+            this.updateStatus('WebRTC重新连接中，等待服务器响应...', 'info');
+        } catch (error) {
+            console.error('WebRTC reconnect failed:', error);
+            this.updateStatus('WebRTC重新连接失败: ' + error.message, 'danger');
+            window.phoneApp.handleCallError(error);
+        }
     }
 
     async sendPendingIceCandidates() {
