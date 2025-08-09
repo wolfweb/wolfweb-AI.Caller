@@ -42,7 +42,7 @@ namespace AI.Caller.Phone.Hubs {
         /// <summary>
         /// 处理前端挂断请求
         /// </summary>
-        public async Task<bool> HangupCallAsync(string? reason = null) {
+        public async Task<bool> HangupCallAsync(WebRtcHangupModel model) {
             try {
                 var userName = Context.User?.Identity?.Name;
                 if (string.IsNullOrEmpty(userName)) {
@@ -64,7 +64,7 @@ namespace AI.Caller.Phone.Hubs {
                 }
 
                 // 调用SipService的挂断方法
-                var result = await _sipService.HangupWithNotificationAsync(user.SipUsername, reason);
+                var result = await _sipService.HangupWithNotificationAsync(user.SipUsername, model);
                 
                 if (!result) {
                     await Clients.Caller.SendAsync("hangupFailed", new { 
@@ -80,28 +80,6 @@ namespace AI.Caller.Phone.Hubs {
                     timestamp = DateTime.UtcNow 
                 });
                 return false;
-            }
-        }
-
-        /// <summary>
-        /// 向指定客户端发送挂断通知
-        /// </summary>
-        public async Task NotifyHangupAsync(string targetUserId, string reason) {
-            try {
-                // 验证调用者权限 - 只有系统或授权用户可以发送通知
-                var currentUserName = Context.User?.Identity?.Name;
-                if (string.IsNullOrEmpty(currentUserName)) {
-                    return;
-                }
-
-                await Clients.User(targetUserId).SendAsync("remoteHangup", new { 
-                    reason = reason, 
-                    timestamp = DateTime.UtcNow,
-                    initiator = currentUserName
-                });
-            } catch (Exception ex) {
-                // 记录错误但不向客户端发送，避免暴露内部错误
-                Console.WriteLine($"Error sending hangup notification: {ex.Message}");
             }
         }
 
@@ -214,4 +192,6 @@ namespace AI.Caller.Phone.Hubs {
     }
 
     public record WebRtcAnswerModel(string Caller, string AnswerSdp);
+
+    public record WebRtcHangupModel(string Target, string? Reason = null);
 }

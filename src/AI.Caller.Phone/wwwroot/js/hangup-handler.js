@@ -183,7 +183,7 @@ class HangupHandler {
             this.updateStatus('正在挂断...', 'warning');
 
             // 调用SignalR Hub方法
-            const result = await this.connection.invoke('HangupCallAsync', reason);
+            const result = await this.connection.invoke('HangupCallAsync', {target: this.uiElements.destinationInput.value, reason});
             
             if (!result) {
                 // 如果服务端返回false，等待hangupFailed事件处理

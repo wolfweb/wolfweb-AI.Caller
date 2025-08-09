@@ -310,14 +310,14 @@ namespace AI.Caller.Phone.Services {
         /// <summary>
         /// 带通知的挂断电话
         /// </summary>
-        public async Task<bool> HangupWithNotificationAsync(string sipUserName, string? reason = null) {
+        public async Task<bool> HangupWithNotificationAsync(string sipUserName, WebRtcHangupModel model) {
             var callId = Guid.NewGuid().ToString();
             var hangupNotification = new HangupNotification {
-                CallId = callId,
+                CallId               = callId,
+                Reason               = model.Reason ?? "User initiated hangup",
+                Status               = HangupStatus.Initiated,
+                Timestamp            = DateTime.UtcNow,
                 InitiatorSipUsername = sipUserName,
-                Reason = reason ?? "User initiated hangup",
-                Status = HangupStatus.Initiated,
-                Timestamp = DateTime.UtcNow
             };
 
             try {
@@ -329,6 +329,17 @@ namespace AI.Caller.Phone.Services {
                 }
 
                 if (!sipClient.IsCallActive) {
+                    //web账户则通知目标web端挂断
+                    if(_applicationContext.SipClients.TryGetValue(model.Target, out var target)) {
+                        target.Hangup();
+                        var targetUser = await _dbContext.Users.FirstAsync(x => x.SipUsername == model.Target);
+                        await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("callEnded", new {
+                            reason = model.Reason,
+                            timestamp = DateTime.UtcNow
+                        });
+                    } else {
+                        sipClient.Cancel();
+                    }
                     _logger.LogInformation($"用户 {sipUserName} 没有活动的通话，无需挂断");
                     return true;
                 }
@@ -345,7 +356,7 @@ namespace AI.Caller.Phone.Services {
                 }
 
                 // 执行挂断操作
-                var hangupSuccess = await HangupCallAsync(sipUserName, reason);
+                var hangupSuccess = await HangupCallAsync(sipUserName, model.Reason);
 
                 if (hangupSuccess) {
                     hangupNotification.Status = HangupStatus.Completed;
