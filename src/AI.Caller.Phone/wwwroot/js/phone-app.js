@@ -60,7 +60,11 @@ class PhoneApp {
             // 初始化挂断处理器
             this.hangupHandler = new HangupHandler(
                 this.signalRManager.connection, 
-                this.elements, 
+                {
+                    ...this.elements,
+                    updateStatus: (message, type) => this.uiManager.updateStatus(message, type),
+                    clearCallUI: () => this.clearCallUI()
+                }, 
                 this.callStateManager
             );
 
@@ -266,6 +270,36 @@ class PhoneApp {
         } catch (error) {
             console.warn('检查安全状态失败:', error);
         }
+    }
+
+    clearCallUI() {
+        console.log('PhoneApp: 清理通话UI');
+        
+        // 使用UIManager清理UI
+        this.uiManager.clearCallUI();
+        
+        // 重置状态管理器
+        if (this.callStateManager) {
+            this.callStateManager.resetToIdle();
+        }
+        
+        // 清理WebRTC连接
+        if (this.webRTCManager && this.webRTCManager.pc) {
+            try {
+                this.webRTCManager.pc.close();
+                this.webRTCManager.pc = null;
+                console.log('WebRTC连接已关闭');
+            } catch (error) {
+                console.warn('关闭WebRTC连接时出错:', error);
+            }
+        }
+        
+        // 停止录音（如果正在录音）
+        if (this.recordingManager && window.isRecording) {
+            this.recordingManager.stopRecording();
+        }
+        
+        console.log('PhoneApp: UI清理完成');
     }
 
     // 调试方法

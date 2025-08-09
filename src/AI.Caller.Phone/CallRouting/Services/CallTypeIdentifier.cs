@@ -4,26 +4,22 @@ using AI.Caller.Phone.CallRouting.Interfaces;
 using AI.Caller.Phone.CallRouting.Models;
 using SIPSorcery.SIP;
 
-namespace AI.Caller.Phone.CallRouting.Services
-{
+namespace AI.Caller.Phone.CallRouting.Services {
     /// <summary>
     /// 呼叫类型识别服务实现
     /// </summary>
-    public class CallTypeIdentifier : ICallTypeIdentifier
-    {
+    public class CallTypeIdentifier : ICallTypeIdentifier {
         private readonly ConcurrentDictionary<string, OutboundCallInfo> _outboundCalls = new();
         private readonly ILogger<CallTypeIdentifier> _logger;
         private readonly Timer _cleanupTimer;
 
-        public CallTypeIdentifier(ILogger<CallTypeIdentifier> logger)
-        {
+        public CallTypeIdentifier(ILogger<CallTypeIdentifier> logger) {
             _logger = logger;
             // 每5分钟清理一次已结束的呼叫记录
             _cleanupTimer = new Timer(CleanupCallback, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         }
 
-        public OutboundCallInfo? GetOutboundCallInfo(string callId)
-        {
+        public OutboundCallInfo? GetOutboundCallInfo(string callId) {
             if (string.IsNullOrEmpty(callId))
                 return null;
 
@@ -31,16 +27,13 @@ namespace AI.Caller.Phone.CallRouting.Services
             return callInfo;
         }
 
-        public void RegisterOutboundCallWithSipTags(string callId, string fromTag, string sipUsername, string destination)
-        {
-            if (string.IsNullOrEmpty(callId) || string.IsNullOrEmpty(sipUsername))
-            {
+        public void RegisterOutboundCallWithSipTags(string callId, string fromTag, string sipUsername, string destination) {
+            if (string.IsNullOrEmpty(callId) || string.IsNullOrEmpty(sipUsername)) {
                 _logger.LogWarning("Cannot register outbound call with empty callId or sipUsername");
                 return;
             }
 
-            var callInfo = new OutboundCallInfo
-            {
+            var callInfo = new OutboundCallInfo {
                 CallId = callId,
                 FromTag = fromTag,
                 SipUsername = sipUsername,
@@ -50,8 +43,7 @@ namespace AI.Caller.Phone.CallRouting.Services
                 UpdatedAt = DateTime.UtcNow
             };
 
-            _outboundCalls.AddOrUpdate(callId, callInfo, (key, existing) =>
-            {
+            _outboundCalls.AddOrUpdate(callId, callInfo, (key, existing) => {
                 existing.UpdatedAt = DateTime.UtcNow;
                 return existing;
             });
@@ -59,98 +51,75 @@ namespace AI.Caller.Phone.CallRouting.Services
             _logger.LogDebug($"Registered outbound call - CallId: {callId}, SipUsername: {sipUsername}, Destination: {destination}");
         }
 
-        public void UpdateOutboundCallStatus(string callId, CallStatus status)
-        {
+        public void UpdateOutboundCallStatus(string callId, CallStatus status) {
             if (string.IsNullOrEmpty(callId))
                 return;
 
-            if (_outboundCalls.TryGetValue(callId, out var callInfo))
-            {
+            if (_outboundCalls.TryGetValue(callId, out var callInfo)) {
                 callInfo.Status = status;
                 callInfo.UpdatedAt = DateTime.UtcNow;
                 _logger.LogDebug($"Updated outbound call status - CallId: {callId}, Status: {status}");
             }
         }
 
-        public IEnumerable<OutboundCallInfo> GetActiveOutboundCalls()
-        {
+        public IEnumerable<OutboundCallInfo> GetActiveOutboundCalls() {
             return _outboundCalls.Values
                 .Where(call => call.Status != CallStatus.Ended && call.Status != CallStatus.Failed)
                 .ToList();
         }
 
-        public void CleanupEndedCalls()
-        {
+        public void CleanupEndedCalls() {
             var cutoffTime = DateTime.UtcNow.AddHours(-1); // 清理1小时前结束的呼叫
             var keysToRemove = _outboundCalls
-                .Where(kvp => (kvp.Value.Status == CallStatus.Ended || kvp.Value.Status == CallStatus.Failed) 
+                .Where(kvp => (kvp.Value.Status == CallStatus.Ended || kvp.Value.Status == CallStatus.Failed)
                              && kvp.Value.UpdatedAt < cutoffTime)
                 .Select(kvp => kvp.Key)
                 .ToList();
 
-            foreach (var key in keysToRemove)
-            {
+            foreach (var key in keysToRemove) {
                 _outboundCalls.TryRemove(key, out _);
             }
 
-            if (keysToRemove.Count > 0)
-            {
+            if (keysToRemove.Count > 0) {
                 _logger.LogDebug($"Cleaned up {keysToRemove.Count} ended call records");
             }
         }
 
-        private void CleanupCallback(object? state)
-        {
-            try
-            {
+        private void CleanupCallback(object? state) {
+            try {
                 CleanupEndedCalls();
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 _logger.LogError(ex, "Error during cleanup of ended calls");
             }
         }
 
-        public string IdentifyCallType(SIPRequest sipRequest)
-        {
-            try
-            {
-                if (sipRequest?.Header?.From?.FromURI?.User != null && 
-                    sipRequest.Header.To?.ToURI?.User != null)
-                {
+        public string IdentifyCallType(SIPRequest sipRequest) {
+            try {
+                if (sipRequest?.Header?.From?.FromURI?.User != null &&
+                    sipRequest.Header.To?.ToURI?.User != null) {
                     var fromUser = sipRequest.Header.From.FromURI.User;
                     var toUser = sipRequest.Header.To.ToURI.User;
-                    
+
                     // 简单的呼叫类型识别逻辑
-                    if (fromUser.Contains("@") && toUser.Contains("@"))
-                    {
+                    if (fromUser.Contains("@") && toUser.Contains("@")) {
                         return "WebToWeb";
-                    }
-                    else if (fromUser.Contains("@"))
-                    {
+                    } else if (fromUser.Contains("@")) {
                         return "WebToNonWeb";
-                    }
-                    else if (toUser.Contains("@"))
-                    {
+                    } else if (toUser.Contains("@")) {
                         return "NonWebToWeb";
-                    }
-                    else
-                    {
+                    } else {
                         return "NonWebToNonWeb";
                     }
                 }
-                
+
                 return "Unknown";
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 _logger.LogError(ex, "Error identifying call type");
                 return "Unknown";
             }
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             _cleanupTimer?.Dispose();
         }
     }

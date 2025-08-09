@@ -1,4 +1,5 @@
 using AI.Caller.Core;
+using AI.Caller.Core.Models;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
@@ -68,6 +69,10 @@ namespace AI.Caller.Phone.Services {
 
                 sipClient.CallAnswered += async _ => {
                     await _hubContext.Clients.User(user.Id.ToString()).SendAsync("answered");
+                };
+
+                sipClient.CallFinishedWithContext += async (client, context) => {
+                    await HandleCallFinishedWithContext(user.SipUsername, context);
                 };
 
                 _applicationContext.AddSipClient(user.SipUsername, sipClient);
@@ -536,32 +541,53 @@ namespace AI.Caller.Phone.Services {
             //return await tcs.Task;
         }
 
-        private string GenerateCallId(string callerNumber, string calleeNumber)
-        {
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-            return $"call_{callerNumber}_{calleeNumber}_{timestamp}_{Guid.NewGuid().ToString("N")[..8]}";
+        private async Task HandleCallFinishedWithContext(string sipUsername, HangupEventContext context) {
+            try {
+                if (context.IsRemoteInitiated) {
+                    _logger.LogInformation($"检测到远程挂断，通知Web端用户: {sipUsername}");
+                    await NotifyWebClientRemoteHangup(sipUsername, context.Reason);
+                } else {
+                    _logger.LogInformation($"本地发起的挂断，无需通知Web端: {sipUsername}");
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, $"处理挂断事件失败 - 用户: {sipUsername}");
+            }
         }
 
-        private string ExtractPhoneNumber(string sipUri)
-        {
-            try
-            {
-                if (sipUri.StartsWith("sip:"))
-                {
-                    var userPart = sipUri.Substring(4); // 移除 "sip:" 前缀
-                    var atIndex = userPart.IndexOf('@');
-                    if (atIndex > 0)
-                    {
-                        return userPart.Substring(0, atIndex);
-                    }
-                    return userPart;
+        private async Task NotifyWebClientRemoteHangup(string sipUsername, string reason) {
+            using var scope = _serviceScopeProvider.CreateScope();
+            var _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUsername);
+            if (user == null) {
+                _logger.LogWarning($"未找到SIP用户名为 {sipUsername} 的用户");
+                return;
+            }
+
+            var retryCount = 0;
+            var delay = _retryPolicy.RetryDelay;
+
+            while (retryCount < _retryPolicy.MaxRetries) {
+                try {
+                    using var cts = new CancellationTokenSource(_retryPolicy.NotificationTimeout);
+                    await _hubContext.Clients.User(user.Id.ToString())
+                        .SendAsync("remoteHangup", new { reason }, cts.Token);
+
+                    _logger.LogInformation($"成功通知Web端用户 {sipUsername} 远程挂断事件");
+                    return;
+                } catch (OperationCanceledException) {
+                    _logger.LogWarning($"通知Web端用户 {sipUsername} 超时 (第 {retryCount + 1} 次尝试)");
+                } catch (Exception ex) {
+                    _logger.LogError(ex, $"通知Web端用户 {sipUsername} 远程挂断事件失败 (第 {retryCount + 1} 次尝试)");
                 }
-                return sipUri;
+
+                retryCount++;
+                if (retryCount < _retryPolicy.MaxRetries) {
+                    await Task.Delay(delay);
+                    delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, _retryPolicy.MaxRetryDelay.TotalMilliseconds));
+                }
             }
-            catch
-            {
-                return sipUri;
-            }
+
+            _logger.LogError($"通知Web端用户 {sipUsername} 远程挂断事件失败，已达到最大重试次数 {_retryPolicy.MaxRetries}");
         }
     }
 }

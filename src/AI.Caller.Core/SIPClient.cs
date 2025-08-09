@@ -1,4 +1,5 @@
 using AI.Caller.Core.Network;
+using AI.Caller.Core.Models;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
@@ -32,6 +33,7 @@ namespace AI.Caller.Core {
         public event Action<SIPClient>? AudioStopped;
         public event Action<SIPClient>? ResourcesReleased;
         public event Action<SIPClient, string>? CallInitiated;
+        public event Action<SIPClient, HangupEventContext>? CallFinishedWithContext;
 
         public SIPDialogue Dialogue => m_userAgent.Dialogue;
         public bool IsCallActive => m_userAgent.IsCallActive;
@@ -41,6 +43,7 @@ namespace AI.Caller.Core {
         private CancellationTokenSource _cts = new();
         private SIPServerUserAgent? m_pendingIncomingCall;
         private string? _lastRemoteSdp = null;
+        private bool _localHangupInitiated = false;
 
         public SIPClient(
             string sipServer,
@@ -55,8 +58,6 @@ namespace AI.Caller.Core {
             _webRTCSettings = webRTCSettings;            
             _networkMonitoringService = networkMonitoringService;
             _clientId = $"SIPClient_{Guid.NewGuid():N}[{sipServer}]";
-
-            // MediaSessionManager将在每次通话时创建
 
             m_userAgent = new(m_sipTransport, null);
 
@@ -90,19 +91,15 @@ namespace AI.Caller.Core {
             Debug.WriteLine($"DNS lookup result for {callURI}: {dstEndpoint}.");
             SIPCallDescriptor callDescriptor = new SIPCallDescriptor(null, null, callURI.ToString(), fromHeader.ToString(), null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, null, null);
 
-            // 1. 为每次通话创建新的MediaSessionManager
             StatusMessage?.Invoke(this, "Creating fresh MediaSessionManager for call...");
             EnsureMediaSessionInitialized();
 
-            // 2. 只初始化SIP媒体会话，延迟WebRTC初始化
             StatusMessage?.Invoke(this, "Initializing SIP media session...");
             await _mediaManager!.InitializeMediaSession();
 
-            // 3. RTCPeerConnection将在真正需要WebRTC功能时才创建
             StatusMessage?.Invoke(this, "SIP media session initialized, RTCPeerConnection will be created when needed.");
             _logger.LogInformation("MediaSessionManager ready, RTCPeerConnection will be lazy-initialized");
 
-            // 4. 现在开始SIP通话
             m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
             m_userAgent.RemoteTookOffHold += OnRemoteTookOffHold;
 
@@ -127,7 +124,6 @@ namespace AI.Caller.Core {
 
             var sipRequest = m_pendingIncomingCall.ClientTransaction.TransactionRequest;
 
-            // 为接听通话创建新的MediaSessionManager
             EnsureMediaSessionInitialized();
             
             _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
@@ -160,14 +156,12 @@ namespace AI.Caller.Core {
 
         public void AddIceCandidate(RTCIceCandidateInit candidate) {
             EnsureMediaSessionInitialized();
-            // 只有在需要WebRTC功能时才初始化RTCPeerConnection
             _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
             _mediaManager.AddIceCandidate(candidate);
         }
 
         public void SetRemoteDescription(RTCSessionDescriptionInit description) {
             EnsureMediaSessionInitialized();
-            // 只有在需要WebRTC功能时才初始化RTCPeerConnection
             _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
             _mediaManager.SetWebRtcRemoteDescription(description);
         }
@@ -199,6 +193,7 @@ namespace AI.Caller.Core {
         public void Hangup() {
             if (m_userAgent.IsCallActive) {
                 try {
+                    _localHangupInitiated = true;
                     HangupInitiated?.Invoke(this);
                     StatusMessage?.Invoke(this, "Hangup initiated.");
 
@@ -275,9 +270,7 @@ namespace AI.Caller.Core {
             return new RTCConfiguration {
                 iceServers = iceServers.ToList(),
                 iceTransportPolicy = iceTransportPolicy,
-                X_DisableExtendedMasterSecretKey = true,
-                // 尝试更激进的配置来避免DTLS问题
-                iceCandidatePoolSize = 0  // 禁用ICE候选者池
+                X_DisableExtendedMasterSecretKey = true
             };
         }
 
@@ -294,7 +287,6 @@ namespace AI.Caller.Core {
             StatusMessage?.Invoke(this, "Call ringing: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
 
             if (!string.IsNullOrEmpty(sipResponse.Body)) {
-                // 检查SDP内容是否相同，避免重复设置
                 if (_lastRemoteSdp == sipResponse.Body) {
                     _logger.LogDebug("Same SDP already processed, skipping duplicate processing in ringing response");
                     return;
@@ -319,7 +311,6 @@ namespace AI.Caller.Core {
             StatusMessage?.Invoke(this, "Call answered: " + response.StatusCode + " " + response.ReasonPhrase + ".");
 
             if (!string.IsNullOrEmpty(response.Body)) {
-                // 检查SDP内容是否相同，避免重复设置
                 if (_lastRemoteSdp == response.Body) {
                     _logger.LogDebug("Same SDP already processed, skipping duplicate processing in call answered");
                 } else {
@@ -338,9 +329,10 @@ namespace AI.Caller.Core {
 
         private void CallFinished(SIPDialogue? dialogue) {
             try {
+                var context = CreateHangupEventContext(dialogue);
+                
                 m_pendingIncomingCall = null;
                 
-                // 完全销毁MediaSessionManager，下次通话时重新创建
                 if (_mediaManager != null) {
                     try {
                         _mediaManager.Dispose();
@@ -353,7 +345,11 @@ namespace AI.Caller.Core {
                 }
                 
                 _lastRemoteSdp = null;
+                _localHangupInitiated = false;
                 StatusMessage?.Invoke(this, "Call finished and MediaSessionManager disposed.");
+                
+                CallFinishedWithContext?.Invoke(this, context);
+                
             } catch (Exception ex) {
                 _logger.LogError($"Error in CallFinished : {ex.Message}");
                 StatusMessage?.Invoke(this, $"Error during call cleanup: {ex.Message}");
@@ -433,6 +429,17 @@ namespace AI.Caller.Core {
         }
 
         public MediaSessionManager? MediaSessionManager => _mediaManager;
+
+        private HangupEventContext CreateHangupEventContext(SIPDialogue? dialogue)
+        {
+            var context = new HangupEventContext
+            {
+                Initiator = _localHangupInitiated ? HangupInitiator.Local : HangupInitiator.Remote,
+                Reason = _localHangupInitiated ? "Local user hangup" : "Remote party hangup"
+            };
+
+            return context;
+        }
 
         private void EnsureMediaSessionInitialized() {
             if (_mediaManager == null) {

@@ -38,7 +38,7 @@ namespace AI.Caller.Core {
                 }
 
                 try {
-                    tempMediaSession = new RTPSession(false, false, false);
+                    tempMediaSession = new RTPSession(false, true, false);
                     tempMediaSession.AcceptRtpFromAny = true;
 
                     var audioTrack = new MediaStreamTrack(

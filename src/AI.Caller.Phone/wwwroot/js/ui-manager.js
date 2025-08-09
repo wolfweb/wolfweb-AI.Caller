@@ -116,11 +116,20 @@ class UIManager {
         // 隐藏通话信息
         this.elements.callInfo.classList.add('d-none');
         
+        // 清空通话信息显示
+        this.elements.callerName.textContent = '未知联系人';
+        this.elements.callerNumber.textContent = '';
+        
         // 启用输入框
         this.elements.destinationInput.disabled = false;
         
         // 重置通话计时器显示
         this.elements.callTimer.textContent = '00:00';
+        
+        // 隐藏录音状态
+        this.elements.recordingStatusAlert.classList.add('d-none');
+        this.elements.recordingStatus.textContent = '录音状态';
+        this.elements.recordingTimer.textContent = '00:00';
         
         // 启用拨号盘按钮
         document.querySelectorAll('.dialpad-btn').forEach(btn => {

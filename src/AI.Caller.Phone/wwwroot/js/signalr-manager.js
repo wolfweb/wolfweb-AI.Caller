@@ -118,7 +118,18 @@ class SignalRManager {
 
     handleIncomingCall(callData) {
         console.log("Incoming call received:", callData);
-        this.elements.callerName.innerHTML = callData.caller;
+        
+        // 简化的显示逻辑
+        if (callData.isExternal) {
+            // 外部呼入
+            this.elements.callerName.innerHTML = callData.callerName;
+            this.elements.callerNumber.innerHTML = `来自: ${callData.caller} → ${callData.callee}`;
+        } else {
+            // 内部呼入
+            this.elements.callerName.innerHTML = callData.caller;
+            this.elements.callerNumber.innerHTML = "";
+        }
+        
         this.callStateManager.setState(CallState.INCOMING);
         
         try {
