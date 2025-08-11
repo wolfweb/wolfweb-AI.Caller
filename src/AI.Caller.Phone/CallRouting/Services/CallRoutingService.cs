@@ -52,6 +52,7 @@ namespace AI.Caller.Phone.CallRouting.Services {
                     var client = _applicationContext.SipClients.FirstOrDefault(x => !x.Value.IsCallActive);
                     if(client.Value != null) {
                         sipClient = client.Value;
+                        targetUser = await _dbContext.Users.FirstAsync(u => u.SipUsername == client.Key);
                         _logger.LogInformation($"未找到用户信息，使用默认客户端 - SipUsername: {client.Key}");
                     } else {
                         _logger.LogWarning($"未找到用户信息且没有可用客户端 - SipUsername: {toUser}");

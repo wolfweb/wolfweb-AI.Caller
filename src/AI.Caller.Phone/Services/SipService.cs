@@ -72,7 +72,7 @@ namespace AI.Caller.Phone.Services {
                 };
 
                 sipClient.CallFinishedWithContext += async (client, context) => {
-                    await HandleCallFinishedWithContext(user.SipUsername, context);
+                    await HandleCallFinishedWithContext(user.Id, context);
                 };
 
                 _applicationContext.AddSipClient(user.SipUsername, sipClient);
@@ -329,7 +329,6 @@ namespace AI.Caller.Phone.Services {
                 }
 
                 if (!sipClient.IsCallActive) {
-                    //web账户则通知目标web端挂断
                     if(_applicationContext.SipClients.TryGetValue(model.Target, out var target)) {
                         target.Hangup();
                         var targetUser = await _dbContext.Users.FirstAsync(x => x.SipUsername == model.Target);
@@ -344,10 +343,8 @@ namespace AI.Caller.Phone.Services {
                     return true;
                 }
 
-                // 获取对方用户信息用于通知
                 string? targetSipUsername = null;
                 if (sipClient.Dialogue != null) {
-                    // 从SIP对话中提取对方的用户名
                     var remoteUri = sipClient.Dialogue.RemoteUserField?.URI?.User;
                     if (!string.IsNullOrEmpty(remoteUri)) {
                         targetSipUsername = remoteUri;
@@ -355,7 +352,6 @@ namespace AI.Caller.Phone.Services {
                     }
                 }
 
-                // 执行挂断操作
                 var hangupSuccess = await HangupCallAsync(sipUserName, model.Reason);
 
                 if (hangupSuccess) {
@@ -529,25 +525,25 @@ namespace AI.Caller.Phone.Services {
             //return await tcs.Task;
         }
 
-        private async Task HandleCallFinishedWithContext(string sipUsername, HangupEventContext context) {
+        private async Task HandleCallFinishedWithContext(int userId, HangupEventContext context) {
             try {
                 if (context.IsRemoteInitiated) {
-                    _logger.LogInformation($"检测到远程挂断，通知Web端用户: {sipUsername}");
-                    await NotifyWebClientRemoteHangup(sipUsername, context.Reason);
+                    _logger.LogInformation($"检测到远程挂断，通知Web端用户: {userId}");
+                    await NotifyWebClientRemoteHangup(userId, context.Reason);
                 } else {
-                    _logger.LogInformation($"本地发起的挂断，无需通知Web端: {sipUsername}");
+                    _logger.LogInformation($"本地发起的挂断，无需通知Web端: {userId}");
                 }
             } catch (Exception ex) {
-                _logger.LogError(ex, $"处理挂断事件失败 - 用户: {sipUsername}");
+                _logger.LogError(ex, $"处理挂断事件失败 - 用户: {userId}");
             }
         }
 
-        private async Task NotifyWebClientRemoteHangup(string sipUsername, string reason) {
+        private async Task NotifyWebClientRemoteHangup(int userId, string reason) {
             using var scope = _serviceScopeProvider.CreateScope();
             var _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUsername);
+            var user = await _dbContext.Users.FindAsync(userId);
             if (user == null) {
-                _logger.LogWarning($"未找到SIP用户名为 {sipUsername} 的用户");
+                _logger.LogWarning($"未找到SIP用户名为 {userId} 的用户");
                 return;
             }
 
@@ -560,12 +556,12 @@ namespace AI.Caller.Phone.Services {
                     await _hubContext.Clients.User(user.Id.ToString())
                         .SendAsync("remoteHangup", new { reason }, cts.Token);
 
-                    _logger.LogInformation($"成功通知Web端用户 {sipUsername} 远程挂断事件");
+                    _logger.LogInformation($"成功通知Web端用户 {user.Id}->{user.SipUsername} 远程挂断事件");
                     return;
                 } catch (OperationCanceledException) {
-                    _logger.LogWarning($"通知Web端用户 {sipUsername} 超时 (第 {retryCount + 1} 次尝试)");
+                    _logger.LogWarning($"通知Web端用户 {user.Id}->{user.SipUsername} 超时 (第 {retryCount + 1} 次尝试)");
                 } catch (Exception ex) {
-                    _logger.LogError(ex, $"通知Web端用户 {sipUsername} 远程挂断事件失败 (第 {retryCount + 1} 次尝试)");
+                    _logger.LogError(ex, $"通知Web端用户 {user.Id}->{user.SipUsername} 远程挂断事件失败 (第 {retryCount + 1} 次尝试)");
                 }
 
                 retryCount++;
@@ -575,7 +571,7 @@ namespace AI.Caller.Phone.Services {
                 }
             }
 
-            _logger.LogError($"通知Web端用户 {sipUsername} 远程挂断事件失败，已达到最大重试次数 {_retryPolicy.MaxRetries}");
+            _logger.LogError($"通知Web端用户 {user.Id}->{user.SipUsername} 远程挂断事件失败，已达到最大重试次数 {_retryPolicy.MaxRetries}");
         }
     }
 }

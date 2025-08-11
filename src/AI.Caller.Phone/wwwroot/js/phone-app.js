@@ -203,8 +203,15 @@ class PhoneApp {
             );
             
             console.log('接听SDP:', answerSdp);
+
+            var extral = this.elements.callerNumber.innerHTML;
+            var number = this.elements.callerName.innerText;
+            if(extral && extral.indexOf('→')){
+                number = extral.split('→')[1].trim();
+            }
+
             await this.signalRManager.connection.invoke("AnswerAsync", {
-                caller: this.elements.callerName.innerText, 
+                caller: number, 
                 answerSdp: JSON.stringify(answerSdp)
             });
 

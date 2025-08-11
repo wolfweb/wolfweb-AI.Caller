@@ -1,13 +1,11 @@
 using AI.Caller.Core;
 using AI.Caller.Phone.Entities;
 
-namespace AI.Caller.Phone.CallRouting.Models
-{
+namespace AI.Caller.Phone.CallRouting.Models {
     /// <summary>
     /// 通话路由结果
     /// </summary>
-    public class CallRoutingResult
-    {
+    public class CallRoutingResult {
         /// <summary>
         /// 路由是否成功
         /// </summary>
@@ -41,10 +39,8 @@ namespace AI.Caller.Phone.CallRouting.Models
         /// <summary>
         /// 创建成功的路由结果
         /// </summary>
-        public static CallRoutingResult CreateSuccess(SIPClient targetClient, User? targetUser, CallHandlingStrategy strategy, string message = "路由成功")
-        {
-            return new CallRoutingResult
-            {
+        public static CallRoutingResult CreateSuccess(SIPClient targetClient, User? targetUser, CallHandlingStrategy strategy, string message = "路由成功") {
+            return new CallRoutingResult {
                 Success = true,
                 Message = message,
                 TargetClient = targetClient,
@@ -56,10 +52,8 @@ namespace AI.Caller.Phone.CallRouting.Models
         /// <summary>
         /// 创建失败的路由结果
         /// </summary>
-        public static CallRoutingResult CreateFailure(string message, CallHandlingStrategy strategy = CallHandlingStrategy.Reject)
-        {
-            return new CallRoutingResult
-            {
+        public static CallRoutingResult CreateFailure(string message, CallHandlingStrategy strategy = CallHandlingStrategy.Reject) {
+            return new CallRoutingResult {
                 Success = false,
                 Message = message,
                 Strategy = strategy

@@ -137,7 +137,7 @@ class SignalRManager {
         // 简化的显示逻辑
         if (callData.isExternal) {
             // 外部呼入
-            this.elements.callerName.innerHTML = callData.callerName;
+            this.elements.callerName.innerHTML = callData.caller;
             this.elements.callerNumber.innerHTML = `来自: ${callData.caller} → ${callData.callee}`;
         } else {
             // 内部呼入

@@ -57,7 +57,6 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
 
                 var offerSdp = await sipClient.CreateOfferAsync();
 
-                // Use event-driven approach through MediaSessionManager
                 sipClient.MediaSessionManager.IceCandidateGenerated += (candidate) => {
                     if (sipClient.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.have_remote_offer ||
                         sipClient.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.stable) {
@@ -70,7 +69,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 };
 
                 await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("inCalling", new {
-                    caller = sipRequest.Header.From.FromURI.User,
+                    caller = sipRequest.Header.From.FromURI.User,                    
                     offerSdp = offerSdp.toJSON(),
                     callId = sipRequest.Header.CallId,
                     timestamp = DateTime.UtcNow
@@ -95,7 +94,6 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
 
                 var offerSdp = await sipClient.CreateOfferAsync();
 
-                // Use event-driven approach through MediaSessionManager
                 sipClient.MediaSessionManager.IceCandidateGenerated += (candidate) => {
                     if (sipClient.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.have_remote_offer ||
                         sipClient.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.stable) {
@@ -109,6 +107,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
 
                 await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("inCalling", new {
                     caller = sipRequest.Header.From.FromURI.User,
+                    callee = targetUser.SipUsername,
                     offerSdp = offerSdp.toJSON(),
                     callId = sipRequest.Header.CallId,
                     isExternal = true,

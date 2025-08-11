@@ -49,7 +49,6 @@ namespace AI.Caller.Phone.Services {
                     return false;
                 }
 
-                // 获取SIPClient但不修改它
                 if (!_applicationContext.SipClients.TryGetValue(sipUsername, out var sipClient)) {
                     _logger.LogError($"未找到用户 {sipUsername} 的SIP客户端");
                     return false;
@@ -60,7 +59,6 @@ namespace AI.Caller.Phone.Services {
                     return false;
                 }
 
-                // 创建录音会话
                 var session = await CreateRecordingSessionAsync(user, sipUsername, sipClient);
                 if (session == null) {
                     return false;
