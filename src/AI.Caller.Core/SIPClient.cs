@@ -129,18 +129,6 @@ namespace AI.Caller.Core {
             _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
             await _mediaManager.InitializeMediaSession();
 
-            if (sipRequest.Body != null) {
-                var remoteOffer = new RTCSessionDescriptionInit {
-                    type = RTCSdpType.offer,
-                    sdp = sipRequest.Body
-                };
-                await _mediaManager.SetSipRemoteDescriptionAsync(remoteOffer);
-                await _mediaManager.CreateAnswerAsync(); // This will trigger SdpAnswerGenerated event
-            } else {
-                _logger.LogWarning("SIP INVITE request body is empty, generating SDP Offer.");
-                await _mediaManager.CreateOfferAsync(); // This will trigger SdpOfferGenerated event
-            }
-
             m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
             m_userAgent.RemoteTookOffHold += OnRemoteTookOffHold;
 
