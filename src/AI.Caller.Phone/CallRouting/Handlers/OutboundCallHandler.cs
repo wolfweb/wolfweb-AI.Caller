@@ -16,7 +16,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
 
         public async Task<bool> HandleCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult) {
             try {
-                _logger.LogInformation($"开始处理呼出应答 - CallId: {sipRequest.Header.CallId}");
+                _logger.LogDebug($"开始处理呼出应答 - CallId: {sipRequest.Header.CallId}");
 
                 if (!routingResult.Success || routingResult.TargetClient == null) {
                     _logger.LogError($"路由结果无效 - CallId: {sipRequest.Header.CallId}");
@@ -30,7 +30,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 sipClient.Accept(sipRequest);
                 _logger.LogDebug($"已接受呼出应答 - CallId: {sipRequest.Header.CallId}");
 
-                if (sipClient.MediaSessionManager.PeerConnection == null) throw new Exception("webrtc 未初始化");
+                if (sipClient.MediaSessionManager?.PeerConnection == null) throw new Exception("webrtc 未初始化");
 
                 var answerResult = await sipClient.AnswerAsync();
                 if (!answerResult) {
@@ -38,7 +38,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                     return false;
                 }
 
-                _logger.LogInformation($"呼出应答处理成功 - CallId: {sipRequest.Header.CallId}");
+                _logger.LogDebug($"呼出应答处理成功 - CallId: {sipRequest.Header.CallId}");
 
                 if (targetUser != null) {
                     await NotifyWebClient(targetUser.Id.ToString(), sipRequest, outboundCallInfo);

@@ -10,20 +10,22 @@ namespace AI.Caller.Core {
     public class SIPTransportManager {
         private static int SIP_DEFAULT_PORT = 7060;
 
-        private static string? HOMER_SERVER_ADDRESS = null; 
+        private static string? HOMER_SERVER_ADDRESS = null;
         private static int HOMER_SERVER_PORT = 9060;
 
         private bool _isInitialised = false;
 
         private readonly ILogger _logger;
+        private readonly string? _contactHost;
         private readonly UdpClient? _homerSIPClient;
 
         public event Func<SIPRequest, Task<bool>>? IncomingCall;
 
         public SIPTransport? SIPTransport { get; private set; }
 
-        public SIPTransportManager(ILogger<SIPTransportManager> logger) {
+        public SIPTransportManager(string? contactHost, ILogger<SIPTransportManager> logger) {
             _logger = logger;
+            _contactHost = contactHost;
             if (HOMER_SERVER_ADDRESS != null) {
                 _homerSIPClient = new UdpClient(0, AddressFamily.InterNetwork);
             }
@@ -40,18 +42,13 @@ namespace AI.Caller.Core {
                 await Task.Run(() => {
                     _isInitialised = true;
 
-                    bool IsPortAvailable(int port)
-                    {
-                        try
-                        {
-                            using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
-                            {
+                    bool IsPortAvailable(int port) {
+                        try {
+                            using (var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)) {
                                 socket.Bind(new IPEndPoint(IPAddress.Any, port));
                                 return true;
                             }
-                        }
-                        catch
-                        {
+                        } catch {
                             return false;
                         }
                     }
@@ -82,7 +79,11 @@ namespace AI.Caller.Core {
                         _logger.LogWarning($"Socket exception attempting to bind TCP channel to port {udpChannel.Port}, will use random port. {bindExcp.Message}.");
                         tcpChannel = new SIPTCPChannel(new IPEndPoint(IPAddress.Any, 0));
                     }
-                    SIPTransport.AddSIPChannel(new List<SIPChannel> { udpChannel, tcpChannel });
+                    SIPTransport.AddSIPChannel(new List<SIPChannel> { tcpChannel, udpChannel });
+                    if (!string.IsNullOrEmpty(_contactHost)) {
+                        SIPTransport.ContactHost = _contactHost;
+                        _logger.LogDebug($"SIP ContactHost configured as: {_contactHost}, but using local address for carrier compatibility");
+                    }
                 });
                 if (SIPTransport != null) {
                     SIPTransport.SIPTransportRequestReceived += SIPTransportRequestReceived;
@@ -102,17 +103,27 @@ namespace AI.Caller.Core {
                 _logger.LogDebug("SIP " + sipRequest.Method + " request received but no processing has been set up for it, rejecting.");
                 SIPResponse notAllowedResponse = SIPResponse.GetResponse(sipRequest, SIPResponseStatusCodesEnum.MethodNotAllowed, null);
                 await SIPTransport.SendResponseAsync(notAllowedResponse);
+            } else if (sipRequest.Method == SIPMethodsEnum.ACK) {
+                _logger.LogDebug($"*** ACK MESSAGE RECEIVED *** CallId: {sipRequest.Header.CallId}, From: {sipRequest.Header.From?.FromURI?.User}, To: {sipRequest.Header.To?.ToURI?.User}");
+            } else if (sipRequest.Method == SIPMethodsEnum.BYE) {
+                _logger.LogDebug($"*** BYE MESSAGE RECEIVED *** CallId: {sipRequest.Header.CallId}, From: {sipRequest.Header.From?.FromURI?.User}, To: {sipRequest.Header.To?.ToURI?.User}");
             } else if (sipRequest.Header.From != null &&
                   sipRequest.Header.From.FromTag != null &&
                   sipRequest.Header.To != null &&
                   sipRequest.Header.To.ToTag != null) {
-                _logger.LogDebug("SIP request for established dialogue received, letting SIPClient handle.");
+                _logger.LogDebug($"SIP {sipRequest.Method} request for established dialogue received, letting SIPClient handle.");
             } else if (sipRequest.Method == SIPMethodsEnum.INVITE) {
+                _logger.LogDebug($"*** Processing new INVITE *** CallId: {sipRequest.Header.CallId}, From: {sipRequest.Header.From?.FromURI?.User}, To: {sipRequest.Header.To?.ToURI?.User}");
                 bool? callAccepted = await IncomingCall?.Invoke(sipRequest);
                 if (callAccepted == false) {
+                    _logger.LogDebug($"Call rejected for CallId: {sipRequest.Header.CallId}");
                     UASInviteTransaction uasTransaction = new UASInviteTransaction(SIPTransport, sipRequest, null);
                     SIPResponse busyResponse = SIPResponse.GetResponse(sipRequest, SIPResponseStatusCodesEnum.BusyHere, null);
                     uasTransaction.SendFinalResponse(busyResponse);
+                } else if (callAccepted == true) {
+                    _logger.LogDebug($"Call accepted for CallId: {sipRequest.Header.CallId}");
+                } else {
+                    _logger.LogWarning($"Call processing returned null for CallId: {sipRequest.Header.CallId}");
                 }
             } else {
                 _logger.LogDebug("SIP " + sipRequest.Method + " request received but no processing has been set up for it, rejecting.");
@@ -124,9 +135,13 @@ namespace AI.Caller.Core {
         private void SIPRequestInTraceEvent(SIPEndPoint localEP, SIPEndPoint remoteEP, SIPRequest sipRequest) {
             _logger.LogDebug($"Request Received {localEP}<-{remoteEP}: {sipRequest.StatusLine}.");
 
+            if (sipRequest.Header.Contact != null && sipRequest.Header.Contact.Count > 0) {
+                foreach (var contact in sipRequest.Header.Contact) {
+                    _logger.LogDebug($"SIP Request Contact Header: {contact.ContactURI}");
+                }
+            }
+
             if (_homerSIPClient != null) {
-                var hepBuffer = HepPacket.GetBytes(remoteEP, localEP, DateTime.Now, 333, "myHep", sipRequest.ToString());
-                _homerSIPClient.SendAsync(hepBuffer, hepBuffer.Length, HOMER_SERVER_ADDRESS, HOMER_SERVER_PORT);
             }
         }
 
@@ -134,8 +149,6 @@ namespace AI.Caller.Core {
             _logger.LogDebug($"Request Sent {localEP}<-{remoteEP}: {sipRequest.StatusLine}.");
 
             if (_homerSIPClient != null) {
-                var hepBuffer = HepPacket.GetBytes(localEP, remoteEP, DateTime.Now, 333, "myHep", sipRequest.ToString());
-                _homerSIPClient.SendAsync(hepBuffer, hepBuffer.Length, HOMER_SERVER_ADDRESS, HOMER_SERVER_PORT);
             }
         }
 
@@ -143,8 +156,7 @@ namespace AI.Caller.Core {
             _logger.LogDebug($"Response Received {localEP}<-{remoteEP}: {sipResponse.ShortDescription}.");
 
             if (_homerSIPClient != null) {
-                var hepBuffer = HepPacket.GetBytes(remoteEP, localEP, DateTime.Now, 333, "myHep", sipResponse.ToString());
-                _homerSIPClient.SendAsync(hepBuffer, hepBuffer.Length, HOMER_SERVER_ADDRESS, HOMER_SERVER_PORT);
+               
             }
         }
 
@@ -152,9 +164,7 @@ namespace AI.Caller.Core {
             _logger.LogDebug($"Response Sent {localEP}<-{remoteEP}: {sipResponse.ShortDescription}.");
 
             if (_homerSIPClient != null) {
-                var hepBuffer = HepPacket.GetBytes(localEP, remoteEP, DateTime.Now, 333, "myHep", sipResponse.ToString());
-                _homerSIPClient.SendAsync(hepBuffer, hepBuffer.Length, HOMER_SERVER_ADDRESS, HOMER_SERVER_PORT);
             }
-        }
+        }        
     }
 }

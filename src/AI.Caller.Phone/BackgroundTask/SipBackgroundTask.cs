@@ -40,7 +40,7 @@ namespace AI.Caller.Phone.BackgroundTask {
                 sipChannelEP.ChannelID = null;
                 listeningEndPoints += (listeningEndPoints == null) ? sipChannelEP.ToString() : $", {sipChannelEP}";
             }
-            _logger.LogInformation($"Listening on: {listeningEndPoints}");
+            _logger.LogDebug($"Listening on: {listeningEndPoints}");
         }
 
         public Task StopAsync(CancellationToken cancellationToken) {
@@ -61,7 +61,7 @@ namespace AI.Caller.Phone.BackgroundTask {
                 OutboundCallHandler _outboundCallHandler = scope.ServiceProvider.GetRequiredService<OutboundCallHandler>();
                 InboundCallHandler _inboundCallHandler = scope.ServiceProvider.GetRequiredService<InboundCallHandler>();
 
-                _logger.LogInformation($"收到呼叫 - CallId: {callId}, From: {fromUser}, To: {toUser}, Method: {sipRequest.Method}");
+                _logger.LogDebug($"收到呼叫 - CallId: {callId}, From: {fromUser}, To: {toUser}, Method: {sipRequest.Method}");
 
                 // 1. 识别来电类型
                 var callType = _callTypeIdentifier.IdentifyCallType(sipRequest);
@@ -75,13 +75,13 @@ namespace AI.Caller.Phone.BackgroundTask {
                 {
                     routingResult = await _callRoutingService.RouteOutboundResponseAsync(sipRequest);
                     callHandler = _outboundCallHandler;
-                    _logger.LogInformation($"处理呼出应答 - CallId: {callId}, Success: {routingResult.Success}");
+                    _logger.LogDebug($"处理呼出应答 - CallId: {callId}, Success: {routingResult.Success}");
                 }
                 else
                 {
                     routingResult = await _callRoutingService.RouteInboundCallAsync(sipRequest);
                     callHandler = _inboundCallHandler;
-                    _logger.LogInformation($"处理新呼入 - CallId: {callId}, Success: {routingResult.Success}, Strategy: {routingResult.Strategy}");
+                    _logger.LogDebug($"处理新呼入 - CallId: {callId}, Success: {routingResult.Success}, Strategy: {routingResult.Strategy}");
                 }
 
                 if (!routingResult.Success)
@@ -94,7 +94,7 @@ namespace AI.Caller.Phone.BackgroundTask {
                 
                 if (handleResult)
                 {
-                    _logger.LogInformation($"通话处理成功 - CallId: {callId}, Type: {callType}, Strategy: {routingResult.Strategy}");
+                    _logger.LogDebug($"通话处理成功 - CallId: {callId}, Type: {callType}, Strategy: {routingResult.Strategy}");
                 }
                 else
                 {

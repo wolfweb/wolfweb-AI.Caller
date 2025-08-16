@@ -23,8 +23,11 @@ namespace AI.Caller.Phone.Hubs {
             if (RTCSessionDescriptionInit.TryParse(model.AnswerSdp, out var v)) {
                 var result = await _sipService.AnswerAsync(Context.User.Identity.Name, v);
                 if (result) {
-                    var user = await _appDbContext.Users.FirstAsync(x => x.SipUsername == model.Caller);
-                    await Clients.User(user.Id.ToString()).SendAsync("answered");
+                    var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.SipUsername == model.Caller);
+                    if (user != null)
+                    {
+                        await Clients.User(user.Id.ToString()).SendAsync("answered");
+                    }
                 }
             }
         }

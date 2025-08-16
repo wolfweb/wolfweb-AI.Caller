@@ -76,7 +76,7 @@ namespace AI.Caller.Phone.Services {
                 };
 
                 _applicationContext.AddSipClient(user.SipUsername, sipClient);
-                _logger.LogInformation($"用户 {user.Username} : {user.SipUsername} 的SIP账号注册成功");
+                _logger.LogDebug($"用户 {user.Username} : {user.SipUsername} 的SIP账号注册成功");
                 await _dbContext.SaveChangesAsync();
                 return true;
             } catch (Exception ex) {
@@ -143,11 +143,22 @@ namespace AI.Caller.Phone.Services {
                 try {
                     sipClient.SetRemoteDescription(answerSdp);
 
-                    while (!sipClient.IsSecureContextReady())
+                    // 等待安全上下文就绪，记录超时情况
+                    var timeout = TimeSpan.FromSeconds(10);
+                    var start = DateTime.UtcNow;
+                    while (!sipClient.IsSecureContextReady()) {
+                        if (DateTime.UtcNow - start > timeout) {
+                            _logger.LogError($"*** SECURE CONTEXT TIMEOUT *** User: {userName}, waited {timeout.TotalSeconds}s");
+                            return false;
+                        }
                         await Task.Delay(100);
+                    }
 
                     var result = await sipClient.AnswerAsync();
-                    _logger.LogInformation($"用户 {userName} 接听电话{(result ? "成功" : "失败")}");
+                    
+                    if (!result) {
+                        _logger.LogError($"*** ANSWER FAILED *** User: {userName}, SipUsername: {user.SipUsername}");
+                    }
 
                     if (result) {
                         _applicationContext.UpdateUserActivity(user.SipUsername);
@@ -170,7 +181,7 @@ namespace AI.Caller.Phone.Services {
             var hangupReason = reason ?? "User requested hangup";
 
             try {
-                _logger.LogInformation($"开始挂断电话 - 用户: {sipUserName}, 原因: {hangupReason}");
+                _logger.LogDebug($"开始挂断电话 - 用户: {sipUserName}, 原因: {hangupReason}");
 
                 if (!_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient)) {
                     _logger.LogWarning($"用户 {sipUserName} 的SIP客户端不存在，无法挂断");
@@ -179,12 +190,12 @@ namespace AI.Caller.Phone.Services {
                 }
 
                 if (!sipClient.IsCallActive) {
-                    _logger.LogInformation($"用户 {sipUserName} 没有活动的通话，无需挂断");
+                    _logger.LogDebug($"用户 {sipUserName} 没有活动的通话，无需挂断");
                     await NotifyHangupStatusAsync(sipUserName, "callEnded", "没有活动通话");
                     return true;
                 }
 
-                _logger.LogInformation($"用户 {sipUserName} 有活动通话，执行挂断");
+                _logger.LogDebug($"用户 {sipUserName} 有活动通话，执行挂断");
 
                 sipClient.Hangup();
 
@@ -194,7 +205,7 @@ namespace AI.Caller.Phone.Services {
 
                 _applicationContext.UpdateUserActivity(sipUserName);
 
-                _logger.LogInformation($"用户 {sipUserName} 挂断电话成功");
+                _logger.LogDebug($"用户 {sipUserName} 挂断电话成功");
                 return true;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"用户 {sipUserName} 挂断电话失败");
@@ -208,7 +219,7 @@ namespace AI.Caller.Phone.Services {
         /// </summary>
         private async Task ForceTerminateConnectionAsync(string sipUserName, SIPClient sipClient) {
             try {
-                _logger.LogInformation($"强制终止用户 {sipUserName} 的连接");
+                _logger.LogDebug($"强制终止用户 {sipUserName} 的连接");
 
                 // 强制停止音频流
                 sipClient.StopAudioStreams();
@@ -224,7 +235,7 @@ namespace AI.Caller.Phone.Services {
                     _logger.LogWarning(ex, $"强制终止时发送BYE消息失败，但继续清理资源");
                 }
 
-                _logger.LogInformation($"用户 {sipUserName} 的连接已强制终止");
+                _logger.LogDebug($"用户 {sipUserName} 的连接已强制终止");
             } catch (Exception ex) {
                 _logger.LogError(ex, $"强制终止用户 {sipUserName} 连接时发生错误");
             }
@@ -254,7 +265,7 @@ namespace AI.Caller.Phone.Services {
 
                     if (completedTask == notificationTask) {
                         await notificationTask; // 确保任何异常被抛出
-                        _logger.LogInformation($"已向用户 {sipUserName} 发送状态通知: {status} - {message}");
+                        _logger.LogDebug($"已向用户 {sipUserName} 发送状态通知: {status} - {message}");
                     } else {
                         _logger.LogWarning($"向用户 {sipUserName} 发送状态通知超时: {status} - {message}");
                     }
@@ -321,7 +332,7 @@ namespace AI.Caller.Phone.Services {
             };
 
             try {
-                _logger.LogInformation($"开始挂断通话 - 用户: {sipUserName}, 通话ID: {callId}, 原因: {hangupNotification.Reason}");
+                _logger.LogDebug($"开始挂断通话 - 用户: {sipUserName}, 通话ID: {callId}, 原因: {hangupNotification.Reason}");
 
                 if (!_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient)) {
                     _logger.LogWarning($"用户 {sipUserName} 的SIP客户端不存在，无法挂断");
@@ -339,7 +350,7 @@ namespace AI.Caller.Phone.Services {
                     } else {
                         sipClient.Cancel();
                     }
-                    _logger.LogInformation($"用户 {sipUserName} 没有活动的通话，无需挂断");
+                    _logger.LogDebug($"用户 {sipUserName} 没有活动的通话，无需挂断");
                     return true;
                 }
 
@@ -485,7 +496,7 @@ namespace AI.Caller.Phone.Services {
                     try {
                         if (callInitiatedHandler != null) {
                             sipClient.CallInitiated -= callInitiatedHandler;
-                            _logger.LogDebug($"已清理呼出通话注册事件处理器 - SipUsername: {sipUsername}");
+                            _logger.LogInformation($"已清理呼出通话注册事件处理器 - SipUsername: {sipUsername}");
                         }
                     } catch (Exception ex) {
                         _logger.LogError(ex, $"清理事件处理器时发生错误 - SipUsername: {sipUsername}");
@@ -511,7 +522,7 @@ namespace AI.Caller.Phone.Services {
             var sipRegistrationClient = new SIPRegistrationUserAgent(_sipTransportManager.SIPTransport, user.SipUsername, user.SipPassword, _applicationContext.SipServer, 180);
 
             sipRegistrationClient.RegistrationSuccessful += (uri, resp) => {
-                _logger.LogDebug($"register success for {uri} => {resp}");
+                _logger.LogInformation($"register success for {uri} => {resp}");
                 //tcs.TrySetResult(true);
             };
 

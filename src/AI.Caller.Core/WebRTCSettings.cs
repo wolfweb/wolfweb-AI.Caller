@@ -5,6 +5,7 @@ using System.Linq;
 
 namespace AI.Caller.Core {
     public class WebRTCSettings {
+        public string PublicIP { get; set; } = string.Empty;
         public List<IceServerConfig> IceServers { get; set; } = new List<IceServerConfig>();
 
         public string IceTransportPolicy { get; set; } = "all";

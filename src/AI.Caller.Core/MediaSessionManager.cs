@@ -159,7 +159,7 @@ namespace AI.Caller.Core {
                 if (result != SetDescriptionResultEnum.OK) {
                     throw new InvalidOperationException($"Failed to set remote description on RTCPeerConnection: {result}");
                 }
-                _logger.LogInformation($"Set WebRTC remote description ({description.type}) successfully.");
+                _logger.LogDebug($"Set WebRTC remote description ({description.type}) successfully.");
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to set WebRTC remote description");
                 throw;
@@ -171,14 +171,14 @@ namespace AI.Caller.Core {
             ArgumentNullException.ThrowIfNull(description);
 
             if (_mediaSession == null) {
-                _logger.LogInformation("MediaSession not initialized, initializing now for SIP remote description.");
+                _logger.LogDebug("MediaSession not initialized, initializing now for SIP remote description.");
                 await InitializeMediaSession();
             }
 
             try {
                 var sdp = SDP.ParseSDPDescription(description.sdp);
                 _mediaSession!.SetRemoteDescription(description.type == RTCSdpType.offer ? SdpType.offer : SdpType.answer, sdp);
-                _logger.LogInformation($"Set SIP remote description ({description.type}) successfully on RTPSession.");
+                _logger.LogDebug($"Set SIP remote description ({description.type}) successfully on RTPSession.");
 
                 if (sdp.Connection != null && sdp.Media != null) {
                     var audioMedia = sdp.Media.FirstOrDefault(m => m.Media == SDPMediaTypesEnum.audio);
@@ -188,7 +188,7 @@ namespace AI.Caller.Core {
                             audioMedia.Port
                         );
                         _mediaSession.SetDestination(SDPMediaTypesEnum.audio, remoteEndPoint, remoteEndPoint);
-                        _logger.LogInformation($"Configured RTPSession destination to {remoteEndPoint} for audio.");
+                        _logger.LogDebug($"Configured RTPSession destination to {remoteEndPoint} for audio.");
                     } else {
                         _logger.LogWarning("No valid audio media found in SDP, cannot set RTPSession destination.");
                     }
@@ -224,15 +224,15 @@ namespace AI.Caller.Core {
             try {
                 var sdpOffer = _peerConnection.createOffer();
                 await _peerConnection.setLocalDescription(sdpOffer);
-                _logger.LogInformation("Generated and set SDP Offer for RTCPeerConnection.");
+                _logger.LogDebug("Generated and set SDP Offer for RTCPeerConnection.");
 
-                lock (_lock) {
-                    if (_mediaSession != null) {
-                        var offerSDP = SDP.ParseSDPDescription(sdpOffer.sdp);
-                        _mediaSession.SetRemoteDescription(SdpType.offer, offerSDP);
-                        _logger.LogInformation("Set SDP Offer for RTPSession.");
-                    }
-                }
+                //lock (_lock) {
+                //    if (_mediaSession != null) {
+                //        var offerSDP = SDP.ParseSDPDescription(sdpOffer.sdp);
+                //        _mediaSession.SetRemoteDescription(SdpType.offer, offerSDP);
+                //        _logger.LogInformation("Set SDP Offer for RTPSession.");
+                //    }
+                //}
 
                 SdpOfferGenerated?.Invoke(sdpOffer);
                 return sdpOffer;
@@ -256,13 +256,13 @@ namespace AI.Caller.Core {
             try {
                 var answerSdp = _peerConnection.createAnswer(new RTCAnswerOptions());
                 await _peerConnection.setLocalDescription(answerSdp);
-                _logger.LogInformation("Generated and set SDP Answer for RTCPeerConnection.");
+                _logger.LogDebug("Generated and set SDP Answer for RTCPeerConnection.");
 
                 lock (_lock) {
                     if (_mediaSession != null) {
                         var rtpAnswerSdp = SDP.ParseSDPDescription(answerSdp.sdp);
                         _mediaSession.SetRemoteDescription(SdpType.answer, rtpAnswerSdp);
-                        _logger.LogInformation("Set SDP Answer for RTPSession.");
+                        _logger.LogDebug("Set SDP Answer for RTPSession.");
                     }
                 }
 
@@ -278,7 +278,7 @@ namespace AI.Caller.Core {
             ThrowIfDisposed();
             try {
                 var offer = await CreateOfferAsync();
-                _logger.LogInformation("Browser call initiated successfully with CreateOffer->SetLocalDescription flow");
+                _logger.LogDebug("Browser call initiated successfully with CreateOffer->SetLocalDescription flow");
                 return offer;
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to initiate browser call");
@@ -293,7 +293,7 @@ namespace AI.Caller.Core {
             try {
                 SetWebRtcRemoteDescription(remoteOffer);
                 var answer = await CreateAnswerAsync();
-                _logger.LogInformation("Browser incoming call handled successfully with SetRemoteDescription->CreateAnswer->SetLocalDescription flow");
+                _logger.LogDebug("Browser incoming call handled successfully with SetRemoteDescription->CreateAnswer->SetLocalDescription flow");
                 return answer;
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to handle browser incoming call");
@@ -314,7 +314,7 @@ namespace AI.Caller.Core {
                         _logger.LogTrace($"Forwarded RTP audio to WebRTC: {rtpPacket.Payload.Length} bytes from {remote}");
                         AudioDataReceived?.Invoke(remote, mediaType, rtpPacket);
                     } catch (Exception ex) {
-                        _logger.LogDebug($"Error sending audio to RTCPeerConnection (DTLS may not be ready): {ex.Message}");
+                        _logger.LogError($"Error sending audio to RTCPeerConnection (DTLS may not be ready): {ex.Message}");
                     }
                 } else {
                     _logger.LogDebug("RTCPeerConnection not available, skipping WebRTC audio forwarding");
@@ -341,7 +341,11 @@ namespace AI.Caller.Core {
                         _logger.LogError("Cannot forward audio to SIP: dstEndPoint is null.");
                     }
                 } else {
-                    _logger.LogWarning($"Cannot forward audio to SIP: MediaSession={(_mediaSession != null ? "Exists" : "Null")}, IsClosed={(_mediaSession?.IsClosed ?? true)}");
+                    if (_mediaSession == null) {
+                        _logger.LogError("*** MEDIA SESSION NULL *** Cannot forward audio to SIP - MediaSession not initialized");
+                    } else if (_mediaSession.IsClosed) {
+                        _logger.LogWarning("*** MEDIA SESSION CLOSED *** Cannot forward audio to SIP - MediaSession was closed");
+                    }
                 }
             } catch (Exception ex) {
                 _logger.LogError($"Error forwarding media to SIP: {ex.Message}");
@@ -353,9 +357,9 @@ namespace AI.Caller.Core {
             if (pc == null) return;
 
             pc.onconnectionstatechange += (state) => {
-                _logger.LogInformation($"RTCPeerConnection state changed to: {state}");
+                _logger.LogDebug($"RTCPeerConnection state changed to: {state}");
                 if (state == RTCPeerConnectionState.connected) {
-                    _logger.LogInformation("Peer connection connected - DTLS transport should be available now.");
+                    _logger.LogDebug("Peer connection connected - DTLS transport should be available now.");
                 } else if (state == RTCPeerConnectionState.failed || state == RTCPeerConnectionState.disconnected) {
                     _logger.LogWarning($"RTCPeerConnection failed or disconnected: {state} - DTLS transport may be unavailable");
                 }
@@ -363,28 +367,28 @@ namespace AI.Caller.Core {
             };
 
             pc.oniceconnectionstatechange += (state) => {
-                _logger.LogInformation($"ICE connection state changed to: {state}");
+                _logger.LogDebug($"ICE connection state changed to: {state}");
                 if (state == RTCIceConnectionState.connected) {
-                    _logger.LogInformation("ICE connection established - preparing DTLS transport");
+                    _logger.LogDebug("ICE connection established - preparing DTLS transport");
                 } else if (state == RTCIceConnectionState.failed || state == RTCIceConnectionState.disconnected) {
                     _logger.LogWarning($"ICE connection issue: {state} - may affect DTLS transport");
                 }
             };
 
             pc.onicegatheringstatechange += (state) => {
-                _logger.LogInformation($"ICE gathering state changed to: {state}");
+                _logger.LogDebug($"ICE gathering state changed to: {state}");
             };
 
             pc.onsignalingstatechange += () => {
                 var state = pc.signalingState;
-                _logger.LogInformation($"Signaling state changed to: {state}");
+                _logger.LogDebug($"Signaling state changed to: {state}");
             };
 
             pc.onicecandidate += (candidate) => {
                 if (candidate != null) {
                     _logger.LogDebug($"ICE candidate: {candidate.candidate}, Type: {candidate.type}, Address: {candidate.address}, Port: {candidate.port}");
                     if (candidate.candidate != null && candidate.candidate.Contains("typ relay")) {
-                        _logger.LogInformation("Using TURN relay for media.");
+                        _logger.LogDebug("Using TURN relay for media.");
                     }
                     var candidateInit = new RTCIceCandidateInit {
                         candidate = candidate.candidate,
@@ -456,7 +460,7 @@ namespace AI.Caller.Core {
             };
 
             InitializePeerConnection(defaultConfig);
-            _logger.LogInformation("RTCPeerConnection auto-initialized with default configuration");
+            _logger.LogDebug("RTCPeerConnection auto-initialized with default configuration");
         }
 
         public void Dispose() {

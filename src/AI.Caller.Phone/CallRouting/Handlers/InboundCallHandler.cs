@@ -1,6 +1,8 @@
-using Microsoft.AspNetCore.SignalR;
-using SIPSorcery.SIP;
 using AI.Caller.Phone.Hubs;
+using Microsoft.AspNetCore.SignalR;
+using Org.BouncyCastle.Asn1.Ocsp;
+using SIPSorcery.Net;
+using SIPSorcery.SIP;
 
 namespace AI.Caller.Phone.CallRouting.Handlers {
     public class InboundCallHandler : ICallHandler {
@@ -19,7 +21,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
 
         public async Task<bool> HandleCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult) {
             try {
-                _logger.LogInformation($"开始处理新呼入 - CallId: {sipRequest.Header.CallId}, Strategy: {routingResult.Strategy}");
+                _logger.LogDebug($"开始处理新呼入 - CallId: {sipRequest.Header.CallId}, Strategy: {routingResult.Strategy}");
 
                 if (!routingResult.Success || routingResult.TargetClient == null) {
                     _logger.LogError($"路由结果无效 - CallId: {sipRequest.Header.CallId}");
@@ -51,7 +53,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 var sipClient = routingResult.TargetClient!;
                 var targetUser = routingResult.TargetUser!;
 
-                _logger.LogInformation($"处理Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipUsername}");
+                _logger.LogDebug($"处理Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipUsername}");
 
                 sipClient.Accept(sipRequest);
 
@@ -75,7 +77,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                     timestamp = DateTime.UtcNow
                 });
 
-                _logger.LogInformation($"Web到Web通话处理完成 - CallId: {sipRequest.Header.CallId}");
+                _logger.LogDebug($"Web到Web通话处理完成 - CallId: {sipRequest.Header.CallId}");
                 return true;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"处理Web到Web通话失败 - CallId: {sipRequest.Header.CallId}");
@@ -88,13 +90,27 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 var sipClient = routingResult.TargetClient!;
                 var targetUser = routingResult.TargetUser!;
 
-                _logger.LogInformation($"处理非Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipUsername}");
+                _logger.LogDebug($"处理非Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipUsername}");
+
 
                 sipClient.Accept(sipRequest);
 
                 var offerSdp = await sipClient.CreateOfferAsync();
 
-                sipClient.MediaSessionManager.IceCandidateGenerated += (candidate) => {
+                if (!string.IsNullOrEmpty(sipRequest.Body))
+                {
+                    var sdp = SDP.ParseSDPDescription(sipRequest.Body);
+                    var remoteDescription = new RTCSessionDescriptionInit
+                    {
+                        type = RTCSdpType.offer,
+                        sdp = sipRequest.Body
+                    };
+
+                    await sipClient.MediaSessionManager!.SetSipRemoteDescriptionAsync(remoteDescription);
+                    _logger.LogDebug($"Set phone SDP Offer to RTPSession for CallId: {sipRequest.Header.CallId}");
+                }
+
+                sipClient.MediaSessionManager!.IceCandidateGenerated += (candidate) => {
                     if (sipClient.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.have_remote_offer ||
                         sipClient.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.stable) {
                         try {
@@ -105,6 +121,15 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                     }
                 };
 
+                _logger.LogDebug($"*** SENDING inCalling TO UI *** CallId: {sipRequest.Header.CallId}");
+                _logger.LogDebug($"Target User ID: {targetUser.Id}, SipUsername: {targetUser.SipUsername}");
+                _logger.LogDebug($"Caller: {sipRequest.Header.From.FromURI.User}");
+                _logger.LogDebug($"SIP Client IsCallActive: {sipClient.IsCallActive}");
+                
+                if (sipClient.Dialogue != null) {
+                    _logger.LogDebug($"SIP Dialogue exists - CallId: {sipClient.Dialogue.CallId}");
+                }
+
                 await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("inCalling", new {
                     caller = sipRequest.Header.From.FromURI.User,
                     callee = targetUser.SipUsername,
@@ -114,7 +139,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                     timestamp = DateTime.UtcNow
                 });
 
-                _logger.LogInformation($"非Web到Web通话处理完成 - CallId: {sipRequest.Header.CallId}");
+                _logger.LogDebug($"非Web到Web通话处理完成 - CallId: {sipRequest.Header.CallId}");
                 return true;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"处理非Web到Web通话失败 - CallId: {sipRequest.Header.CallId}");
@@ -127,7 +152,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 var sipClient = routingResult.TargetClient!;
                 var targetUser = routingResult.TargetUser;
 
-                _logger.LogInformation($"处理非Web通话 - CallId: {sipRequest.Header.CallId}");
+                _logger.LogDebug($"处理非Web通话 - CallId: {sipRequest.Header.CallId}");
 
                 sipClient.Accept(sipRequest);
 
@@ -145,7 +170,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                     });
                 }
 
-                _logger.LogInformation($"非Web通话处理完成 - CallId: {sipRequest.Header.CallId}");
+                _logger.LogDebug($"非Web通话处理完成 - CallId: {sipRequest.Header.CallId}");
                 return true;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"处理非Web通话失败 - CallId: {sipRequest.Header.CallId}");
@@ -155,10 +180,10 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
 
         private async Task<bool> HandleFallbackCall(SIPRequest sipRequest, CallRoutingResult routingResult) {
             try {
-                _logger.LogInformation($"处理备用情况 - CallId: {sipRequest.Header.CallId}, Message: {routingResult.Message}");
+                _logger.LogDebug($"处理备用情况 - CallId: {sipRequest.Header.CallId}, Message: {routingResult.Message}");
 
 
-                _logger.LogInformation($"备用处理：拒绝呼叫 - CallId: {sipRequest.Header.CallId}");
+                _logger.LogDebug($"备用处理：拒绝呼叫 - CallId: {sipRequest.Header.CallId}");
                 return false; // 返回false表示拒绝呼叫
             } catch (Exception ex) {
                 _logger.LogError(ex, $"处理备用情况失败 - CallId: {sipRequest.Header.CallId}");

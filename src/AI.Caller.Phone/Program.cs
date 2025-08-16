@@ -51,7 +51,9 @@ namespace AI.Caller.Phone {
             builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
             builder.Services.AddHostedService<SipBackgroundTask>();
             builder.Services.AddHostedService<UserSessionCleanupService>();
-            builder.Services.AddSingleton<SIPTransportManager>();
+            builder.Services.AddSingleton<SIPTransportManager>(sp => {
+                return new SIPTransportManager(builder.Configuration.GetSection("SipSettings")["ContactHost"], sp.GetRequiredService<ILogger<SIPTransportManager>>());
+            });
             builder.Services.AddScoped<UserService>();
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
