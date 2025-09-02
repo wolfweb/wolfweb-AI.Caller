@@ -56,7 +56,10 @@ public class RealCoreBusinessScenarioTests : IDisposable {
                 _output.WriteLine($"Web2Web外呼 - CallAsync异常（预期，无真实SIP服务器）: {ex.Message}");
             }
 
-            Assert.True(true, "Web到Web外呼完整SDP信令建立成功");
+            Assert.NotNull(sdpOffer);
+            Assert.NotEmpty(sdpOffer.sdp);
+            Assert.NotNull(sdpAnswer);
+            Assert.NotEmpty(sdpAnswer.sdp);
 
         } finally {
             callerClient?.Shutdown();
@@ -89,7 +92,8 @@ public class RealCoreBusinessScenarioTests : IDisposable {
             }
 
 
-            Assert.True(true, "Web到Web呼入完整SDP信令建立成功");
+            Assert.NotNull(mockInviteRequest.Body);
+            Assert.Contains("RTP/AVP", mockInviteRequest.Body);
 
         } finally {
             calleeClient?.Shutdown();
@@ -153,7 +157,9 @@ a=sendrecv";
                 _sipClientLogger.LogWarning($"Web2Mobile外呼 - CallAsync异常（预期，无真实PSTN网关）: {ex.Message}");
             }
 
-            Assert.True(true, "Web到手机外呼完整SDP信令建立成功");
+            Assert.NotNull(sdpOffer);
+            Assert.NotEmpty(sdpOffer.sdp);
+            Assert.Contains("RTP/AVP", sdpOffer.sdp);
 
         } finally {
             webClient?.Shutdown();
@@ -209,7 +215,10 @@ a=sendrecv";
                 _sipClientLogger.LogWarning($"Mobile2Web呼入 - AnswerAsync异常（预期，无真实SIP会话）: {ex.Message}");
             }
 
-            Assert.True(true, "手机到Web呼入完整SDP信令建立成功");
+            Assert.NotNull(mockMobileInviteRequest.Body);
+            Assert.Contains("RTP/AVP", mockMobileInviteRequest.Body);
+            Assert.NotNull(webRtcAnswer);
+            Assert.NotEmpty(webRtcAnswer.sdp);
 
         } finally {
             webClient?.Shutdown();

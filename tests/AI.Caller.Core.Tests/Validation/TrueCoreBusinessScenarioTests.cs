@@ -77,7 +77,9 @@ public class TrueCoreBusinessScenarioTests : IDisposable {
                     _output.WriteLine($"Web2Mobile CallAsync异常（预期）: {ex.Message}");
                 }
 
-                Assert.True(true, "核心业务场景：Web到手机通话的PSTN兼容SDP信令机制正常工作");
+                Assert.True(pstnCompatibleSdpGenerated, "PSTN兼容SDP信令应该被生成");
+                Assert.NotNull(generatedSdp);
+                Assert.Contains("RTP/AVP", generatedSdp);
 
             } catch (Exception ex) {
                 _output.WriteLine($"Web2Mobile SDP机制验证失败: {ex.Message}");

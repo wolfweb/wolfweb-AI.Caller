@@ -50,7 +50,7 @@ public class CoreCallFlowTests : IDisposable {
             callerMedia.SetWebRtcRemoteDescription(answer);
 
 
-            Assert.True(true, "Web到Web外呼流程执行成功");
+
 
         } finally {
             callerMedia?.Dispose();
@@ -88,7 +88,8 @@ public class CoreCallFlowTests : IDisposable {
             callerMedia.SetWebRtcRemoteDescription(answerResponse);
 
 
-            Assert.True(true, "Web到Web呼入流程执行成功");
+            Assert.NotNull(incomingOffer);
+            Assert.NotNull(answerResponse);
 
         } finally {
             callerMedia?.Dispose();
@@ -135,7 +136,8 @@ public class CoreCallFlowTests : IDisposable {
             await webMedia.SetSipRemoteDescriptionAsync(mobileAnswer);
 
 
-            Assert.True(true, "Web到手机外呼流程执行成功");
+            Assert.NotNull(offer);
+            Assert.NotEmpty(offer.sdp);
 
         } finally {
             webMedia?.Dispose();
@@ -180,7 +182,7 @@ a=sendrecv";
 
             Assert.Contains("PCMU", pstnAnswerSdp);
             Assert.Contains("sendrecv", pstnAnswerSdp);
-            Assert.True(true, "Web到手机接听流程执行成功");
+            Assert.NotNull(offer);
 
         } finally {
             webMedia?.Dispose();
@@ -235,7 +237,7 @@ a=sendrecv";
                 "SDP should contain audio media description");
 
 
-            Assert.True(true, "手机到Web呼入流程执行成功");
+
 
         } finally {
             webMedia?.Dispose();
@@ -271,7 +273,8 @@ a=sendrecv";
             Assert.Contains("a=sendrecv", webAnswer.sdp);
             Assert.Contains("m=audio", webAnswer.sdp);
 
-            Assert.True(true, "手机到Web接听流程执行成功");
+            Assert.NotNull(webAnswer);
+            Assert.NotEmpty(webAnswer.sdp);
 
         } finally {
             webMedia?.Dispose();
@@ -291,8 +294,7 @@ a=sendrecv";
 
         try {
 
-            var callAsyncMethod = typeof(SIPClient).GetMethod("CallAsync");
-            Assert.NotNull(callAsyncMethod);
+            Assert.False(sipClient.IsCallActive);
 
 
             Assert.False(sipClient.IsCallActive);
@@ -312,8 +314,7 @@ a=sendrecv";
 
             var answerMethod = typeof(SIPClient).GetMethod("AnswerAsync") ?? typeof(SIPClient).GetMethod("Answer");
 
-            var hangupMethod = typeof(SIPClient).GetMethod("Hangup");
-            Assert.NotNull(hangupMethod);
+            Assert.False(sipClient.IsCallActive);
 
         } finally {
             sipTransport?.Dispose();

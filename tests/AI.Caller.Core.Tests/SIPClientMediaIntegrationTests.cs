@@ -39,7 +39,6 @@ namespace AI.Caller.Core.Tests {
             mediaManager.IceCandidateGenerated += (candidate) => { };
             mediaManager.ConnectionStateChanged += (state) => { };
 
-            Assert.True(true);
         }
 
         [Fact]
@@ -84,8 +83,7 @@ namespace AI.Caller.Core.Tests {
             try {
                 _sipClient.SetRemoteDescription(description);
             } catch (InvalidOperationException ex) when (ex.Message.Contains("NoMatchingMediaType")) {
-
-                Assert.True(true);
+                // Expected behavior - SDP format doesn't match peer connection setup
             }
         }
 
@@ -118,8 +116,7 @@ namespace AI.Caller.Core.Tests {
             // Act
             _sipClient.Shutdown();
 
-            // Assert - Test passes if no exceptions during shutdown
-            Assert.True(true);
+            // Test passes if no exceptions during shutdown
         }
 
         [Fact]
@@ -149,26 +146,10 @@ namespace AI.Caller.Core.Tests {
                 // Expected behavior - SDP format doesn't match peer connection setup
             }
 
-            // Assert - The important thing is that methods can be called without expecting direct responses
-            Assert.True(true);
+            // The important thing is that methods can be called without expecting direct responses
         }
 
-        [Fact]
-        public void CodeCompilation_ShouldSucceed() {
-            // This test verifies that the code compiles successfully
-            // and all dependencies are properly resolved
 
-            // Arrange & Act
-            var sipClient = new SIPClient("test.server.com", _mockLogger.Object, new SIPTransport());
-            var mediaManager = sipClient.MediaSessionManager;
-
-            // Assert
-            Assert.NotNull(sipClient);
-            Assert.NotNull(mediaManager);
-
-            // Cleanup
-            sipClient.Shutdown();
-        }
 
         [Fact]
         public async Task RealisticCallScenario_ShouldWorkEndToEnd() {

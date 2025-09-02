@@ -23,7 +23,6 @@ public class AppDbContextTests : IDisposable {
 
     [Fact]
     public async Task SipAccount_CRUD_Operations_ShouldWork() {
-        // Create
         var sipAccount = new SipAccount {
             SipUsername = "test@sip.com",
             SipPassword = "password123",
@@ -34,7 +33,6 @@ public class AppDbContextTests : IDisposable {
         _context.SipAccounts.Add(sipAccount);
         await _context.SaveChangesAsync();
 
-        // Read
         var savedAccount = await _context.SipAccounts
             .FirstOrDefaultAsync(s => s.SipUsername == "test@sip.com");
 
@@ -45,7 +43,6 @@ public class AppDbContextTests : IDisposable {
         Assert.True(savedAccount.IsActive);
         Assert.True(savedAccount.Id > 0);
 
-        // Update
         savedAccount.SipServer = "sip.newserver.com";
         savedAccount.IsActive = false;
         await _context.SaveChangesAsync();

@@ -183,66 +183,6 @@ namespace AI.Caller.Core.Tests.Network {
             Assert.True(duration.TotalHours <= 2.1); // Allow for execution time
         }
 
-        [Theory]
-        [InlineData(NetworkType.Unknown)]
-        [InlineData(NetworkType.Ethernet)]
-        [InlineData(NetworkType.WiFi)]
-        [InlineData(NetworkType.Cellular)]
-        [InlineData(NetworkType.VPN)]
-        [InlineData(NetworkType.Loopback)]
-        public void NetworkType_AllValues_ShouldBeValid(NetworkType networkType) {
-            // Act & Assert
-            Assert.True(Enum.IsDefined(typeof(NetworkType), networkType));
-        }
 
-        [Theory]
-        [InlineData(NetworkQuality.Unknown)]
-        [InlineData(NetworkQuality.Excellent)]
-        [InlineData(NetworkQuality.Good)]
-        [InlineData(NetworkQuality.Fair)]
-        [InlineData(NetworkQuality.Poor)]
-        [InlineData(NetworkQuality.Disconnected)]
-        public void NetworkQuality_AllValues_ShouldBeValid(NetworkQuality quality) {
-            // Act & Assert
-            Assert.True(Enum.IsDefined(typeof(NetworkQuality), quality));
-        }
-
-        [Theory]
-        [InlineData(ConnectionStatus.Disconnected)]
-        [InlineData(ConnectionStatus.Connecting)]
-        [InlineData(ConnectionStatus.Connected)]
-        [InlineData(ConnectionStatus.Reconnecting)]
-        [InlineData(ConnectionStatus.Failed)]
-        [InlineData(ConnectionStatus.Timeout)]
-        public void ConnectionStatus_AllValues_ShouldBeValid(ConnectionStatus status) {
-            // Act & Assert
-            Assert.True(Enum.IsDefined(typeof(ConnectionStatus), status));
-        }
-
-        [Theory]
-        [InlineData(NetworkIssueType.ConnectionLost)]
-        [InlineData(NetworkIssueType.HighLatency)]
-        [InlineData(NetworkIssueType.PacketLoss)]
-        [InlineData(NetworkIssueType.LowBandwidth)]
-        [InlineData(NetworkIssueType.DNSResolutionFailure)]
-        [InlineData(NetworkIssueType.TimeoutError)]
-        [InlineData(NetworkIssueType.AuthenticationFailure)]
-        [InlineData(NetworkIssueType.ServerUnreachable)]
-        [InlineData(NetworkIssueType.PortBlocked)]
-        [InlineData(NetworkIssueType.FirewallBlocked)]
-        public void NetworkIssueType_AllValues_ShouldBeValid(NetworkIssueType issueType) {
-            // Act & Assert
-            Assert.True(Enum.IsDefined(typeof(NetworkIssueType), issueType));
-        }
-
-        [Theory]
-        [InlineData(NetworkIssueSeverity.Info)]
-        [InlineData(NetworkIssueSeverity.Warning)]
-        [InlineData(NetworkIssueSeverity.Error)]
-        [InlineData(NetworkIssueSeverity.Critical)]
-        public void NetworkIssueSeverity_AllValues_ShouldBeValid(NetworkIssueSeverity severity) {
-            // Act & Assert
-            Assert.True(Enum.IsDefined(typeof(NetworkIssueSeverity), severity));
-        }
     }
 }
