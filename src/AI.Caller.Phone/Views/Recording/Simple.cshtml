@@ -147,6 +147,11 @@
                                             </td>
                                             <td>
                                                 <div class="btn-group btn-group-sm">
+                                                    <button class="btn btn-outline-secondary details-btn" 
+                                                            data-recording-id="@recording.Id" 
+                                                            title="详情">
+                                                        <i class="bi bi-info-circle"></i>
+                                                    </button>
                                                     <button class="btn btn-outline-primary play-btn" 
                                                             data-filepath="@recording.FilePath" 
                                                             title="播放">
@@ -226,6 +231,44 @@
     </div>
 </div>
 
+<!-- 录音详情模态框 -->
+<div class="modal fade" id="recordingDetailsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-gradient-primary text-white border-0">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-music-note-beamed me-2"></i>录音详情
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div id="detailsContent">
+                    <div class="text-center py-5">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                        <h6 class="text-muted">正在加载录音详情...</h6>
+                        <p class="text-muted small">请稍候片刻</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle me-1"></i>关闭
+                </button>
+                <button type="button" class="btn btn-success d-none" id="playFromDetails">
+                    <i class="bi bi-play-fill me-1"></i>播放录音
+                </button>
+                <button type="button" class="btn btn-primary d-none" id="downloadFromDetails">
+                    <i class="bi bi-download me-1"></i>下载文件
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
 @section Scripts {
     <script>
         // 简单的录音管理JavaScript
@@ -280,6 +323,260 @@
                         } catch (error) {
                             alert('删除失败: ' + error.message);
                         }
+                    }
+                });
+            });
+
+            // 录音详情按钮
+            document.querySelectorAll('.details-btn').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const recordingId = this.dataset.recordingId;
+                    const modal = new bootstrap.Modal(document.getElementById('recordingDetailsModal'));
+                    const detailsContent = document.getElementById('detailsContent');
+                    
+                    // 显示加载状态
+                    detailsContent.innerHTML = `
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                            <p class="mt-2 text-muted">正在加载录音详情...</p>
+                        </div>
+                    `;
+                    
+                    modal.show();
+                    
+                    try {
+                        const response = await fetch(`/Recording/GetRecordingDetails?recordingId=${recordingId}`);
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            const data = result.data;
+                            detailsContent.innerHTML = `
+                                <div class="container-fluid p-4">
+                                    <!-- 头部信息卡片 -->
+                                    <div class="row mb-4">
+                                        <div class="col-12">
+                                            <div class="detail-card p-4">
+                                                <div class="d-flex align-items-center mb-3">
+                                                    <div class="icon-wrapper">
+                                                        <i class="bi bi-file-earmark-music"></i>
+                                                    </div>
+                                                    <div>
+                                                        <h4 class="mb-1 fw-bold text-dark">${data.fileName}</h4>
+                                                        <p class="mb-0 text-muted">
+                                                            <i class="bi bi-person-circle me-1"></i>
+                                                            与 <strong>${data.sipUsername}</strong> 的通话录音
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- 关键指标 -->
+                                                <div class="row g-3">
+                                                    <div class="col-md-3">
+                                                        <div class="metric-card">
+                                                            <div class="metric-value">${data.duration}</div>
+                                                            <div class="metric-label">录音时长</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <div class="metric-card">
+                                                            <div class="metric-value">${data.fileSize}</div>
+                                                            <div class="metric-label">文件大小</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <div class="metric-card">
+                                                            <div class="metric-value">${data.format}</div>
+                                                            <div class="metric-label">音频格式</div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <div class="metric-card">
+                                                            <span class="status-badge ${data.isFileExists ? 'bg-success' : 'bg-danger'} text-white">
+                                                                <i class="bi ${data.isFileExists ? 'bi-check-circle' : 'bi-exclamation-triangle'} me-1"></i>
+                                                                ${data.status}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 详细信息 -->
+                                    <div class="row g-4">
+                                        <div class="col-lg-6">
+                                            <div class="detail-card p-4 h-100">
+                                                <h6 class="detail-section-header mb-3">
+                                                    <i class="bi bi-calendar-event me-2"></i>时间信息
+                                                </h6>
+                                                <table class="table detail-table mb-0">
+                                                    <tr>
+                                                        <td class="fw-bold">
+                                                            <i class="bi bi-calendar3 text-primary me-2"></i>录音日期
+                                                        </td>
+                                                        <td>${data.createdDate}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td class="fw-bold">
+                                                            <i class="bi bi-clock text-success me-2"></i>开始时间
+                                                        </td>
+                                                        <td>${data.createdTime}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td class="fw-bold">
+                                                            <i class="bi bi-stopwatch text-info me-2"></i>录音时长
+                                                        </td>
+                                                        <td>
+                                                            <span class="badge bg-light text-dark px-3 py-2">
+                                                                ${data.duration} (${data.durationSeconds}秒)
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td class="fw-bold">
+                                                            <i class="bi bi-clock-history text-warning me-2"></i>完整时间
+                                                        </td>
+                                                        <td>${data.startTime}</td>
+                                                    </tr>
+                                                </table>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="col-lg-6">
+                                            <div class="detail-card p-4 h-100">
+                                                <h6 class="detail-section-header mb-3">
+                                                    <i class="bi bi-gear-fill me-2"></i>技术规格
+                                                </h6>
+                                                <table class="table detail-table mb-0">
+                                                    <tr>
+                                                        <td class="fw-bold">
+                                                            <i class="bi bi-file-earmark text-primary me-2"></i>文件格式
+                                                        </td>
+                                                        <td>
+                                                            <span class="badge bg-primary px-3 py-2">${data.format}</span>
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td class="fw-bold">
+                                                            <i class="bi bi-hdd text-success me-2"></i>文件大小
+                                                        </td>
+                                                        <td>${data.fileSize} <small class="text-muted">(${data.fileSizeBytes.toLocaleString()} 字节)</small></td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td class="fw-bold">
+                                                            <i class="bi bi-soundwave text-info me-2"></i>音频质量
+                                                        </td>
+                                                        <td>
+                                                            <span class="badge bg-info px-3 py-2">${data.quality}</span>
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td class="fw-bold">
+                                                            <i class="bi bi-shield-check text-success me-2"></i>文件状态
+                                                        </td>
+                                                        <td>
+                                                            <span class="status-badge ${data.isFileExists ? 'bg-success' : 'bg-danger'} text-white">
+                                                                <i class="bi ${data.isFileExists ? 'bi-check-circle' : 'bi-exclamation-triangle'} me-1"></i>
+                                                                ${data.status}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    ${data.metadata.lastModified ? `
+                                    <!-- 系统信息 -->
+                                    <div class="row mt-4">
+                                        <div class="col-12">
+                                            <div class="detail-card p-4">
+                                                <h6 class="detail-section-header mb-3">
+                                                    <i class="bi bi-info-circle-fill me-2"></i>系统信息
+                                                </h6>
+                                                <div class="info-alert p-3">
+                                                    <div class="row g-3">
+                                                        <div class="col-md-6">
+                                                            <div class="d-flex align-items-center">
+                                                                <i class="bi bi-clock-history text-primary me-2"></i>
+                                                                <div>
+                                                                    <small class="text-muted d-block">最后修改时间</small>
+                                                                    <strong>${data.metadata.lastModified}</strong>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-md-6">
+                                                            <div class="d-flex align-items-center">
+                                                                <i class="bi bi-toggles text-success me-2"></i>
+                                                                <div>
+                                                                    <small class="text-muted d-block">功能支持</small>
+                                                                    <span class="badge ${data.metadata.canPlay ? 'bg-success' : 'bg-secondary'} me-1">
+                                                                        播放 ${data.metadata.canPlay ? '✓' : '✗'}
+                                                                    </span>
+                                                                    <span class="badge ${data.metadata.canDownload ? 'bg-success' : 'bg-secondary'}">
+                                                                        下载 ${data.metadata.canDownload ? '✓' : '✗'}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="mt-3">
+                                                        <small class="text-muted d-block mb-1">
+                                                            <i class="bi bi-folder2-open me-1"></i>文件路径
+                                                        </small>
+                                                        <div class="file-path-code">${data.filePath}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                            
+                            // 显示/隐藏操作按钮
+                            const playBtn = document.getElementById('playFromDetails');
+                            const downloadBtn = document.getElementById('downloadFromDetails');
+                            
+                            if (data.metadata.canPlay) {
+                                playBtn.style.display = 'inline-block';
+                                playBtn.onclick = () => {
+                                    const audioPlayer = document.getElementById('audioPlayer');
+                                    const audioModal = new bootstrap.Modal(document.getElementById('audioPlayerModal'));
+                                    audioPlayer.src = '/Recording/Play?filePath=' + encodeURIComponent(data.filePath);
+                                    modal.hide();
+                                    audioModal.show();
+                                };
+                            } else {
+                                playBtn.style.display = 'none';
+                            }
+                            
+                            if (data.metadata.canDownload) {
+                                downloadBtn.style.display = 'inline-block';
+                                downloadBtn.onclick = () => {
+                                    window.location.href = '/Recording/Download?filePath=' + encodeURIComponent(data.filePath);
+                                };
+                            } else {
+                                downloadBtn.style.display = 'none';
+                            }
+                            
+                        } else {
+                            detailsContent.innerHTML = `
+                                <div class="alert alert-danger">
+                                    <i class="bi bi-exclamation-triangle me-2"></i>
+                                    加载录音详情失败: ${result.message}
+                                </div>
+                            `;
+                        }
+                    } catch (error) {
+                        detailsContent.innerHTML = `
+                            <div class="alert alert-danger">
+                                <i class="bi bi-exclamation-triangle me-2"></i>
+                                加载录音详情时发生错误: ${error.message}
+                            </div>
+                        `;
                     }
                 });
             });

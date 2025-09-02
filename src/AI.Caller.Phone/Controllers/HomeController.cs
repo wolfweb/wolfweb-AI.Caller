@@ -19,20 +19,27 @@ namespace AI.Caller.Phone.Controllers {
         }
 
         public async Task<IActionResult> Index() {
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
-            ViewBag.IsAdmin = currentUser != null ? currentUser.IsAdmin : false;
-            return View();
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            
+            var contacts = currentUser != null 
+                ? await _context.Contacts.Where(c => c.UserId == currentUser.Id).ToListAsync()
+                : new List<Contact>();
+            
+            return View(contacts);
         }
 
         public async Task<IActionResult> About() {
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             ViewBag.IsAdmin = currentUser != null ? currentUser.IsAdmin : false;
             return View();
         }
 
         [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
         public async Task<IActionResult> Error() {
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             ViewBag.IsAdmin = currentUser != null ? currentUser.IsAdmin : false;
             return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
         }

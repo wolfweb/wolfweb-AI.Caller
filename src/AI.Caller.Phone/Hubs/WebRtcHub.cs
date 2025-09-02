@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
+using System.Security.Claims;
 
 namespace AI.Caller.Phone.Hubs {
     [Authorize]
@@ -23,8 +24,9 @@ namespace AI.Caller.Phone.Hubs {
         }
 
         public async Task AnswerAsync(WebRtcAnswerModel model) {
+            var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
             if (RTCSessionDescriptionInit.TryParse(model.AnswerSdp, out var v)) {
-                var user = await _appDbContext.Users.FirstAsync(x => x.Username == Context.User!.Identity!.Name);
+                var user = await _appDbContext.Users.FirstAsync(x => x.Id == userId);
                 var result = await _sipService.AnswerAsync(user, v);
                 if (result && model.CallerId.HasValue) {
                     var caller = await _appDbContext.Users.FirstAsync(x => x.Id == model.CallerId.Value);
@@ -34,29 +36,23 @@ namespace AI.Caller.Phone.Hubs {
         }
 
         public async Task SendIceCandidateAsync(RTCIceCandidateInit candidate) {
-            var user = await _appDbContext.Users.FirstAsync(x => x.Username == Context.User!.Identity!.Name);
+            var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var user = await _appDbContext.Users.FirstAsync(x => x.Id == userId);
             _sipService.AddIceCandidate(user, candidate);
             await Task.CompletedTask;
         }
 
         public async Task<bool> GetSecureContextState() {
-            var user = await _appDbContext.Users.FirstAsync(x => x.Username == Context.User!.Identity!.Name);
+            var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var user = await _appDbContext.Users.FirstAsync(x => x.Id == userId);
             var result = _sipService.GetSecureContextReady(user);
             return await Task.FromResult(result);
         }
 
         public async Task<bool> HangupCallAsync(WebRtcHangupModel model) {
             try {
-                var userName = Context.User!.Identity!.Name;
-                if (string.IsNullOrEmpty(userName)) {
-                    await Clients.Caller.SendAsync("hangupFailed", new {
-                        message = "用户身份验证失败",
-                        timestamp = DateTime.UtcNow
-                    });
-                    return false;
-                }
-
-                var user = await _appDbContext.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.Username == userName);
+                var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var user = await _appDbContext.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.Id == userId);
                 if (user == null || (user.SipAccount == null || string.IsNullOrEmpty(user.SipAccount.SipUsername))) {
                     await Clients.Caller.SendAsync("hangupFailed", new {
                         message = "用户SIP账号信息不存在",
@@ -120,12 +116,9 @@ namespace AI.Caller.Phone.Hubs {
 
         public async Task<object> StartRecordingAsync(string calleeNumber) {
             try {
-                var userName = Context.User?.Identity?.Name;
-                if (string.IsNullOrEmpty(userName)) {
-                    return new { success = false, message = "用户身份验证失败" };
-                }
+                var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
 
-                var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Username == userName);
+                var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Id == userId);
                 if (user == null || (user.SipAccount == null || string.IsNullOrEmpty(user.SipAccount.SipUsername))) {
                     return new { success = false, message = "用户SIP账号信息不存在" };
                 }
@@ -148,12 +141,8 @@ namespace AI.Caller.Phone.Hubs {
 
         public async Task<object> StopRecordingAsync() {
             try {
-                var userName = Context.User?.Identity?.Name;
-                if (string.IsNullOrEmpty(userName)) {
-                    return new { success = false, message = "用户身份验证失败" };
-                }
-
-                var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Username == userName);
+                var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Id == userId);
                 if (user == null || (user.SipAccount == null || string.IsNullOrEmpty(user.SipAccount.SipUsername))) {
                     return new { success = false, message = "用户SIP账号信息不存在" };
                 }

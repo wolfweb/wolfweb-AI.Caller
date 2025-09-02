@@ -431,10 +431,8 @@ namespace AI.Caller.Core {
 
         public MediaSessionManager? MediaSessionManager => _mediaManager;
 
-        private HangupEventContext CreateHangupEventContext(SIPDialogue? dialogue)
-        {
-            var context = new HangupEventContext
-            {
+        private HangupEventContext CreateHangupEventContext(SIPDialogue? dialogue) {
+            var context = new HangupEventContext {
                 Initiator = _localHangupInitiated ? HangupInitiator.Local : HangupInitiator.Remote,
                 Reason = _localHangupInitiated ? "Local user hangup" : "Remote party hangup"
             };

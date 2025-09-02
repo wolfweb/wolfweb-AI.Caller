@@ -251,4 +251,4 @@ ModelManifest.xml
 /src/AI.Caller.Phone/Properties/PublishProfiles/FolderProfile.pubxml
 /src/AI.Caller.Phone/app.db-shm
 /src/AI.Caller.Phone/app.db-wal
-/.kiro/
+recordings/

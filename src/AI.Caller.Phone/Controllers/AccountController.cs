@@ -57,6 +57,7 @@ namespace AI.Caller.Phone.Controllers {
                 var claims = new List<Claim>
                 {
                     new Claim(ClaimTypes.Name, user.Username),
+                    new Claim("isAdmin", user.IsAdmin.ToString()),
                     new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())
                 };
 
@@ -91,6 +92,7 @@ namespace AI.Caller.Phone.Controllers {
                     var claims = new List<Claim>
                     {
                         new Claim(ClaimTypes.Name, user.Username),
+                        new Claim("isAdmin", user.IsAdmin.ToString()),
                         new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())
                     };
 
@@ -123,8 +125,8 @@ namespace AI.Caller.Phone.Controllers {
 
         [Authorize]
         public async Task<IActionResult> ManageContacts() {
-            var username = User.Identity.Name;
-            var user = await _context.Users.Include(u => u.Contacts).FirstOrDefaultAsync(u => u.Username == username);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var user = await _context.Users.Include(u => u.Contacts).FirstOrDefaultAsync(u => u.Id == userId);
 
             if (user == null) {
                 return NotFound();
@@ -143,9 +145,8 @@ namespace AI.Caller.Phone.Controllers {
         [Authorize]
         public async Task<IActionResult> AddContact(Contact contact) {
             if (ModelState.IsValid) {
-                // Get the current user from the database
-                var username = User.Identity.Name;
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+                var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
 
                 if (user != null) {
                     contact.UserId = user.Id;
@@ -164,9 +165,8 @@ namespace AI.Caller.Phone.Controllers {
                 return NotFound();
             }
 
-            // Verify that the contact belongs to the current user
-            var username = User.Identity.Name;
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null || contact.UserId != user.Id) {
                 return Forbid();
             }
@@ -179,9 +179,8 @@ namespace AI.Caller.Phone.Controllers {
         [Authorize]
         public async Task<IActionResult> EditContact(Contact contact) {
             if (ModelState.IsValid) {
-                // Verify that the contact belongs to the current user
-                var username = User.Identity.Name;
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+                var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
                 if (user == null || contact.UserId != user.Id) {
                     return Forbid();
                 }
@@ -199,9 +198,8 @@ namespace AI.Caller.Phone.Controllers {
                 return NotFound();
             }
 
-            // Verify that the contact belongs to the current user
-            var username = User.Identity.Name;
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null || contact.UserId != user.Id) {
                 return Forbid();
             }
@@ -213,14 +211,12 @@ namespace AI.Caller.Phone.Controllers {
         [ValidateAntiForgeryToken]
         [Authorize]
         public async Task<IActionResult> DeleteContactConfirmed(int id) {
-            // Verify that the contact belongs to the current user
             var contact = await _contactService.GetContactByIdAsync(id);
             if (contact == null) {
                 return NotFound();
             }
-
-            var username = User.Identity.Name;
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null || contact.UserId != user.Id) {
                 return Forbid();
             }
@@ -236,8 +232,8 @@ namespace AI.Caller.Phone.Controllers {
 
         [Authorize]
         public async Task<IActionResult> SipSettings() {
-            var username = User.Identity.Name;
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
 
             if (user == null) {
                 return NotFound();
@@ -256,8 +252,8 @@ namespace AI.Caller.Phone.Controllers {
         [Authorize]
         public async Task<IActionResult> SipSettings(SipSettingsModel model) {
             if (ModelState.IsValid) {
-                var username = User.Identity.Name;
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+                var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
 
                 if (user != null) {
                     if (user.SipAccount != null) {
@@ -277,8 +273,8 @@ namespace AI.Caller.Phone.Controllers {
 
         [Authorize]
         public async Task<IActionResult> UserProfile() {
-            var username = User.Identity.Name;
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
 
             if (user == null) {
                 return NotFound();
@@ -300,8 +296,8 @@ namespace AI.Caller.Phone.Controllers {
         [Authorize]
         public async Task<IActionResult> UserProfile(UserProfileModel model) {
             if (ModelState.IsValid) {
-                var username = User.Identity.Name;
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+                var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
 
                 if (user != null) {
                     user.Email = model.Email;
@@ -321,11 +317,10 @@ namespace AI.Caller.Phone.Controllers {
             return View(model);
         }
 
-        // 管理员功能：用户管理
         [Authorize]
         public async Task<IActionResult> UserManagement() {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 TempData["ErrorMessage"] = "您没有权限访问此页面";
                 return RedirectToAction("Index", "Home");
@@ -342,8 +337,8 @@ namespace AI.Caller.Phone.Controllers {
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> AddUser([FromBody] UserCreateModel model) {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 return Json(new { success = false, message = "您没有权限执行此操作" });
             }
@@ -369,8 +364,8 @@ namespace AI.Caller.Phone.Controllers {
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> EditUser([FromBody] UserEditModel model) {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 return Json(new { success = false, message = "您没有权限执行此操作" });
             }
@@ -381,9 +376,8 @@ namespace AI.Caller.Phone.Controllers {
                     return Json(new { success = false, message = "用户不存在" });
                 }
 
-                // 更新用户信息
                 if (!string.IsNullOrEmpty(model.Password)) {
-                    user.Password = model.Password; // 在实际应用中应该加密密码
+                    user.Password = model.Password; 
                 }
 
                 user.DisplayName = model.DisplayName;
@@ -401,8 +395,8 @@ namespace AI.Caller.Phone.Controllers {
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> DeleteUser(int id) {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 return Json(new { success = false, message = "您没有权限执行此操作" });
             }
@@ -425,8 +419,8 @@ namespace AI.Caller.Phone.Controllers {
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> AssignSipAccount([FromBody] AssignSipAccountModel model) {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 return Json(new { success = false, message = "您没有权限执行此操作" });
             }
@@ -461,8 +455,8 @@ namespace AI.Caller.Phone.Controllers {
         [HttpGet]
         [Authorize]
         public async Task<IActionResult> GetAvailableSipAccounts() {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 return Json(new { success = false, message = "您没有权限执行此操作" });
             }
@@ -479,11 +473,10 @@ namespace AI.Caller.Phone.Controllers {
             }
         }
 
-        // 管理员功能：SIP账户管理
         [Authorize]
         public async Task<IActionResult> SipAccountManagement() {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 TempData["ErrorMessage"] = "您没有权限访问此页面";
                 return RedirectToAction("Index", "Home");
@@ -500,8 +493,8 @@ namespace AI.Caller.Phone.Controllers {
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> AddSipAccount([FromBody] SipAccountCreateModel model) {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 return Json(new { success = false, message = "您没有权限执行此操作" });
             }
@@ -527,8 +520,8 @@ namespace AI.Caller.Phone.Controllers {
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> EditSipAccount([FromBody] SipAccountEditModel model) {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 return Json(new { success = false, message = "您没有权限执行此操作" });
             }
@@ -539,9 +532,8 @@ namespace AI.Caller.Phone.Controllers {
                     return Json(new { success = false, message = "SIP账户不存在" });
                 }
 
-                // 更新SIP账户信息
                 if (!string.IsNullOrEmpty(model.SipPassword)) {
-                    sipAccount.SipPassword = model.SipPassword; // 在实际应用中应该加密密码
+                    sipAccount.SipPassword = model.SipPassword; 
                 }
 
                 sipAccount.SipServer = model.SipServer;
@@ -558,8 +550,8 @@ namespace AI.Caller.Phone.Controllers {
         [HttpPost]
         [Authorize]
         public async Task<IActionResult> DeleteSipAccount(int id) {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 return Json(new { success = false, message = "您没有权限执行此操作" });
             }
@@ -573,7 +565,6 @@ namespace AI.Caller.Phone.Controllers {
                     return Json(new { success = false, message = "SIP账户不存在" });
                 }
 
-                // 检查是否还有用户在使用这个SIP账户
                 if (sipAccount.Users.Any()) {
                     return Json(new { success = false, message = "该SIP账户正在被用户使用，无法删除" });
                 }
@@ -587,11 +578,10 @@ namespace AI.Caller.Phone.Controllers {
             }
         }
 
-        // 管理员功能：通讯录管理
         [Authorize]
         public async Task<IActionResult> ContactManagement() {
-            // 检查用户是否为管理员
-            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
             if (currentUser == null || !currentUser.IsAdmin) {
                 TempData["ErrorMessage"] = "您没有权限访问此页面";
                 return RedirectToAction("Index", "Home");

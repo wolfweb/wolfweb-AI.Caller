@@ -100,11 +100,12 @@ class PhoneApp {
     }
 
     setupDialpadEvents() {
-        document.querySelectorAll('.dialpad-btn').forEach(button => {
+        document.querySelectorAll('.keypad-btn').forEach(button => {
             button.addEventListener('click', () => {
                 const key = button.getAttribute('data-key');
                 this.elements.destinationInput.value += key;
                 this.elements.destinationInput.focus();
+                console.log('键盘按钮点击:', key);
             });
         });
     }
