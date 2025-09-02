@@ -1,27 +1,19 @@
+@using Microsoft.AspNetCore.Identity
+@using System.Security.Principal
+
 <ul class="navbar-nav">
-@if (User.Identity.IsAuthenticated)
+@if (User?.Identity?.IsAuthenticated == true)
 {
     <li class="nav-item dropdown">
-        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="bi bi-person-circle"></i> @User.Identity.Name
         </a>
-        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-            <li>
-                <a class="dropdown-item" asp-controller="Account" asp-action="ManageContacts">
-                    <i class="bi bi-person-lines-fill"></i> 管理联系人
-                </a>
-            </li>
-            <li>
-                <a class="dropdown-item" asp-controller="Account" asp-action="SipSettings">
-                    <i class="bi bi-telephone-fill"></i> SIP账号设置
-                </a>
-            </li>
+        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
+            <li><a class="dropdown-item" asp-area="" asp-controller="Account" asp-action="UserProfile"><i class="bi bi-person"></i> 个人资料</a></li>
             <li><hr class="dropdown-divider"></li>
             <li>
-                <form class="form-inline" asp-controller="Account" asp-action="Logout" method="post">
-                    <button type="submit" class="dropdown-item">
-                        <i class="bi bi-box-arrow-right"></i> 退出登录
-                    </button>
+                <form asp-area="" asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
+                    <button type="submit" class="dropdown-item"><i class="bi bi-box-arrow-right"></i> 退出登录</button>
                 </form>
             </li>
         </ul>
@@ -30,9 +22,7 @@
 else
 {
     <li class="nav-item">
-        <a class="nav-link" asp-controller="Account" asp-action="Login">
-            <i class="bi bi-box-arrow-in-right"></i> 登录
-        </a>
+        <a class="nav-link" asp-area="" asp-controller="Account" asp-action="Login">登录</a>
     </li>
 }
 </ul>

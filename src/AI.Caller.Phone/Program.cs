@@ -18,14 +18,12 @@ namespace AI.Caller.Phone {
                 options.AddNLog();
             });
 
-            // Add services to the container.
             builder.Services.AddControllersWithViews(options => {
                 options.Filters.Add<SipAuthencationFilter>();
             }).AddNewtonsoftJson(options => {
 
             });
 
-            // Add session services
             builder.Services.AddDistributedMemoryCache();
             builder.Services.AddSession(options => {
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
@@ -35,28 +33,27 @@ namespace AI.Caller.Phone {
 
             builder.Services.AddSignalR();
 
-            // Configure WebRTC settings
             builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
-            
-            // Configure Call Routing settings
+
             builder.Services.Configure<AI.Caller.Phone.CallRouting.Configuration.CallRoutingConfiguration>(
                 builder.Configuration.GetSection("CallRoutingSettings"));
 
-            builder.Services.AddSingleton<ApplicationContext>(x => {
-                var ctx = new ApplicationContext();
-                ctx.SipServer = builder.Configuration.GetSection("SipSettings")["SipServer"];
+            builder.Services.AddSingleton<ApplicationContext>(serviceProvider => {
+                var ctx = new ApplicationContext(serviceProvider);
                 return ctx;
             });
 
             builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
             builder.Services.AddHostedService<SipBackgroundTask>();
             builder.Services.AddHostedService<UserSessionCleanupService>();
+            builder.Services.AddHostedService<SipMaintenanceService>();
             builder.Services.AddSingleton<SIPTransportManager>(sp => {
                 return new SIPTransportManager(builder.Configuration.GetSection("SipSettings")["ContactHost"], sp.GetRequiredService<ILogger<SIPTransportManager>>());
             });
             builder.Services.AddScoped<UserService>();
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
+            builder.Services.AddScoped<DataMigrationService>();
             builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();
             builder.Services.AddScoped<RecordingManager>();
             builder.Services.AddSingleton<HangupMonitoringService>();
@@ -64,7 +61,6 @@ namespace AI.Caller.Phone {
             builder.Services.AddSingleton<ICallTypeIdentifier, CallRouting.Services.CallTypeIdentifier>();
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
             builder.Services.AddScoped<ICallRoutingStrategy, CallRouting.Strategies.DirectRoutingStrategy>();
-            builder.Services.AddScoped<CallRouting.Handlers.OutboundCallHandler>();
             builder.Services.AddScoped<CallRouting.Handlers.InboundCallHandler>();
             builder.Services.AddAuthentication(options => {
                 options.DefaultScheme = "CookieAuth";
@@ -102,7 +98,20 @@ namespace AI.Caller.Phone {
                 dbContext.Database.Migrate();
 #endif
                 EnsureDefaultUser(builder.Configuration, dbContext);
-                
+
+                var migrationService = scope.ServiceProvider.GetRequiredService<DataMigrationService>();
+                try {
+                    migrationService.MigrateUserSipDataToSipAccountAsync().Wait();
+                    var isValid = migrationService.ValidateMigrationAsync().Result;
+                    if (isValid) {
+                        app.Logger.LogInformation("数据迁移完成并验证通过");
+                    } else {
+                        app.Logger.LogWarning("数据迁移验证失败");
+                    }
+                } catch (Exception ex) {
+                    app.Logger.LogError(ex, "数据迁移失败");
+                }
+
                 var recordingManager = scope.ServiceProvider.GetRequiredService<RecordingManager>();
                 recordingManager.Initialize();
             }
@@ -116,9 +125,13 @@ namespace AI.Caller.Phone {
             if (adminUser == null) {
                 dbContext.Users.Add(new User {
                     Username = defaultUserSection["Username"],
-                    Password = defaultUserSection["Password"]
+                    Password = defaultUserSection["Password"],
+                    IsAdmin = true
                 });
 
+                dbContext.SaveChanges();
+            } else if (!adminUser.IsAdmin) {
+                adminUser.IsAdmin = true;
                 dbContext.SaveChanges();
             }
         }

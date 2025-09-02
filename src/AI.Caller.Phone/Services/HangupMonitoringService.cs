@@ -2,10 +2,8 @@ using AI.Caller.Phone.Models;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
-namespace AI.Caller.Phone.Services
-{
-    public class HangupMonitoringService
-    {
+namespace AI.Caller.Phone.Services {
+    public class HangupMonitoringService {
         private readonly ILogger<HangupMonitoringService> _logger;
         private readonly ConcurrentDictionary<string, HangupMetrics> _activeHangups;
         private readonly ConcurrentQueue<HangupAuditLog> _auditLogs;
@@ -18,8 +16,7 @@ namespace AI.Caller.Phone.Services
         private int _timeoutHangups = 0;
         private readonly List<double> _hangupResponseTimes = new List<double>();
 
-        public HangupMonitoringService(ILogger<HangupMonitoringService> logger)
-        {
+        public HangupMonitoringService(ILogger<HangupMonitoringService> logger) {
             _logger = logger;
             _activeHangups = new ConcurrentDictionary<string, HangupMetrics>();
             _auditLogs = new ConcurrentQueue<HangupAuditLog>();
@@ -27,11 +24,9 @@ namespace AI.Caller.Phone.Services
             _metricsTimer = new Timer(LogMetrics, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
 
-        public string StartHangupMonitoring(string sipUsername, string reason)
-        {
+        public string StartHangupMonitoring(string sipUsername, string reason) {
             var hangupId = Guid.NewGuid().ToString();
-            var metrics = new HangupMetrics
-            {
+            var metrics = new HangupMetrics {
                 HangupId = hangupId,
                 SipUsername = sipUsername,
                 Reason = reason,
@@ -40,13 +35,12 @@ namespace AI.Caller.Phone.Services
             };
 
             _activeHangups.TryAdd(hangupId, metrics);
-            
+
             Interlocked.Increment(ref _totalHangupAttempts);
-            
+
             _logger.LogInformation($"开始监控挂断操作 - ID: {hangupId}, 用户: {sipUsername}, 原因: {reason}");
-            
-            var auditLog = new HangupAuditLog
-            {
+
+            var auditLog = new HangupAuditLog {
                 HangupId = hangupId,
                 SipUsername = sipUsername,
                 Action = "HangupStarted",
@@ -58,17 +52,14 @@ namespace AI.Caller.Phone.Services
             return hangupId;
         }
 
-        public void LogHangupStep(string hangupId, string step, string details = "")
-        {
-            if (_activeHangups.TryGetValue(hangupId, out var metrics))
-            {
+        public void LogHangupStep(string hangupId, string step, string details = "") {
+            if (_activeHangups.TryGetValue(hangupId, out var metrics)) {
                 var elapsed = metrics.Stopwatch.ElapsedMilliseconds;
                 _logger.LogInformation($"挂断步骤 - ID: {hangupId}, 步骤: {step}, 耗时: {elapsed}ms, 详情: {details}");
 
-                var auditLog = new HangupAuditLog
-                {
+                var auditLog = new HangupAuditLog {
                     HangupId = hangupId,
-                    SipUsername = metrics.SipUsername,
+                    SipUsername = metrics.SipUsername ?? "",
                     Action = step,
                     Timestamp = DateTime.UtcNow,
                     Details = $"{details} (Elapsed: {elapsed}ms)"
@@ -82,36 +73,28 @@ namespace AI.Caller.Phone.Services
             }
         }
 
-        public void CompleteHangupMonitoring(string hangupId, bool success, string? errorMessage = null)
-        {
-            if (_activeHangups.TryRemove(hangupId, out var metrics))
-            {
+        public void CompleteHangupMonitoring(string hangupId, bool success, string? errorMessage = null) {
+            if (_activeHangups.TryRemove(hangupId, out var metrics)) {
                 metrics.Stopwatch.Stop();
                 var totalTime = metrics.Stopwatch.ElapsedMilliseconds;
 
-                lock (_metricsLock)
-                {
+                lock (_metricsLock) {
                     _hangupResponseTimes.Add(totalTime);
-                    
-                    if (_hangupResponseTimes.Count > 1000)
-                    {
+
+                    if (_hangupResponseTimes.Count > 1000) {
                         _hangupResponseTimes.RemoveAt(0);
                     }
                 }
 
-                if (success)
-                {
+                if (success) {
                     Interlocked.Increment(ref _successfulHangups);
                     _logger.LogInformation($"挂断操作成功完成 - ID: {hangupId}, 用户: {metrics.SipUsername}, 耗时: {totalTime}ms");
-                }
-                else
-                {
+                } else {
                     Interlocked.Increment(ref _failedHangups);
                     _logger.LogError($"挂断操作失败 - ID: {hangupId}, 用户: {metrics.SipUsername}, 耗时: {totalTime}ms, 错误: {errorMessage}");
                 }
 
-                var auditLog = new HangupAuditLog
-                {
+                var auditLog = new HangupAuditLog {
                     HangupId = hangupId,
                     SipUsername = metrics.SipUsername,
                     Action = success ? "HangupCompleted" : "HangupFailed",
@@ -128,38 +111,32 @@ namespace AI.Caller.Phone.Services
             }
         }
 
-        public double GetHangupSuccessRate()
-        {
+        public double GetHangupSuccessRate() {
             var total = _totalHangupAttempts;
             if (total == 0) return 100.0;
-            
+
             return (_successfulHangups * 100.0) / total;
         }
 
-        public double GetAverageResponseTime()
-        {
-            lock (_metricsLock)
-            {
+        public double GetAverageResponseTime() {
+            lock (_metricsLock) {
                 if (_hangupResponseTimes.Count == 0) return 0.0;
                 return _hangupResponseTimes.Average();
             }
         }
 
-        public int GetActiveHangupCount()
-        {
+        public int GetActiveHangupCount() {
             return _activeHangups.Count;
         }
 
-        public List<string> DetectResourceLeaks()
-        {
+        public List<string> DetectResourceLeaks() {
             var leaks = new List<string>();
             var now = DateTime.UtcNow;
 
-            foreach (var kvp in _activeHangups)
-            {
+            foreach (var kvp in _activeHangups) {
                 var metrics = kvp.Value;
                 var elapsed = now - metrics.StartTime;
-                
+
                 if (elapsed.TotalMinutes > 5) // 5分钟还没完成的操作
                 {
                     leaks.Add($"挂断操作可能泄漏 - ID: {metrics.HangupId}, 用户: {metrics.SipUsername}, 已运行: {elapsed.TotalMinutes:F1}分钟");
@@ -169,24 +146,20 @@ namespace AI.Caller.Phone.Services
             return leaks;
         }
 
-        public List<HangupAuditLog> GetAuditLogs(int maxCount = 100)
-        {
+        public List<HangupAuditLog> GetAuditLogs(int maxCount = 100) {
             var logs = new List<HangupAuditLog>();
             var count = 0;
-            
-            while (_auditLogs.TryDequeue(out var log) && count < maxCount)
-            {
+
+            while (_auditLogs.TryDequeue(out var log) && count < maxCount) {
                 logs.Add(log);
                 count++;
             }
-            
+
             return logs.OrderByDescending(x => x.Timestamp).ToList();
         }
 
-        private void LogMetrics(object? state)
-        {
-            try
-            {
+        private void LogMetrics(object? state) {
+            try {
                 var successRate = GetHangupSuccessRate();
                 var avgResponseTime = GetAverageResponseTime();
                 var activeCount = GetActiveHangupCount();
@@ -201,46 +174,37 @@ namespace AI.Caller.Phone.Services
                     $"平均响应时间: {avgResponseTime:F0}ms, " +
                     $"活动操作: {activeCount}");
 
-                foreach (var leak in leaks)
-                {
+                foreach (var leak in leaks) {
                     _logger.LogWarning($"资源泄漏检测: {leak}");
                 }
 
                 CleanupAuditLogs();
-            }
-            catch (Exception ex)
-            {
+            } catch (Exception ex) {
                 _logger.LogError(ex, "输出监控指标时发生错误");
             }
         }
 
-        private void CleanupAuditLogs()
-        {
+        private void CleanupAuditLogs() {
             var cutoffTime = DateTime.UtcNow.AddHours(-1);
             var tempLogs = new List<HangupAuditLog>();
-            
-            while (_auditLogs.TryDequeue(out var log))
-            {
-                if (log.Timestamp > cutoffTime)
-                {
+
+            while (_auditLogs.TryDequeue(out var log)) {
+                if (log.Timestamp > cutoffTime) {
                     tempLogs.Add(log);
                 }
             }
-            
-            foreach (var log in tempLogs)
-            {
+
+            foreach (var log in tempLogs) {
                 _auditLogs.Enqueue(log);
             }
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             _metricsTimer?.Dispose();
         }
     }
 
-    public class HangupMetrics
-    {
+    public class HangupMetrics {
         public string HangupId { get; set; } = string.Empty;
         public string SipUsername { get; set; } = string.Empty;
         public string Reason { get; set; } = string.Empty;
@@ -248,8 +212,7 @@ namespace AI.Caller.Phone.Services
         public Stopwatch Stopwatch { get; set; } = new Stopwatch();
     }
 
-    public class HangupAuditLog
-    {
+    public class HangupAuditLog {
         public string HangupId { get; set; } = string.Empty;
         public string SipUsername { get; set; } = string.Empty;
         public string Action { get; set; } = string.Empty;

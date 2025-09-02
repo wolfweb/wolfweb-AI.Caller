@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AI.Caller.Phone.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20250729064809_AddSimpleRecordingTable")]
-    partial class AddSimpleRecordingTable
+    [Migration("20250830113642_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -27,19 +27,75 @@ namespace AI.Caller.Phone.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("UserId")
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("UserId1")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("PhoneNumber")
+                        .HasDatabaseName("IX_Contacts_PhoneNumber");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_Contacts_UserId");
+
+                    b.HasIndex("UserId1");
 
                     b.ToTable("Contacts");
+                });
+
+            modelBuilder.Entity("AI.Caller.Phone.Entities.SipAccount", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValueSql("datetime('now')");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("SipPassword")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SipServer")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SipUsername")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsActive")
+                        .HasDatabaseName("IX_SipAccounts_IsActive");
+
+                    b.HasIndex("SipUsername")
+                        .IsUnique()
+                        .HasDatabaseName("IX_SipAccounts_SipUsername");
+
+                    b.ToTable("SipAccounts");
                 });
 
             modelBuilder.Entity("AI.Caller.Phone.Entities.SipSetting", b =>
@@ -66,27 +122,51 @@ namespace AI.Caller.Phone.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("AutoRecording")
-                        .HasColumnType("INTEGER");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Bio")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Password")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PhoneNumber")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("RegisteredAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("SipPassword")
-                        .HasColumnType("TEXT");
+                    b.Property<int?>("SipAccountId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("SipRegistered")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("SipUsername")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("SipAccountId")
+                        .HasDatabaseName("IX_Users_SipAccountId");
+
+                    b.HasIndex("SipRegistered")
+                        .HasDatabaseName("IX_Users_SipRegistered");
+
+                    b.HasIndex("Username")
+                        .HasDatabaseName("IX_Users_Username");
 
                     b.ToTable("Users");
 
@@ -151,13 +231,31 @@ namespace AI.Caller.Phone.Migrations
 
             modelBuilder.Entity("AI.Caller.Phone.Entities.Contact", b =>
                 {
-                    b.HasOne("AI.Caller.Phone.Entities.User", "User")
+                    b.HasOne("AI.Caller.Phone.Entities.User", null)
                         .WithMany("Contacts")
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("AI.Caller.Phone.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId1");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AI.Caller.Phone.Entities.User", b =>
+                {
+                    b.HasOne("AI.Caller.Phone.Entities.SipAccount", "SipAccount")
+                        .WithMany("Users")
+                        .HasForeignKey("SipAccountId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("SipAccount");
+                });
+
+            modelBuilder.Entity("AI.Caller.Phone.Entities.SipAccount", b =>
+                {
+                    b.Navigation("Users");
                 });
 
             modelBuilder.Entity("AI.Caller.Phone.Entities.User", b =>

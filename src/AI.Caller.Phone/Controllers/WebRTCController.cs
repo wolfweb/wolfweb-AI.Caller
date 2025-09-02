@@ -21,10 +21,6 @@ namespace AI.Caller.Phone.Controllers {
             _logger = logger;
         }
 
-        /// <summary>
-        /// Get ICE server configuration for WebRTC
-        /// </summary>
-        /// <returns>ICE server configuration for client-side WebRTC</returns>
         [HttpGet("ice-servers")]
         public ActionResult<ClientIceConfiguration> GetIceServers() {
             _logger.LogInformation("ICE server configuration requested");
@@ -52,38 +48,17 @@ namespace AI.Caller.Phone.Controllers {
         }
     }
 
-    /// <summary>
-    /// Client-side ICE configuration
-    /// </summary>
     public class ClientIceConfiguration {
-        /// <summary>
-        /// List of ICE servers
-        /// </summary>
         public List<ClientIceServer> IceServers { get; set; } = new List<ClientIceServer>();
 
-        /// <summary>
-        /// ICE transport policy
-        /// </summary>
         public string IceTransportPolicy { get; set; } = "all";
     }
 
-    /// <summary>
-    /// Client-side ICE server configuration
-    /// </summary>
     public class ClientIceServer {
-        /// <summary>
-        /// List of URLs for this ICE server
-        /// </summary>
         public List<string> Urls { get; set; } = new List<string>();
 
-        /// <summary>
-        /// Username for TURN server authentication
-        /// </summary>
         public string? Username { get; set; }
 
-        /// <summary>
-        /// Credential for TURN server authentication
-        /// </summary>
         public string? Credential { get; set; }
     }
 }

@@ -128,8 +128,7 @@
                     this.log('调用开始录音API...');
                     const response = await fetch('/api/SimpleRecording/start', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sipUsername: 'test_user' })
+                        headers: { 'Content-Type': 'application/json' }
                     });
                     
                     const result = await response.json();
@@ -153,8 +152,7 @@
                     this.log('调用停止录音API...');
                     const response = await fetch('/api/SimpleRecording/stop', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sipUsername: 'test_user' })
+                        headers: { 'Content-Type': 'application/json' }
                     });
                     
                     const result = await response.json();

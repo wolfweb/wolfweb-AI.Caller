@@ -42,25 +42,36 @@ class UIManager {
         }
     }
 
+    showIncomingCall(callerDisplay, offerSdp, callerInfo) {
+        console.log('显示来电界面:', callerDisplay);
+        
+        this.elements.callerName.innerHTML = callerDisplay;
+        
+        this.elements.answerButton.setAttribute('data-offer', offerSdp);
+        this.elements.answerButton.setAttribute('data-caller', JSON.stringify(callerInfo));
+        
+        this.elements.answerButton.style.display = 'inline-block';
+        this.elements.hangupButton.style.display = 'inline-block';
+
+        this.showCallInfo(true);
+        
+        console.log('来电界面已显示');
+    }
+
     toggleControls(inCall) {
-        // 控制拨号按钮
         this.elements.callButton.disabled = inCall;
         if (!inCall) {
             this.elements.callButton.classList.remove('d-none');
         }
         
-        // 控制挂断按钮
         this.elements.hangupButton.disabled = !inCall;
         
-        // 控制输入框
         this.elements.destinationInput.disabled = inCall;
 
-        // 控制拨号盘按钮
         document.querySelectorAll('.dialpad-btn').forEach(btn => {
             btn.disabled = inCall;
         });
 
-        // 控制联系人按钮
         document.querySelectorAll('.contact-item').forEach(item => {
             item.disabled = inCall;
         });
@@ -68,22 +79,28 @@ class UIManager {
 
     clearCallUI() {
         console.log('清理通话UI和资源');
-
-        // 停止通话计时器
         this.stopCallTimer();
 
-        // 清理远程音频
-        this.clearRemoteAudio();
+        this.resetAudioElementState();
 
-        // 重置UI状态
         this.resetUIState();
 
-        // 延迟更新状态，确保其他清理操作完成
         setTimeout(() => {
             this.updateStatus('就绪', 'success');
         }, 100);
         
         console.log('UI已重置');
+    }
+
+    resetAudioElementState() {
+        try {
+            this.elements.remoteAudio.pause();
+            this.elements.remoteAudio.currentTime = 0;
+            this.elements.remoteAudio.volume = 1.0;
+            console.log('音频元素UI状态已重置');
+        } catch (error) {
+            console.warn('重置音频元素UI状态时出错:', error);
+        }
     }
 
     clearRemoteAudio() {
@@ -102,14 +119,7 @@ class UIManager {
             }
         }
 
-        try {
-            this.elements.remoteAudio.pause();
-            this.elements.remoteAudio.currentTime = 0;
-            this.elements.remoteAudio.volume = 1.0; // 重置音量
-            console.log('音频元素已重置');
-        } catch (audioResetError) {
-            console.warn('重置音频元素时出错:', audioResetError);
-        }
+        this.resetAudioElementState();
     }
 
     resetUIState() {

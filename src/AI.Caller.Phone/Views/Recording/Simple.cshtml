@@ -102,11 +102,21 @@
             <!-- 录音列表 -->
             <div class="card">
                 <div class="card-header">
-                    <h5 class="mb-0">录音文件列表</h5>
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <h5 class="mb-0">录音文件列表</h5>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                <input type="text" id="searchRecordings" class="form-control" placeholder="搜索录音...">
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
-                        <table class="table table-hover mb-0">
+                        <table class="table table-hover mb-0" id="recordingsTable">
                             <thead class="table-light">
                                 <tr>
                                     <th>文件名</th>
@@ -123,7 +133,7 @@
                                 {
                                     @foreach (var recording in Model)
                                     {
-                                        <tr>
+                                        <tr class="recording-row">
                                             <td>
                                                 <i class="bi bi-file-earmark-music text-primary me-2"></i>
                                                 @(System.IO.Path.GetFileName(recording.FilePath) ?? "未知文件.mp3")
@@ -137,12 +147,15 @@
                                             </td>
                                             <td>
                                                 <div class="btn-group btn-group-sm">
-                                                    <button class="btn btn-outline-primary" title="播放">
+                                                    <button class="btn btn-outline-primary play-btn" 
+                                                            data-filepath="@recording.FilePath" 
+                                                            title="播放">
                                                         <i class="bi bi-play-fill"></i>
                                                     </button>
-                                                    <button class="btn btn-outline-info" title="下载">
+                                                    <a href="/Recording/Download?filePath=@Uri.EscapeDataString(recording.FilePath)" 
+                                                       class="btn btn-outline-info" title="下载">
                                                         <i class="bi bi-download"></i>
-                                                    </button>
+                                                    </a>
                                                     <button class="btn btn-outline-danger delete-btn" 
                                                             data-recording-id="@recording.Id" title="删除">
                                                         <i class="bi bi-trash"></i>
@@ -165,6 +178,49 @@
                         </table>
                     </div>
                 </div>
+                @if (Model != null && Model.Any())
+                {
+                    <div class="card-footer">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                显示 @Model.Count() 条记录中的 1-@Model.Count() 条
+                            </div>
+                            <div>
+                                <nav>
+                                    <ul class="pagination mb-0">
+                                        <li class="page-item disabled"><a class="page-link" href="#">上一页</a></li>
+                                        <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                                        <li class="page-item disabled"><a class="page-link" href="#">下一页</a></li>
+                                    </ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 音频播放模态框 -->
+<div class="modal fade" id="audioPlayerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">录音播放</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <audio id="audioPlayer" controls class="w-100"></audio>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span id="currentTime">00:00</span>
+                    <span id="duration">00:00</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
             </div>
         </div>
     </div>
@@ -177,6 +233,25 @@
             // 刷新按钮
             document.getElementById('refreshRecordings').addEventListener('click', function() {
                 location.reload();
+            });
+
+            // 搜索功能
+            const searchInput = document.getElementById('searchRecordings');
+            const recordingRows = document.querySelectorAll('.recording-row');
+            
+            searchInput.addEventListener('keyup', function() {
+                const searchTerm = this.value.toLowerCase();
+                
+                recordingRows.forEach(row => {
+                    const fileName = row.querySelector('td:first-child').textContent.toLowerCase();
+                    const sipUsername = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
+                    
+                    if (fileName.includes(searchTerm) || sipUsername.includes(searchTerm)) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
             });
 
             // 删除按钮
@@ -208,6 +283,37 @@
                     }
                 });
             });
+
+            // 播放按钮
+            document.querySelectorAll('.play-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const filePath = this.dataset.filepath;
+                    const audioPlayer = document.getElementById('audioPlayer');
+                    const modal = new bootstrap.Modal(document.getElementById('audioPlayerModal'));
+                    
+                    // 设置音频源
+                    audioPlayer.src = '/Recording/Play?filePath=' + encodeURIComponent(filePath);
+                    
+                    // 显示模态框
+                    modal.show();
+                    
+                    // 更新时间显示
+                    audioPlayer.addEventListener('timeupdate', function() {
+                        document.getElementById('currentTime').textContent = formatTime(audioPlayer.currentTime);
+                    });
+                    
+                    audioPlayer.addEventListener('loadedmetadata', function() {
+                        document.getElementById('duration').textContent = formatTime(audioPlayer.duration);
+                    });
+                });
+            });
+
+            // 格式化时间显示
+            function formatTime(seconds) {
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
         });
     </script>
 }

@@ -1,26 +1,17 @@
 using Xunit;
 using AI.Caller.Core.Network;
 
-namespace AI.Caller.Core.Tests.Network
-{
-    /// <summary>
-    /// 网络模型测试
-    /// </summary>
-    public class NetworkModelsTests
-    {
+namespace AI.Caller.Core.Tests.Network {
+    public class NetworkModelsTests {
         [Fact]
-        public void NetworkStatus_IsHealthy_ShouldReturnCorrectValue()
-        {
-            // Arrange & Act
-            var healthyStatus = new NetworkStatus
-            {
+        public void NetworkStatus_IsHealthy_ShouldReturnCorrectValue() {
+            var healthyStatus = new NetworkStatus {
                 IsConnected = true,
                 Quality = NetworkQuality.Good,
                 Issues = new List<NetworkIssue>()
             };
 
-            var unhealthyStatus = new NetworkStatus
-            {
+            var unhealthyStatus = new NetworkStatus {
                 IsConnected = false,
                 Quality = NetworkQuality.Poor,
                 Issues = new List<NetworkIssue>
@@ -29,17 +20,13 @@ namespace AI.Caller.Core.Tests.Network
                 }
             };
 
-            // Assert
             Assert.True(healthyStatus.IsHealthy);
             Assert.False(unhealthyStatus.IsHealthy);
         }
 
         [Fact]
-        public void NetworkStatus_ToString_ShouldFormatCorrectly()
-        {
-            // Arrange
-            var status = new NetworkStatus
-            {
+        public void NetworkStatus_ToString_ShouldFormatCorrectly() {
+            var status = new NetworkStatus {
                 IsConnected = true,
                 NetworkType = NetworkType.WiFi,
                 Quality = NetworkQuality.Good,
@@ -48,10 +35,8 @@ namespace AI.Caller.Core.Tests.Network
                 BandwidthKbps = 50000
             };
 
-            // Act
             var formatted = status.ToString();
 
-            // Assert
             Assert.Contains("Connected: True", formatted);
             Assert.Contains("Type: WiFi", formatted);
             Assert.Contains("Quality: Good", formatted);
@@ -61,12 +46,10 @@ namespace AI.Caller.Core.Tests.Network
         }
 
         [Fact]
-        public void ClientNetworkStatus_ConnectionDuration_ShouldCalculateCorrectly()
-        {
+        public void ClientNetworkStatus_ConnectionDuration_ShouldCalculateCorrectly() {
             // Arrange
             var connectedAt = DateTime.UtcNow.AddMinutes(-30);
-            var clientStatus = new ClientNetworkStatus
-            {
+            var clientStatus = new ClientNetworkStatus {
                 ClientId = "test-client",
                 ConnectedAt = connectedAt
             };
@@ -81,11 +64,9 @@ namespace AI.Caller.Core.Tests.Network
         }
 
         [Fact]
-        public void ClientNetworkStatus_ConnectionDuration_WithoutConnectedAt_ShouldReturnNull()
-        {
+        public void ClientNetworkStatus_ConnectionDuration_WithoutConnectedAt_ShouldReturnNull() {
             // Arrange
-            var clientStatus = new ClientNetworkStatus
-            {
+            var clientStatus = new ClientNetworkStatus {
                 ClientId = "test-client",
                 ConnectedAt = null
             };
@@ -98,11 +79,9 @@ namespace AI.Caller.Core.Tests.Network
         }
 
         [Fact]
-        public void ClientNetworkStats_PacketLossRate_ShouldCalculateCorrectly()
-        {
+        public void ClientNetworkStats_PacketLossRate_ShouldCalculateCorrectly() {
             // Arrange
-            var stats = new ClientNetworkStats
-            {
+            var stats = new ClientNetworkStats {
                 PacketsSent = 1000,
                 PacketsLost = 50
             };
@@ -115,11 +94,9 @@ namespace AI.Caller.Core.Tests.Network
         }
 
         [Fact]
-        public void ClientNetworkStats_PacketLossRate_WithZeroSent_ShouldReturnZero()
-        {
+        public void ClientNetworkStats_PacketLossRate_WithZeroSent_ShouldReturnZero() {
             // Arrange
-            var stats = new ClientNetworkStats
-            {
+            var stats = new ClientNetworkStats {
                 PacketsSent = 0,
                 PacketsLost = 10
             };
@@ -132,21 +109,18 @@ namespace AI.Caller.Core.Tests.Network
         }
 
         [Fact]
-        public void NetworkIssue_Duration_ShouldCalculateCorrectly()
-        {
+        public void NetworkIssue_Duration_ShouldCalculateCorrectly() {
             // Arrange
             var occurredAt = DateTime.UtcNow.AddMinutes(-10);
             var resolvedAt = DateTime.UtcNow.AddMinutes(-5);
-            
-            var resolvedIssue = new NetworkIssue
-            {
+
+            var resolvedIssue = new NetworkIssue {
                 OccurredAt = occurredAt,
                 ResolvedAt = resolvedAt,
                 IsResolved = true
             };
 
-            var ongoingIssue = new NetworkIssue
-            {
+            var ongoingIssue = new NetworkIssue {
                 OccurredAt = occurredAt,
                 IsResolved = false
             };
@@ -162,11 +136,9 @@ namespace AI.Caller.Core.Tests.Network
         }
 
         [Fact]
-        public void NetworkMonitoringStats_SuccessRate_ShouldCalculateCorrectly()
-        {
+        public void NetworkMonitoringStats_SuccessRate_ShouldCalculateCorrectly() {
             // Arrange
-            var stats = new NetworkMonitoringStats
-            {
+            var stats = new NetworkMonitoringStats {
                 TotalChecks = 100,
                 SuccessfulChecks = 95,
                 FailedChecks = 5
@@ -180,11 +152,9 @@ namespace AI.Caller.Core.Tests.Network
         }
 
         [Fact]
-        public void NetworkMonitoringStats_SuccessRate_WithZeroChecks_ShouldReturnZero()
-        {
+        public void NetworkMonitoringStats_SuccessRate_WithZeroChecks_ShouldReturnZero() {
             // Arrange
-            var stats = new NetworkMonitoringStats
-            {
+            var stats = new NetworkMonitoringStats {
                 TotalChecks = 0,
                 SuccessfulChecks = 0,
                 FailedChecks = 0
@@ -198,12 +168,10 @@ namespace AI.Caller.Core.Tests.Network
         }
 
         [Fact]
-        public void NetworkMonitoringStats_MonitoringDuration_ShouldCalculateCorrectly()
-        {
+        public void NetworkMonitoringStats_MonitoringDuration_ShouldCalculateCorrectly() {
             // Arrange
             var startTime = DateTime.UtcNow.AddHours(-2);
-            var stats = new NetworkMonitoringStats
-            {
+            var stats = new NetworkMonitoringStats {
                 MonitoringStarted = startTime
             };
 
@@ -222,8 +190,7 @@ namespace AI.Caller.Core.Tests.Network
         [InlineData(NetworkType.Cellular)]
         [InlineData(NetworkType.VPN)]
         [InlineData(NetworkType.Loopback)]
-        public void NetworkType_AllValues_ShouldBeValid(NetworkType networkType)
-        {
+        public void NetworkType_AllValues_ShouldBeValid(NetworkType networkType) {
             // Act & Assert
             Assert.True(Enum.IsDefined(typeof(NetworkType), networkType));
         }
@@ -235,8 +202,7 @@ namespace AI.Caller.Core.Tests.Network
         [InlineData(NetworkQuality.Fair)]
         [InlineData(NetworkQuality.Poor)]
         [InlineData(NetworkQuality.Disconnected)]
-        public void NetworkQuality_AllValues_ShouldBeValid(NetworkQuality quality)
-        {
+        public void NetworkQuality_AllValues_ShouldBeValid(NetworkQuality quality) {
             // Act & Assert
             Assert.True(Enum.IsDefined(typeof(NetworkQuality), quality));
         }
@@ -248,8 +214,7 @@ namespace AI.Caller.Core.Tests.Network
         [InlineData(ConnectionStatus.Reconnecting)]
         [InlineData(ConnectionStatus.Failed)]
         [InlineData(ConnectionStatus.Timeout)]
-        public void ConnectionStatus_AllValues_ShouldBeValid(ConnectionStatus status)
-        {
+        public void ConnectionStatus_AllValues_ShouldBeValid(ConnectionStatus status) {
             // Act & Assert
             Assert.True(Enum.IsDefined(typeof(ConnectionStatus), status));
         }
@@ -265,8 +230,7 @@ namespace AI.Caller.Core.Tests.Network
         [InlineData(NetworkIssueType.ServerUnreachable)]
         [InlineData(NetworkIssueType.PortBlocked)]
         [InlineData(NetworkIssueType.FirewallBlocked)]
-        public void NetworkIssueType_AllValues_ShouldBeValid(NetworkIssueType issueType)
-        {
+        public void NetworkIssueType_AllValues_ShouldBeValid(NetworkIssueType issueType) {
             // Act & Assert
             Assert.True(Enum.IsDefined(typeof(NetworkIssueType), issueType));
         }
@@ -276,8 +240,7 @@ namespace AI.Caller.Core.Tests.Network
         [InlineData(NetworkIssueSeverity.Warning)]
         [InlineData(NetworkIssueSeverity.Error)]
         [InlineData(NetworkIssueSeverity.Critical)]
-        public void NetworkIssueSeverity_AllValues_ShouldBeValid(NetworkIssueSeverity severity)
-        {
+        public void NetworkIssueSeverity_AllValues_ShouldBeValid(NetworkIssueSeverity severity) {
             // Act & Assert
             Assert.True(Enum.IsDefined(typeof(NetworkIssueSeverity), severity));
         }

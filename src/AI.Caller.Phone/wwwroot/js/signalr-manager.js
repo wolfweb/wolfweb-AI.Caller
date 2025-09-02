@@ -132,31 +132,77 @@ class SignalRManager {
     }
 
     handleIncomingCall(callData) {
-        console.log("Incoming call received:", callData);
-        
-        // 简化的显示逻辑
-        if (callData.isExternal) {
-            // 外部呼入
-            this.elements.callerName.innerHTML = callData.caller;
-            this.elements.callerNumber.innerHTML = `来自: ${callData.caller} → ${callData.callee}`;
-        } else {
-            // 内部呼入
-            this.elements.callerName.innerHTML = callData.caller;
-            this.elements.callerNumber.innerHTML = "";
-        }
-        
-        this.callStateManager.setState(CallState.INCOMING);
+        console.log("=== 来电数据详细分析 ===");
+        console.log("完整callData:", JSON.stringify(callData, null, 2));
+        console.log("callData.caller:", callData.caller);
+        console.log("callData.caller.sipUsername:", callData.caller?.sipUsername);
+        console.log("callData.caller.userId:", callData.caller?.userId);
+        console.log("callData.callee:", callData.callee);
+        console.log("callData.isExternal:", callData.isExternal);
+        console.log("=== 来电数据分析结束 ===");
         
         try {
+            if (!callData || !callData.caller || !callData.callee) {
+                console.error('来电数据结构不完整:', callData);
+                this.updateStatus('来电数据异常', 'danger');
+                if (window.ErrorRecovery) {
+                    window.ErrorRecovery.handleError(new Error('来电数据结构不完整'), 'handleIncomingCall', window.ErrorTypes.BUSINESS);
+                }
+                return;
+            }
+            
+            this.callStateManager.setState(CallState.INCOMING);
+            this.callStateManager.setCallContext({
+                callId: callData.callId,
+                caller: {
+                    userId: callData.caller.userId,
+                    sipUsername: callData.caller.sipUsername
+                },
+                callee: {
+                    userId: callData.callee.userId,
+                    sipUsername: callData.callee.sipUsername
+                },
+                isExternal: callData.isExternal || false,
+                timestamp: callData.timestamp || new Date().toISOString()
+            });
+            
+            let callerDisplay = '未知来电';
+            let callerNumber = '';
+            
+            if (callData.caller.sipUsername) {
+                callerDisplay = callData.caller.sipUsername;
+                callerNumber = callData.caller.sipUsername;
+            } else if (callData.caller.userId) {
+                callerDisplay = `用户 ${callData.caller.userId}`;
+                callerNumber = callData.caller.userId;
+            }
+            
+            if (callData.isExternal) {
+                callerNumber = `外部来电: ${callerNumber}`;
+            }
+            
+            console.log('设置来电显示:', { callerDisplay, callerNumber });
+            
+            this.elements.callerName.innerHTML = callerDisplay;
+            this.elements.callerNumber.innerHTML = callerNumber;
+            
             const offerObj = this.parseOfferSdp(callData.offerSdp);
-            this.elements.answerButton.attributes['data-offer'] = offerObj;
+            this.elements.answerButton.setAttribute('data-offer', JSON.stringify(offerObj));
             console.log("Offer SDP processed:", offerObj);
             
             this.showCallInfo(true);
             this.startCallTimer();
+            this.updateStatus('来电中...', 'info');
+            
         } catch (parseError) {
-            console.error("Error parsing offer SDP:", parseError);
-            this.updateStatus('来电数据解析失败', 'danger');
+            console.error("处理来电时发生错误:", parseError);
+            this.updateStatus('来电处理失败', 'danger');
+            
+            if (window.ErrorRecovery) {
+                window.ErrorRecovery.handleError(parseError, 'handleIncomingCall', window.ErrorTypes.BUSINESS);
+            } else {
+                this.callStateManager.resetToIdle();
+            }
         }
     }
 

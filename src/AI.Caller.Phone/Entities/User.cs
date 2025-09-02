@@ -1,18 +1,34 @@
-namespace AI.Caller.Phone.Entities;
-public class User
-{
-    public int       Id             { get; set; }
-    public string?   Username       { get; set; }
-    public string?   Password       { get; set; }
-                                    
-    // SIP账号信息                   
-    public string?   SipUsername    { get; set; }
-    public string?   SipPassword    { get; set; }
-    public bool      SipRegistered  { get; set; }
-    public DateTime? RegisteredAt   { get; set; }
-    
-    // 录音设置
-    public bool      AutoRecording  { get; set; } = false;
+using System.ComponentModel.DataAnnotations;
 
-    public ICollection<Contact>? Contacts { get; set; }
+namespace AI.Caller.Phone.Entities {
+    public class User {
+        public int Id { get; set; }
+
+        [Required]
+        public string Username { get; set; }
+
+        [Required]
+        public string Password { get; set; }
+
+        public string? Email { get; set; }
+
+        public string? PhoneNumber { get; set; }
+
+        public string? DisplayName { get; set; }
+
+        public string? Bio { get; set; }
+
+        public bool AutoRecording { get; set; } = false;
+
+        public DateTime? RegisteredAt { get; set; }
+
+        public bool IsAdmin { get; set; } = false;
+
+        public virtual ICollection<Contact> Contacts { get; set; } = new List<Contact>();
+
+        public int? SipAccountId { get; set; }
+        public virtual SipAccount? SipAccount { get; set; }
+
+        public bool SipRegistered { get; set; }
+    }
 }

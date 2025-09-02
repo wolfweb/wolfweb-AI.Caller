@@ -1,9 +1,10 @@
-﻿using AI.Caller.Phone.Entities;
+using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 
 namespace AI.Caller.Phone.Hubs {
@@ -12,125 +13,111 @@ namespace AI.Caller.Phone.Hubs {
         private readonly SipService _sipService;
         private readonly AppDbContext _appDbContext;
         private readonly ISimpleRecordingService _recordingService;
+        private readonly ILogger<WebRtcHub> _logger;
 
-        public WebRtcHub(SipService sipService, AppDbContext appDbContext, ISimpleRecordingService recordingService) {
+        public WebRtcHub(SipService sipService, AppDbContext appDbContext, ISimpleRecordingService recordingService, ILogger<WebRtcHub> logger) {
             _sipService = sipService;
             _appDbContext = appDbContext;
             _recordingService = recordingService;
+            _logger = logger;
         }
 
         public async Task AnswerAsync(WebRtcAnswerModel model) {
             if (RTCSessionDescriptionInit.TryParse(model.AnswerSdp, out var v)) {
-                var result = await _sipService.AnswerAsync(Context.User.Identity.Name, v);
-                if (result) {
-                    var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.SipUsername == model.Caller);
-                    if (user != null)
-                    {
-                        await Clients.User(user.Id.ToString()).SendAsync("answered");
-                    }
+                var user = await _appDbContext.Users.FirstAsync(x => x.Username == Context.User!.Identity!.Name);
+                var result = await _sipService.AnswerAsync(user, v);
+                if (result && model.CallerId.HasValue) {
+                    var caller = await _appDbContext.Users.FirstAsync(x => x.Id == model.CallerId.Value);
+                    await Clients.User(caller.Id.ToString()).SendAsync("answered");
                 }
             }
         }
 
         public async Task SendIceCandidateAsync(RTCIceCandidateInit candidate) {
-            _sipService.AddIceCandidate(Context.User.Identity.Name, candidate);
+            var user = await _appDbContext.Users.FirstAsync(x => x.Username == Context.User!.Identity!.Name);
+            _sipService.AddIceCandidate(user, candidate);
             await Task.CompletedTask;
         }
 
         public async Task<bool> GetSecureContextState() {
-            var result = _sipService.GetSecureContextReady(Context.User.FindFirst<string>("SipUser"));
+            var user = await _appDbContext.Users.FirstAsync(x => x.Username == Context.User!.Identity!.Name);
+            var result = _sipService.GetSecureContextReady(user);
             return await Task.FromResult(result);
         }
 
-        /// <summary>
-        /// 处理前端挂断请求
-        /// </summary>
         public async Task<bool> HangupCallAsync(WebRtcHangupModel model) {
             try {
-                var userName = Context.User?.Identity?.Name;
+                var userName = Context.User!.Identity!.Name;
                 if (string.IsNullOrEmpty(userName)) {
-                    await Clients.Caller.SendAsync("hangupFailed", new { 
-                        message = "用户身份验证失败", 
-                        timestamp = DateTime.UtcNow 
+                    await Clients.Caller.SendAsync("hangupFailed", new {
+                        message = "用户身份验证失败",
+                        timestamp = DateTime.UtcNow
                     });
                     return false;
                 }
 
-                // 获取用户的SIP用户名
-                var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Username == userName);
-                if (user == null || string.IsNullOrEmpty(user.SipUsername)) {
-                    await Clients.Caller.SendAsync("hangupFailed", new { 
-                        message = "用户SIP账号信息不存在", 
-                        timestamp = DateTime.UtcNow 
+                var user = await _appDbContext.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.Username == userName);
+                if (user == null || (user.SipAccount == null || string.IsNullOrEmpty(user.SipAccount.SipUsername))) {
+                    await Clients.Caller.SendAsync("hangupFailed", new {
+                        message = "用户SIP账号信息不存在",
+                        timestamp = DateTime.UtcNow
                     });
                     return false;
                 }
 
-                // 调用SipService的挂断方法
-                var result = await _sipService.HangupWithNotificationAsync(user.SipUsername, model);
-                
+                var result = await _sipService.HangupWithNotificationAsync(user, model);
+
                 if (!result) {
-                    await Clients.Caller.SendAsync("hangupFailed", new { 
-                        message = "挂断操作失败", 
-                        timestamp = DateTime.UtcNow 
+                    await Clients.Caller.SendAsync("hangupFailed", new {
+                        message = "挂断操作失败",
+                        timestamp = DateTime.UtcNow
                     });
                 }
 
                 return result;
             } catch (Exception ex) {
-                await Clients.Caller.SendAsync("hangupFailed", new { 
-                    message = $"挂断过程中发生错误: {ex.Message}", 
-                    timestamp = DateTime.UtcNow 
+                _logger.LogError(ex, "Error during hangup operation for user {UserName}", Context.User!.Identity!.Name);
+                await Clients.Caller.SendAsync("hangupFailed", new {
+                    message = $"挂断过程中发生错误: {ex.Message}",
+                    timestamp = DateTime.UtcNow
                 });
                 return false;
             }
         }
 
-        /// <summary>
-        /// 发送挂断开始通知
-        /// </summary>
         public async Task SendHangupInitiatedAsync(string message) {
             try {
-                await Clients.Caller.SendAsync("hangupInitiated", new { 
-                    message = message, 
-                    timestamp = DateTime.UtcNow 
+                await Clients.Caller.SendAsync("hangupInitiated", new {
+                    message = message,
+                    timestamp = DateTime.UtcNow
                 });
             } catch (Exception ex) {
                 Console.WriteLine($"Error sending hangup initiated notification: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// 发送通话结束确认
-        /// </summary>
         public async Task SendCallEndedAsync(string reason) {
             try {
-                await Clients.Caller.SendAsync("callEnded", new { 
-                    reason = reason, 
-                    timestamp = DateTime.UtcNow 
+                await Clients.Caller.SendAsync("callEnded", new {
+                    reason = reason,
+                    timestamp = DateTime.UtcNow
                 });
             } catch (Exception ex) {
                 Console.WriteLine($"Error sending call ended notification: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// 发送挂断失败通知
-        /// </summary>
         public async Task SendHangupFailedAsync(string message) {
             try {
-                await Clients.Caller.SendAsync("hangupFailed", new { 
-                    message = message, 
-                    timestamp = DateTime.UtcNow 
+                await Clients.Caller.SendAsync("hangupFailed", new {
+                    message = message,
+                    timestamp = DateTime.UtcNow
                 });
             } catch (Exception ex) {
                 Console.WriteLine($"Error sending hangup failed notification: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// 开始录音
-        /// </summary>
         public async Task<object> StartRecordingAsync(string calleeNumber) {
             try {
                 var userName = Context.User?.Identity?.Name;
@@ -138,18 +125,17 @@ namespace AI.Caller.Phone.Hubs {
                     return new { success = false, message = "用户身份验证失败" };
                 }
 
-                // 获取用户的SIP用户名
                 var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Username == userName);
-                if (user == null || string.IsNullOrEmpty(user.SipUsername)) {
+                if (user == null || (user.SipAccount == null || string.IsNullOrEmpty(user.SipAccount.SipUsername))) {
                     return new { success = false, message = "用户SIP账号信息不存在" };
                 }
 
-                var result = await _recordingService.StartRecordingAsync(user.SipUsername);
+                var result = await _recordingService.StartRecordingAsync(user.Id);
 
                 if (result) {
-                    await Clients.Caller.SendAsync("recordingStarted", new { 
-                        message = "录音已开始", 
-                        timestamp = DateTime.UtcNow 
+                    await Clients.Caller.SendAsync("recordingStarted", new {
+                        message = "录音已开始",
+                        timestamp = DateTime.UtcNow
                     });
                     return new { success = true, message = "录音已开始" };
                 } else {
@@ -160,9 +146,6 @@ namespace AI.Caller.Phone.Hubs {
             }
         }
 
-        /// <summary>
-        /// 停止录音
-        /// </summary>
         public async Task<object> StopRecordingAsync() {
             try {
                 var userName = Context.User?.Identity?.Name;
@@ -170,19 +153,17 @@ namespace AI.Caller.Phone.Hubs {
                     return new { success = false, message = "用户身份验证失败" };
                 }
 
-                // 获取用户的SIP用户名
                 var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Username == userName);
-                if (user == null || string.IsNullOrEmpty(user.SipUsername)) {
+                if (user == null || (user.SipAccount == null || string.IsNullOrEmpty(user.SipAccount.SipUsername))) {
                     return new { success = false, message = "用户SIP账号信息不存在" };
                 }
 
-                // 通过HTTP调用录音API
-                var result = await _recordingService.StopRecordingAsync(user.SipUsername);
+                var result = await _recordingService.StopRecordingAsync(user.Id);
 
                 if (result) {
-                    await Clients.Caller.SendAsync("recordingStopped", new { 
-                        message = "录音已停止", 
-                        timestamp = DateTime.UtcNow 
+                    await Clients.Caller.SendAsync("recordingStopped", new {
+                        message = "录音已停止",
+                        timestamp = DateTime.UtcNow
                     });
                     return new { success = true, message = "录音已停止" };
                 } else {
@@ -194,7 +175,11 @@ namespace AI.Caller.Phone.Hubs {
         }
     }
 
-    public record WebRtcAnswerModel(string Caller, string AnswerSdp);
+    public record WebRtcAnswerModel(int? CallerId, string AnswerSdp);
 
-    public record WebRtcHangupModel(string Target, string? Reason = null);
+    public record WebRtcHangupModel(string Target, string? Reason = null, HangupCallContext? CallContext = null);
+
+    public record HangupCallContext(string? CallId, CallerInfo? Caller, CallerInfo? Callee, DateTime? Timestamp, bool IsExternal);
+
+    public record CallerInfo(string? UserId, string? SipUsername);
 }

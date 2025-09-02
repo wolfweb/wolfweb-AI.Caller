@@ -1,0 +1,302 @@
+@using AI.Caller.Phone.Entities
+@model IEnumerable<Contact>
+
+@{
+    ViewData["Title"] = "通讯录管理";
+}
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="bi bi-person-lines-fill"></i> 通讯录管理</h2>
+            <p class="text-muted">管理系统中所有用户的通讯录</p>
+        </div>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle-fill"></i> @TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i> @TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-header">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <h5 class="mb-0">通讯录列表</h5>
+                </div>
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" id="searchContacts" class="form-control" placeholder="搜索联系人...">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        @if (Model == null || !Model.Any())
+        {
+            <div class="card-body text-center py-5">
+                <i class="bi bi-person-lines-fill fs-1 text-muted"></i>
+                <h4 class="mt-3">暂无联系人</h4>
+                <p class="text-muted">系统中还没有任何联系人</p>
+            </div>
+        }
+        else
+        {
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover mb-0" id="contactsTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>联系人姓名</th>
+                                <th>电话号码</th>
+                                <th>所属用户</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var contact in Model)
+                            {
+                                <tr class="contact-row">
+                                    <td>
+                                        <i class="bi bi-person-circle text-primary me-2"></i>
+                                        @contact.Name
+                                    </td>
+                                    <td>
+                                        <i class="bi bi-telephone text-success me-2"></i>
+                                        @contact.PhoneNumber
+                                    </td>
+                                    <td>
+                                        @if (contact.User != null)
+                                        {
+                                            <span class="badge bg-info">@contact.User.Username</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-warning">未知用户</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button class="btn btn-outline-primary edit-contact-btn" 
+                                                    data-id="@contact.Id"
+                                                    data-name="@contact.Name"
+                                                    data-phone="@contact.PhoneNumber"
+                                                    data-user-id="@contact.UserId"
+                                                    title="编辑">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger delete-contact-btn" 
+                                                    data-id="@contact.Id"
+                                                    data-name="@contact.Name"
+                                                    title="删除">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        共 @Model.Count() 个联系人
+                    </div>
+                    <div>
+                        <nav>
+                            <ul class="pagination mb-0">
+                                <li class="page-item disabled"><a class="page-link" href="#">上一页</a></li>
+                                <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                                <li class="page-item disabled"><a class="page-link" href="#">下一页</a></li>
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- 编辑联系人模态框 -->
+<div class="modal fade" id="editContactModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">编辑联系人</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editContactForm">
+                    <input type="hidden" id="editContactId">
+                    <div class="mb-3">
+                        <label for="editContactName" class="form-label">联系人姓名</label>
+                        <input type="text" class="form-control" id="editContactName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editContactPhone" class="form-label">电话号码</label>
+                        <input type="text" class="form-control" id="editContactPhone" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editContactUser" class="form-label">所属用户</label>
+                        <select class="form-select" id="editContactUser">
+                            <option value="">请选择用户</option>
+                            <!-- 用户选项将通过JavaScript动态加载 -->
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveEditContactBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 搜索功能
+            const searchInput = document.getElementById('searchContacts');
+            const contactRows = document.querySelectorAll('.contact-row');
+            
+            searchInput.addEventListener('keyup', function() {
+                const searchTerm = this.value.toLowerCase();
+                
+                contactRows.forEach(row => {
+                    const name = row.querySelector('td:first-child').textContent.toLowerCase();
+                    const phone = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
+                    const user = row.querySelector('td:nth-child(3)').textContent.toLowerCase();
+                    
+                    if (name.includes(searchTerm) || 
+                        phone.includes(searchTerm) || 
+                        user.includes(searchTerm)) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+            
+            // 编辑联系人按钮
+            document.querySelectorAll('.edit-contact-btn').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const id = this.dataset.id;
+                    const name = this.dataset.name;
+                    const phone = this.dataset.phone;
+                    const userId = this.dataset.userId;
+                    
+                    document.getElementById('editContactId').value = id;
+                    document.getElementById('editContactName').value = name;
+                    document.getElementById('editContactPhone').value = phone;
+                    
+                    // 加载用户列表
+                    try {
+                        const response = await fetch('/Account/GetAllUsers');
+                        const users = await response.json();
+                        
+                        const select = document.getElementById('editContactUser');
+                        select.innerHTML = '<option value="">请选择用户</option>';
+                        
+                        users.forEach(user => {
+                            const option = document.createElement('option');
+                            option.value = user.id;
+                            option.textContent = user.username;
+                            if (user.id == userId) {
+                                option.selected = true;
+                            }
+                            select.appendChild(option);
+                        });
+                    } catch (error) {
+                        console.error('加载用户列表失败:', error);
+                    }
+                    
+                    const editModal = new bootstrap.Modal(document.getElementById('editContactModal'));
+                    editModal.show();
+                });
+            });
+            
+            // 保存编辑联系人
+            document.getElementById('saveEditContactBtn').addEventListener('click', async function() {
+                const id = document.getElementById('editContactId').value;
+                const name = document.getElementById('editContactName').value;
+                const phone = document.getElementById('editContactPhone').value;
+                const userId = document.getElementById('editContactUser').value;
+                
+                if (!name || !phone) {
+                    alert('联系人姓名和电话号码是必填项');
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/Account/EditContact', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            id: id,
+                            name: name,
+                            phoneNumber: phone,
+                            userId: userId
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        alert('联系人信息更新成功');
+                        location.reload();
+                    } else {
+                        alert('更新失败: ' + result.message);
+                    }
+                } catch (error) {
+                    alert('更新失败: ' + error.message);
+                }
+            });
+            
+            // 删除联系人按钮
+            document.querySelectorAll('.delete-contact-btn').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const id = this.dataset.id;
+                    const name = this.dataset.name;
+                    
+                    if (confirm(`确定要删除联系人 "${name}" 吗？此操作不可恢复。`)) {
+                        try {
+                            const response = await fetch(`/Account/AdminDeleteContact/${id}`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                }
+                            });
+                            
+                            const result = await response.json();
+                            
+                            if (result.success) {
+                                alert('联系人删除成功');
+                                location.reload();
+                            } else {
+                                alert('删除失败: ' + result.message);
+                            }
+                        } catch (error) {
+                            alert('删除失败: ' + error.message);
+                        }
+                    }
+                });
+            });
+        });
+    </script>
+}

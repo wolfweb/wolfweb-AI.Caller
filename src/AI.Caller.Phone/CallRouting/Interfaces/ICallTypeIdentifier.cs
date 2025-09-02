@@ -1,13 +1,11 @@
 using AI.Caller.Phone.CallRouting.Models;
 using SIPSorcery.SIP;
 
-namespace AI.Caller.Phone.CallRouting.Interfaces
-{
+namespace AI.Caller.Phone.CallRouting.Interfaces {
     /// <summary>
     /// 呼叫类型识别接口
     /// </summary>
-    public interface ICallTypeIdentifier
-    {
+    public interface ICallTypeIdentifier {
         /// <summary>
         /// 获取呼出通话信息
         /// </summary>
@@ -41,12 +39,5 @@ namespace AI.Caller.Phone.CallRouting.Interfaces
         /// 清理已结束的呼叫记录
         /// </summary>
         void CleanupEndedCalls();
-
-        /// <summary>
-        /// 识别呼叫类型（为了兼容现有代码）
-        /// </summary>
-        /// <param name="sipRequest">SIP请求</param>
-        /// <returns>呼叫类型</returns>
-        string IdentifyCallType(SIPRequest sipRequest);
     }
 }

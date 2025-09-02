@@ -1,34 +1,40 @@
+using AI.Caller.Phone.Entities;
+using AI.Caller.Phone.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
+using System.Security.Claims;
 using AI.Caller.Phone.Models;
-using Microsoft.AspNetCore.Authorization;
-using AI.Caller.Phone.Services;
 
-namespace AI.Caller.Phone.Controllers
-{
+namespace AI.Caller.Phone.Controllers {
     [Authorize]
-    public class HomeController : Controller
-    {
+    public class HomeController : Controller {
+        private readonly ILogger<HomeController> _logger;
         private readonly AppDbContext _context;
-        private readonly ContactService _contactService;
 
-        public HomeController(AppDbContext context, ContactService contactService)
-        {
+        public HomeController(ILogger<HomeController> logger, AppDbContext context) {
+            _logger = logger;
             _context = context;
-            _contactService = contactService;
         }
 
-        public async Task<IActionResult> Index()
-        {
-            var username = User.Identity.Name;
-            var user = await _context.Users.Include(u => u.Contacts).FirstOrDefaultAsync(u => u.Username == username);
+        public async Task<IActionResult> Index() {
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            ViewBag.IsAdmin = currentUser != null ? currentUser.IsAdmin : false;
+            return View();
+        }
 
-            if (user == null)
-            {
-                return NotFound();
-            }
+        public async Task<IActionResult> About() {
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            ViewBag.IsAdmin = currentUser != null ? currentUser.IsAdmin : false;
+            return View();
+        }
 
-            return View(user.Contacts);
+        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
+        public async Task<IActionResult> Error() {
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == User.Identity.Name);
+            ViewBag.IsAdmin = currentUser != null ? currentUser.IsAdmin : false;
+            return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
         }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Mvc.Filters;
+using Microsoft.EntityFrameworkCore;
 
 namespace AI.Caller.Phone.Filters {
     public class SipAuthencationFilter : IActionFilter {
@@ -13,7 +14,7 @@ namespace AI.Caller.Phone.Filters {
                 var applicationContext = context.HttpContext.RequestServices.GetRequiredService<ApplicationContext>();
                 var dbContext = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>(); 
                 var name = context.HttpContext.User.Identity.Name;
-                var user = dbContext.Users.First(u => u.Username == name);
+                var user = dbContext.Users.Include(u => u.SipAccount).First(u => u.Username == name);
                 var sipService = context.HttpContext.RequestServices.GetRequiredService<SipService>();
                 sipService.RegisterUserAsync(user);
             }

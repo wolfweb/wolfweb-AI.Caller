@@ -9,14 +9,11 @@ using System.Collections.Concurrent;
 using System.Net;
 
 namespace AI.Caller.Phone.Services {
-    /// <summary>
-    /// 音频流录音服务 - 通过事件订阅方式录制音频，不侵入SIPClient
-    /// </summary>
     public class AudioStreamRecordingService : ISimpleRecordingService {
         private readonly string _recordingsPath;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<AudioStreamRecordingService> _logger;
-        private readonly ConcurrentDictionary<string, RecordingSession> _activeSessions;
+        private readonly ConcurrentDictionary<int, RecordingSession> _activeSessions;
         private readonly ApplicationContext _applicationContext;
 
         public AudioStreamRecordingService(
@@ -27,84 +24,79 @@ namespace AI.Caller.Phone.Services {
             _logger = logger;
             _serviceScopeFactory = serviceScopeFactory;
             _recordingsPath = configuration.GetValue<string>("RecordingsPath") ?? "recordings";
-            _activeSessions = new ConcurrentDictionary<string, RecordingSession>();
+            _activeSessions = new ConcurrentDictionary<int, RecordingSession>();
             _applicationContext = applicationContext;
 
             Directory.CreateDirectory(_recordingsPath);
         }
 
-        public async Task<bool> StartRecordingAsync(string sipUsername) {
+        public async Task<bool> StartRecordingAsync(int userId) {
             try {
                 using var scope = _serviceScopeFactory.CreateScope();
                 AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                if (_activeSessions.ContainsKey(sipUsername)) {
-                    _logger.LogWarning($"用户 {sipUsername} 已经在录音中");
+                if (_activeSessions.ContainsKey(userId)) {
+                    _logger.LogWarning($"用户 {userId} 已经在录音中");
                     return false;
                 }
 
-                var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUsername);
-                if (user == null) {
-                    _logger.LogError($"未找到用户: {sipUsername}");
-                    return false;
-                }
-
-                if (!_applicationContext.SipClients.TryGetValue(sipUsername, out var sipClient)) {
-                    _logger.LogError($"未找到用户 {sipUsername} 的SIP客户端");
+                if (!_applicationContext.SipClients.TryGetValue(userId, out var sipClient)) {
+                    _logger.LogError($"未找到用户 {userId} 的SIP客户端");
                     return false;
                 }
 
                 if (!sipClient.IsCallActive) {
-                    _logger.LogWarning($"用户 {sipUsername} 没有活跃的通话");
+                    _logger.LogWarning($"用户 {userId} 没有活跃的通话");
                     return false;
                 }
 
-                var session = await CreateRecordingSessionAsync(user, sipUsername, sipClient);
+                var session = await CreateRecordingSessionAsync(userId, sipClient);
                 if (session == null) {
                     return false;
                 }
 
-                _activeSessions.TryAdd(sipUsername, session);
-                _logger.LogInformation($"开始录音 - 用户: {sipUsername}");
+                _activeSessions.TryAdd(userId, session);
+                _logger.LogInformation($"开始录音 - 用户: {userId}");
                 return true;
             } catch (Exception ex) {
-                _logger.LogError(ex, $"开始录音失败 - 用户: {sipUsername}");
+                _logger.LogError(ex, $"开始录音失败 - 用户: {userId}");
                 return false;
             }
         }
 
-        public async Task<bool> StopRecordingAsync(string sipUsername) {
+        public async Task<bool> StopRecordingAsync(int userId) {
             try {
-                if (!_activeSessions.TryRemove(sipUsername, out var session)) {
-                    _logger.LogWarning($"用户 {sipUsername} 没有活动的录音");
+                if (!_activeSessions.TryRemove(userId, out var session)) {
+                    _logger.LogWarning($"用户 {userId} 没有活动的录音");
                     return false;
                 }
 
                 await session.StopAsync();
 
                 session.Dispose();
-                _logger.LogInformation($"停止录音 - 用户: {sipUsername}");
+                _logger.LogInformation($"停止录音 - 用户: {userId}");
                 return true;
             } catch (Exception ex) {
-                _logger.LogError(ex, $"停止录音失败 - 用户: {sipUsername}");
+                _logger.LogError(ex, $"停止录音失败 - 用户: {userId}");
                 return false;
             }
         }
 
-        private async Task<RecordingSession?> CreateRecordingSessionAsync(User user, string sipUsername, SIPClient sipClient) {
+        private async Task<RecordingSession?> CreateRecordingSessionAsync(int userId, SIPClient sipClient) {
             try {
                 using var scope = _serviceScopeFactory.CreateScope();
                 AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var user = await _dbContext.Users.Include(u => u.SipAccount).FirstAsync(u => u.Id == userId);
 
-                var fileName = $"recording_{sipUsername}_{DateTime.Now:yyyyMMdd_HHmmss}.wav";
+                var fileName = $"recording_{userId}_{user.SipAccount!.SipUsername}_{sipClient.Dialogue.RemoteUserField.URI.User}_{DateTime.Now:yyyyMMdd_HHmmss}.wav";
                 var filePath = Path.Combine(_recordingsPath, fileName);
 
                 var recording = new Recording {
                     UserId = user.Id,
-                    SipUsername = sipUsername,
+                    SipUsername = user.SipAccount!.SipUsername,
                     StartTime = DateTime.UtcNow,
                     FilePath = filePath,
-                    Status = RecordingStatus.Recording
+                    Status = Models.RecordingStatus.Recording
                 };
 
                 _dbContext.Recordings.Add(recording);
@@ -112,12 +104,11 @@ namespace AI.Caller.Phone.Services {
 
                 return new RecordingSession(_logger, recording, sipClient, _serviceScopeFactory);
             } catch (Exception ex) {
-                _logger.LogError(ex, $"创建录音会话失败 - 用户: {sipUsername}");
+                _logger.LogError(ex, $"创建录音会话失败 - 用户: {userId}");
                 return null;
             }
         }
 
-        // 其他接口方法实现...
         public async Task<List<Recording>> GetRecordingsAsync(int userId) {
             try {
                 using var scope = _serviceScopeFactory.CreateScope();
@@ -185,16 +176,16 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        public async Task<RecordingStatus?> GetRecordingStatusAsync(string sipUsername) {
+        public async Task<Models.RecordingStatus?> GetRecordingStatusAsync(int userId) {
             try {
-                if (_activeSessions.TryGetValue(sipUsername, out var session)) {
+                if (_activeSessions.TryGetValue(userId, out var session)) {
                     return session.Recording.Status;
                 }
 
                 using var scope = _serviceScopeFactory.CreateScope();
                 AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUsername);
+                var user = await _dbContext.Users.Include(u => u.SipAccount).FirstOrDefaultAsync(u => u.Id == userId);
                 if (user != null) {
                     var latestRecording = await _dbContext.Recordings
                         .Where(r => r.UserId == user.Id)
@@ -206,15 +197,12 @@ namespace AI.Caller.Phone.Services {
 
                 return null;
             } catch (Exception ex) {
-                _logger.LogError(ex, $"获取录音状态失败 - 用户: {sipUsername}");
+                _logger.LogError(ex, $"获取录音状态失败 - 用户: {userId}");
                 return null;
             }
         }
     }
 
-    /// <summary>
-    /// 录音会话 - 独立管理单个录音的生命周期
-    /// </summary>
     internal class RecordingSession : IDisposable {
         public Recording Recording { get; }
 
@@ -294,7 +282,7 @@ namespace AI.Caller.Phone.Services {
 
                 Recording.EndTime = DateTime.UtcNow;
                 Recording.Duration = Recording.EndTime.Value - Recording.StartTime;
-                Recording.Status = RecordingStatus.Completed;
+                Recording.Status = Models.RecordingStatus.Completed;
 
                 if (File.Exists(Recording.FilePath)) {
                     var fileInfo = new FileInfo(Recording.FilePath);
@@ -305,7 +293,7 @@ namespace AI.Caller.Phone.Services {
                 await _dbContext.SaveChangesAsync();
             } catch (Exception ex) {
                 _logger.LogError(ex, "停止录音会话失败");
-                Recording.Status = RecordingStatus.Failed;
+                Recording.Status = Models.RecordingStatus.Failed;
                 _dbContext.Recordings.Update(Recording);
                 await _dbContext.SaveChangesAsync();
             }
@@ -356,10 +344,10 @@ namespace AI.Caller.Phone.Services {
                 for (int i = 0; i < pcmData.Length; i += 2) {
                     int offset = i * 2;
                     if (direction == AudioDirection.Received) {
-                        buffer[offset] = pcmData[i];  
+                        buffer[offset] = pcmData[i];
                         buffer[offset + 1] = pcmData[i + 1];
                     } else {
-                        buffer[offset + 2] = pcmData[i]; 
+                        buffer[offset + 2] = pcmData[i];
                         buffer[offset + 3] = pcmData[i + 1];
                     }
                 }

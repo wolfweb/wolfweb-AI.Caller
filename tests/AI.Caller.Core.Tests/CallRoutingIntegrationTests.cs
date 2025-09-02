@@ -7,57 +7,42 @@ using AI.Caller.Phone.CallRouting.Interfaces;
 using AI.Caller.Phone.CallRouting.Models;
 using SIPSorcery.SIP;
 
-namespace AI.Caller.Core.Tests
-{
-    /// <summary>
-    /// CallRouting集成测试 - 验证现有CallRouting代码与重构后MediaSessionManager的兼容性
-    /// </summary>
-    public class CallRoutingIntegrationTests : IDisposable
-    {
+namespace AI.Caller.Core.Tests {
+    public class CallRoutingIntegrationTests : IDisposable {
         private readonly Mock<ILogger<CallTypeIdentifier>> _mockCallTypeLogger;
         private readonly CallTypeIdentifier _callTypeIdentifier;
 
-        public CallRoutingIntegrationTests()
-        {
+        public CallRoutingIntegrationTests() {
             _mockCallTypeLogger = new Mock<ILogger<CallTypeIdentifier>>();
             _callTypeIdentifier = new CallTypeIdentifier(_mockCallTypeLogger.Object);
         }
 
         [Fact]
-        public void MediaSessionManager_ShouldIntegrateWithCallRouting()
-        {
-            // Arrange
+        public void MediaSessionManager_ShouldIntegrateWithCallRouting() {
             var logger = new Mock<ILogger>();
             var mediaManager = new MediaSessionManager(logger.Object);
 
-            // Act & Assert - 验证MediaSessionManager的事件驱动架构与CallRouting兼容
             Assert.NotNull(mediaManager);
-            Assert.Null(mediaManager.MediaSession); // 应该为null，因为还未初始化
-            Assert.Null(mediaManager.PeerConnection); // 应该为null，因为还未初始化
-            
-            // 验证事件可以被订阅（这证明了事件驱动架构的兼容性）
+            Assert.Null(mediaManager.MediaSession);
+            Assert.Null(mediaManager.PeerConnection);
+
             var eventTriggered = false;
             mediaManager.SdpOfferGenerated += (offer) => eventTriggered = true;
-            
-            // 清理
+
             mediaManager.Dispose();
-            Assert.False(eventTriggered); // 事件未被触发，因为没有实际操作
+            Assert.False(eventTriggered);
         }
 
         [Fact]
-        public void CallTypeIdentifier_ShouldTrackOutboundCalls()
-        {
-            // Arrange
+        public void CallTypeIdentifier_ShouldTrackOutboundCalls() {
             var callId = "outbound-call-123";
             var fromTag = "from-tag-456";
             var sipUsername = "caller@example.com";
             var destination = "1234567890";
 
-            // Act
             _callTypeIdentifier.RegisterOutboundCallWithSipTags(callId, fromTag, sipUsername, destination);
             var callInfo = _callTypeIdentifier.GetOutboundCallInfo(callId);
 
-            // Assert
             Assert.NotNull(callInfo);
             Assert.Equal(callId, callInfo.CallId);
             Assert.Equal(fromTag, callInfo.FromTag);
@@ -67,45 +52,36 @@ namespace AI.Caller.Core.Tests
         }
 
         [Fact]
-        public void CallTypeIdentifier_ShouldUpdateCallStatus()
-        {
-            // Arrange
+        public void CallTypeIdentifier_ShouldUpdateCallStatus() {
             var callId = "status-update-call-123";
             var sipUsername = "caller@example.com";
-            
+
             _callTypeIdentifier.RegisterOutboundCallWithSipTags(callId, "tag", sipUsername, "dest");
 
-            // Act
             _callTypeIdentifier.UpdateOutboundCallStatus(callId, CallStatus.Answered);
             var callInfo = _callTypeIdentifier.GetOutboundCallInfo(callId);
 
-            // Assert
             Assert.NotNull(callInfo);
             Assert.Equal(CallStatus.Answered, callInfo.Status);
         }
 
         [Fact]
-        public void CallTypeIdentifier_ShouldReturnActiveCallsOnly()
-        {
-            // Arrange
+        public void CallTypeIdentifier_ShouldReturnActiveCallsOnly() {
             _callTypeIdentifier.RegisterOutboundCallWithSipTags("active1", "tag1", "user1", "dest1");
             _callTypeIdentifier.RegisterOutboundCallWithSipTags("active2", "tag2", "user2", "dest2");
             _callTypeIdentifier.RegisterOutboundCallWithSipTags("ended", "tag3", "user3", "dest3");
-            
+
             _callTypeIdentifier.UpdateOutboundCallStatus("ended", CallStatus.Ended);
 
-            // Act
             var activeCalls = _callTypeIdentifier.GetActiveOutboundCalls().ToList();
 
-            // Assert
             Assert.Equal(2, activeCalls.Count);
             Assert.All(activeCalls, call => Assert.NotEqual(CallStatus.Ended, call.Status));
         }
 
         [Fact]
-        public void CallHandlingStrategy_ShouldHaveCorrectValues()
-        {
-            // Act & Assert - 验证CallHandlingStrategy枚举正确定义
+        public void CallHandlingStrategy_ShouldHaveCorrectValues() {
+
             Assert.Equal(0, (int)CallHandlingStrategy.Reject);
             Assert.Equal(1, (int)CallHandlingStrategy.WebToWeb);
             Assert.Equal(2, (int)CallHandlingStrategy.WebToNonWeb);
@@ -115,17 +91,13 @@ namespace AI.Caller.Core.Tests
         }
 
         [Fact]
-        public void CallRoutingResult_ShouldCreateSuccessAndFailureCorrectly()
-        {
-            // Arrange
+        public void CallRoutingResult_ShouldCreateSuccessAndFailureCorrectly() {
             var mockLogger = new Mock<ILogger>();
             var mockSipClient = new SIPClient("test", mockLogger.Object, new Mock<SIPTransport>().Object);
 
-            // Act
             var successResult = CallRoutingResult.CreateSuccess(mockSipClient, null, CallHandlingStrategy.WebToWeb, "Success");
             var failureResult = CallRoutingResult.CreateFailure("Failure", CallHandlingStrategy.Reject);
 
-            // Assert
             Assert.True(successResult.Success);
             Assert.Equal("Success", successResult.Message);
             Assert.Equal(CallHandlingStrategy.WebToWeb, successResult.Strategy);
@@ -137,8 +109,7 @@ namespace AI.Caller.Core.Tests
             Assert.Null(failureResult.TargetClient);
         }
 
-        public void Dispose()
-        {
+        public void Dispose() {
             _callTypeIdentifier?.Dispose();
         }
     }

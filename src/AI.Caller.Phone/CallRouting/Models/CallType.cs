@@ -1,10 +1,8 @@
-namespace AI.Caller.Phone.CallRouting.Models
-{
+namespace AI.Caller.Phone.CallRouting.Models {
     /// <summary>
     /// 来电类型枚举
     /// </summary>
-    public enum CallType
-    {
+    public enum CallType {
         /// <summary>
         /// 呼出应答 - 对之前发起的呼叫的应答
         /// </summary>

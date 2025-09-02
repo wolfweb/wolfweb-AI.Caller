@@ -45,11 +45,8 @@ namespace AI.Caller.Phone.Services {
             _serviceScopeProvider = serviceScopeProvider;
         }
 
-        /// <summary>
-        /// 为用户注册SIP账号
-        /// </summary>
         public async Task<bool> RegisterUserAsync(User user) {
-            if (string.IsNullOrEmpty(user.SipUsername)) {
+            if (user.SipAccount == null || string.IsNullOrEmpty(user.SipAccount.SipUsername)) {
                 _logger.LogWarning($"用户 {user.Username} 的SIP账号信息不完整");
                 return false;
             }
@@ -61,7 +58,7 @@ namespace AI.Caller.Phone.Services {
                     user.RegisteredAt = DateTime.UtcNow;
                 }
 
-                var sipClient = new SIPClient(_applicationContext.SipServer, _logger, _sipTransportManager.SIPTransport!, _webRTCSettings);
+                var sipClient = new SIPClient(user.SipAccount.SipServer, _logger, _sipTransportManager.SIPTransport!, _webRTCSettings);
 
                 sipClient.StatusMessage += (_, message) => {
                     _logger.LogDebug($"SIP客户端状态更新: {message}");
@@ -75,8 +72,8 @@ namespace AI.Caller.Phone.Services {
                     await HandleCallFinishedWithContext(user.Id, context);
                 };
 
-                _applicationContext.AddSipClient(user.SipUsername, sipClient);
-                _logger.LogDebug($"用户 {user.Username} : {user.SipUsername} 的SIP账号注册成功");
+                _applicationContext.AddSipClient(user.Id, sipClient);
+                _logger.LogDebug($"用户 {user.Username} : {user.SipAccount.SipUsername} 的SIP账号注册成功");
                 await _dbContext.SaveChangesAsync();
                 return true;
             } catch (Exception ex) {
@@ -85,19 +82,24 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        /// <summary>
-        /// 发起呼叫
-        /// </summary>
-        public async Task<(bool Success, string Message)> MakeCallAsync(string destination, string sipUsername, RTCSessionDescriptionInit sdpOffer) {
-            var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUsername);
+        public async Task UnregisterUserAsync(User user) {
+            if (user != null) {
+                _applicationContext.RemoveSipClientByUserId(user.Id);
+                user.SipRegistered = false;
+                user.RegisteredAt = null;
+                await _dbContext.SaveChangesAsync();
+            }
+        }
+
+        public async Task<(bool Success, string Message)> MakeCallAsync(string destination, User user, RTCSessionDescriptionInit sdpOffer) {            
             try {
-                if (!_applicationContext.SipClients.TryGetValue(sipUsername, out var sipClient)) {
+                if (!_applicationContext.SipClients.TryGetValue(user.Id, out var sipClient)) {
                     if (user == null || !user.SipRegistered) {
                         return (false, "用户未注册SIP账号或SIP账号未激活");
                     }
 
                     var registered = await RegisterUserAsync(user);
-                    if (!registered || !_applicationContext.SipClients.TryGetValue(sipUsername, out sipClient)) {
+                    if (!registered || !_applicationContext.SipClients.TryGetValue(user.Id, out sipClient)) {
                         return (false, "无法获取SIP客户端");
                     }
                 }
@@ -115,15 +117,15 @@ namespace AI.Caller.Phone.Services {
                     }
                 };
 
-                var fromTag = GenerateFromTag();
+                var fromTag = GenerateFromTag(user);
 
-                var fromHeader = new SIPFromHeader(user.Username, new SIPURI(user.SipUsername, _applicationContext.SipServer, null), fromTag);
+                var fromHeader = new SIPFromHeader(user.Username, new SIPURI(user.SipAccount!.SipUsername, user.SipAccount.SipServer, $"id={fromTag}"), fromTag);
 
                 await sipClient.CallAsync(destination, fromHeader);
 
-                RegisterOutboundCallAfterInitiation(sipClient, fromTag, sipUsername, destination);
+                RegisterOutboundCallAfterInitiation(sipClient, fromTag, user.SipAccount!.SipUsername, destination);
 
-                _applicationContext.UpdateUserActivity(sipUsername);
+                _applicationContext.UpdateUserActivityByUserId(user.Id);
 
                 return (true, "呼叫已发起");
             } catch (Exception ex) {
@@ -133,101 +135,86 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        /// <summary>
-        /// 接听电话
-        /// </summary>
-        /// <returns></returns>
-        public async Task<bool> AnswerAsync(string userName, RTCSessionDescriptionInit answerSdp) {
-            var user = _dbContext.Users.First(x => x.Username == userName);
-            if (_applicationContext.SipClients.TryGetValue(user.SipUsername, out var sipClient)) {
+        public async Task<bool> AnswerAsync(User user, RTCSessionDescriptionInit answerSdp) {            
+            if (_applicationContext.SipClients.TryGetValue(user.Id, out var sipClient)) {
                 try {
                     sipClient.SetRemoteDescription(answerSdp);
 
-                    // 等待安全上下文就绪，记录超时情况
                     var timeout = TimeSpan.FromSeconds(10);
                     var start = DateTime.UtcNow;
                     while (!sipClient.IsSecureContextReady()) {
                         if (DateTime.UtcNow - start > timeout) {
-                            _logger.LogError($"*** SECURE CONTEXT TIMEOUT *** User: {userName}, waited {timeout.TotalSeconds}s");
+                            _logger.LogError($"*** SECURE CONTEXT TIMEOUT *** User: {user.Username}, waited {timeout.TotalSeconds}s");
                             return false;
                         }
                         await Task.Delay(100);
                     }
 
                     var result = await sipClient.AnswerAsync();
-                    
+
                     if (!result) {
-                        _logger.LogError($"*** ANSWER FAILED *** User: {userName}, SipUsername: {user.SipUsername}");
+                        _logger.LogError($"*** ANSWER FAILED *** User: {user.Username}, SipUsername: {user.SipAccount?.SipUsername}");
                     }
 
                     if (result) {
-                        _applicationContext.UpdateUserActivity(user.SipUsername);
+                        _applicationContext.UpdateUserActivityByUserId(user.Id);
                     }
 
                     return result;
                 } catch (Exception ex) {
-                    _logger.LogError(ex, $"用户 {userName} 接听电话失败: {ex.Message}");
+                    _logger.LogError(ex, $"用户 {user.Username} 接听电话失败: {ex.Message}");
                 }
             } else {
-                _logger.LogWarning($"用户 {userName} 的SIP客户端不存在，无法接听电话");
+                _logger.LogWarning($"用户 {user.Username} 的SIP客户端不存在，无法接听电话");
             }
             return false;
         }
 
-        /// <summary>
-        /// 简化的挂断电话方法
-        /// </summary>
-        public async Task<bool> HangupCallAsync(string sipUserName, string? reason = null) {
+        public async Task<bool> HangupCallAsync(User user, string? reason = null) {
             var hangupReason = reason ?? "User requested hangup";
 
             try {
-                _logger.LogDebug($"开始挂断电话 - 用户: {sipUserName}, 原因: {hangupReason}");
+                _logger.LogDebug($"开始挂断电话 - 用户: {user.Username}, 原因: {hangupReason}");
 
-                if (!_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient)) {
-                    _logger.LogWarning($"用户 {sipUserName} 的SIP客户端不存在，无法挂断");
-                    await NotifyHangupStatusAsync(sipUserName, "hangupFailed", "SIP客户端不存在");
+                if (!_applicationContext.SipClients.TryGetValue(user.Id, out var sipClient)) {
+                    _logger.LogWarning($"用户 {user.Username} 的SIP客户端不存在，无法挂断");
+                    await NotifyHangupStatusAsync("hangupFailed", "SIP客户端不存在", user);
                     return false;
                 }
 
                 if (!sipClient.IsCallActive) {
-                    _logger.LogDebug($"用户 {sipUserName} 没有活动的通话，无需挂断");
-                    await NotifyHangupStatusAsync(sipUserName, "callEnded", "没有活动通话");
+                    _logger.LogDebug($"用户 {user.Username} 没有活动的通话，无需挂断");
+                    await NotifyHangupStatusAsync("callEnded", "没有活动通话", user);
                     return true;
                 }
 
-                _logger.LogDebug($"用户 {sipUserName} 有活动通话，执行挂断");
+                _logger.LogDebug($"用户 {user.Username} 有活动通话，执行挂断");
 
                 sipClient.Hangup();
 
                 await Task.Delay(500);
 
-                await NotifyHangupStatusAsync(sipUserName, "callEnded", hangupReason);
+                await NotifyHangupStatusAsync("callEnded", hangupReason, user);
 
-                _applicationContext.UpdateUserActivity(sipUserName);
+                _applicationContext.UpdateUserActivityByUserId(user.Id);
 
-                _logger.LogDebug($"用户 {sipUserName} 挂断电话成功");
+                _logger.LogDebug($"用户 {user.Username} 挂断电话成功");
                 return true;
             } catch (Exception ex) {
-                _logger.LogError(ex, $"用户 {sipUserName} 挂断电话失败");
-                await NotifyHangupStatusAsync(sipUserName, "hangupFailed", $"挂断失败: {ex.Message}");
+                _logger.LogError(ex, $"用户 {user.Username} 挂断电话失败");
+                await NotifyHangupStatusAsync("hangupFailed", $"挂断失败: {ex.Message}", user);
                 return false;
             }
         }
 
-        /// <summary>
-        /// 强制终止连接
-        /// </summary>
-        private async Task ForceTerminateConnectionAsync(string sipUserName, SIPClient sipClient) {
+        private async Task ForceTerminateConnectionAsync(User user, SIPClient sipClient) {
             try {
-                _logger.LogDebug($"强制终止用户 {sipUserName} 的连接");
+                _logger.LogDebug($"强制终止用户 {user.Id} 的连接");
 
-                // 强制停止音频流
                 sipClient.StopAudioStreams();
 
-                // 强制释放媒体资源
                 sipClient.ReleaseMediaResources();
 
-                // 尝试发送BYE消息（但不等待响应）
                 try {
                     using var forceTerminateCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                     await Task.Run(() => sipClient.Hangup(), forceTerminateCts.Token);
@@ -235,68 +222,50 @@ namespace AI.Caller.Phone.Services {
                     _logger.LogWarning(ex, $"强制终止时发送BYE消息失败，但继续清理资源");
                 }
 
-                _logger.LogDebug($"用户 {sipUserName} 的连接已强制终止");
+                _logger.LogDebug($"用户 {user.Username} 的连接已强制终止");
             } catch (Exception ex) {
-                _logger.LogError(ex, $"强制终止用户 {sipUserName} 连接时发生错误");
+                _logger.LogError(ex, $"强制终止用户 {user.Username} 连接时发生错误");
             }
         }
 
-        /// <summary>
-        /// 通知挂断状态（带超时处理）
-        /// </summary>
-        private async Task NotifyHangupStatusAsync(string sipUserName, string status, string message) {
+        private async Task NotifyHangupStatusAsync(string status, string message, User user) {
             using var notificationCts = new CancellationTokenSource(_retryPolicy.NotificationTimeout);
 
             try {
-                var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == sipUserName, notificationCts.Token);
-                if (user != null) {
-                    var notificationTask = _hubContext.Clients.User(user.Id.ToString())
-                        .SendAsync(status, new {
-                            message = message,
-                            timestamp = DateTime.UtcNow,
-                            sipUsername = sipUserName
-                        }, notificationCts.Token);
+                var notificationTask = _hubContext.Clients.User(user.Id.ToString())
+                    .SendAsync(status, new {
+                        message = message,
+                        timestamp = DateTime.UtcNow,
+                        sipUsername = user.SipAccount!.SipUsername
+                    }, notificationCts.Token);
 
-                    // 等待通知发送完成或超时
-                    var completedTask = await Task.WhenAny(
-                        notificationTask,
-                        Task.Delay(_retryPolicy.NotificationTimeout, notificationCts.Token)
-                    );
+                var completedTask = await Task.WhenAny(
+                    notificationTask,
+                    Task.Delay(_retryPolicy.NotificationTimeout, notificationCts.Token)
+                );
 
-                    if (completedTask == notificationTask) {
-                        await notificationTask; // 确保任何异常被抛出
-                        _logger.LogDebug($"已向用户 {sipUserName} 发送状态通知: {status} - {message}");
-                    } else {
-                        _logger.LogWarning($"向用户 {sipUserName} 发送状态通知超时: {status} - {message}");
-                    }
+                if (completedTask == notificationTask) {
+                    await notificationTask; // 确保任何异常被抛出
+                    _logger.LogDebug($"已向用户 {user.Username} 发送状态通知: {status} - {message}");
                 } else {
-                    _logger.LogWarning($"未找到SIP用户名为 {sipUserName} 的用户，无法发送状态通知");
+                    _logger.LogWarning($"向用户 {user.Username} 发送状态通知超时: {status} - {message}");
                 }
             } catch (OperationCanceledException) when (notificationCts.Token.IsCancellationRequested) {
-                _logger.LogWarning($"向用户 {sipUserName} 发送状态通知被取消或超时: {status}");
+                _logger.LogWarning($"向用户 {user.Username} 发送状态通知被取消或超时: {status}");
             } catch (Exception ex) {
-                _logger.LogError(ex, $"发送挂断状态通知失败 - 用户: {sipUserName}, 状态: {status}");
+                _logger.LogError(ex, $"发送挂断状态通知失败 - 用户: {user.Username}, 状态: {status}");
             }
         }
 
-        /// <summary>
-        /// 添加ICE候选者
-        /// </summary>
-        /// <param name="userName"></param>
-        /// <param name="candidate"></param>
-        public void AddIceCandidate(string userName, RTCIceCandidateInit candidate) {
-            var user = _dbContext.Users.First(x => x.Username == userName);
-            if (_applicationContext.SipClients.TryGetValue(user.SipUsername, out var sipClient)) {
+        public void AddIceCandidate(User user, RTCIceCandidateInit candidate) {
+            if (_applicationContext.SipClients.TryGetValue(user.Id, out var sipClient)) {
                 sipClient.AddIceCandidate(candidate);
             }
         }
 
-        /// <summary>
-        /// 发送DTMF音调
-        /// </summary>
-        public async Task<bool> SendDtmfAsync(string sipUserName, byte tone) {
+        public async Task<bool> SendDtmfAsync(byte tone, User user) {
             try {
-                if (_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient)) {
+                if (_applicationContext.SipClients.TryGetValue(user.Id, out var sipClient)) {
                     await sipClient.SendDTMFAsync(tone);
                     return true;
                 }
@@ -307,9 +276,9 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        public bool GetSecureContextReady(string sipUserName) {
-            try {
-                if (_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient)) {
+        public bool GetSecureContextReady(User user) {
+            try {                
+                if (_applicationContext.SipClients.TryGetValue(user.Id, out var sipClient)) {
                     return sipClient.IsSecureContextReady() == true;
                 }
                 return false;
@@ -318,98 +287,122 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        /// <summary>
-        /// 带通知的挂断电话
-        /// </summary>
-        public async Task<bool> HangupWithNotificationAsync(string sipUserName, WebRtcHangupModel model) {
+        public async Task<bool> HangupWithNotificationAsync(User currentUser, WebRtcHangupModel model) {
             var callId = Guid.NewGuid().ToString();
+            
+            if (model.CallContext?.CallId != null) {
+                callId = model.CallContext.CallId;
+            }
+            
             var hangupNotification = new HangupNotification {
-                CallId               = callId,
-                Reason               = model.Reason ?? "User initiated hangup",
-                Status               = HangupStatus.Initiated,
-                Timestamp            = DateTime.UtcNow,
-                InitiatorSipUsername = sipUserName,
+                CallId = callId,
+                Reason = model.Reason ?? "User initiated hangup",
+                Status = HangupStatus.Initiated,
+                Timestamp = DateTime.UtcNow,
+                InitiatorSipUsername = currentUser.SipAccount!.SipUsername,
             };
 
             try {
-                _logger.LogDebug($"开始挂断通话 - 用户: {sipUserName}, 通话ID: {callId}, 原因: {hangupNotification.Reason}");
+                _logger.LogDebug($"开始挂断通话 - 用户: {currentUser.Username}, 通话ID: {callId}, 原因: {hangupNotification.Reason}");
 
-                if (!_applicationContext.SipClients.TryGetValue(sipUserName, out var sipClient)) {
-                    _logger.LogWarning($"用户 {sipUserName} 的SIP客户端不存在，无法挂断");
+                if (model.CallContext == null) {
+                    _logger.LogError("挂断操作缺少必需的调用上下文信息 - 用户: {Username}, Target: {Target}", 
+                        currentUser.Username, model.Target);
+                    
+                    await _hubContext.Clients.User(currentUser.Id.ToString()).SendAsync("hangupFailed", new { 
+                        message = "挂断失败：缺少必需的通话上下文信息", 
+                        timestamp = DateTime.UtcNow 
+                    });
+                    
                     return false;
                 }
 
-                if (!sipClient.IsCallActive) {
-                    if(_applicationContext.SipClients.TryGetValue(model.Target, out var target)) {
-                        target.Hangup();
-                        var targetUser = await _dbContext.Users.FirstAsync(x => x.SipUsername == model.Target);
-                        await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("callEnded", new {
-                            reason = model.Reason,
-                            timestamp = DateTime.UtcNow
-                        });
-                    } else {
-                        sipClient.Cancel();
-                    }
-                    _logger.LogDebug($"用户 {sipUserName} 没有活动的通话，无需挂断");
-                    return true;
-                }
-
-                string? targetSipUsername = null;
-                if (sipClient.Dialogue != null) {
-                    var remoteUri = sipClient.Dialogue.RemoteUserField?.URI?.User;
-                    if (!string.IsNullOrEmpty(remoteUri)) {
-                        targetSipUsername = remoteUri;
-                        hangupNotification.TargetSipUsername = targetSipUsername;
-                    }
-                }
-
-                var hangupSuccess = await HangupCallAsync(sipUserName, model.Reason);
-
-                if (hangupSuccess) {
-                    hangupNotification.Status = HangupStatus.Completed;
-                    _logger.LogInformation($"用户 {sipUserName} 挂断成功");
-
-                    // 通知对方用户
-                    if (!string.IsNullOrEmpty(targetSipUsername)) {
-                        await NotifyRemotePartyHangupAsync(targetSipUsername, hangupNotification.Reason);
-                        hangupNotification.Status = HangupStatus.NotificationSent;
-                    }
-
-                    return true;
-                } else {
-                    hangupNotification.Status = HangupStatus.Failed;
-                    _logger.LogError($"用户 {sipUserName} 挂断失败");
-                    return false;
-                }
+                _logger.LogInformation("Hangup context - Caller: {Caller}, Callee: {Callee}, IsExternal: {IsExternal}", model.CallContext.Caller?.SipUsername, model.CallContext.Callee?.SipUsername, model.CallContext.IsExternal);
+                
+                return await HandleContextBasedHangupAsync(currentUser, model, hangupNotification);
             } catch (Exception ex) {
                 hangupNotification.Status = HangupStatus.Failed;
-                _logger.LogError(ex, $"挂断通话时发生异常 - 用户: {sipUserName}, 通话ID: {callId}");
+                _logger.LogError(ex, $"挂断通话时发生异常 - 用户: {currentUser.Username}, 通话ID: {callId}");
+                
+                await _hubContext.Clients.User(currentUser.Id.ToString()).SendAsync("hangupFailed", new { 
+                    message = $"挂断过程中发生错误: {ex.Message}", 
+                    timestamp = DateTime.UtcNow 
+                });
+                
                 return false;
             }
         }
 
-        /// <summary>
-        /// 通知对方用户挂断事件
-        /// </summary>
-        public async Task<bool> NotifyRemotePartyHangupAsync(string targetSipUsername, string reason) {
+        private async Task<bool> HandleContextBasedHangupAsync(User currentUser, WebRtcHangupModel model, HangupNotification hangupNotification) {
+            var callContext = model.CallContext;
+            
+            if (!_applicationContext.SipClients.TryGetValue(currentUser.Id, out var currentUserSipClient)) {
+                _logger.LogWarning($"用户 {currentUser.Username} 的SIP客户端不存在，无法挂断");
+                return false;
+            }
+
+            if (callContext!.IsExternal) {                
+                if (!string.IsNullOrEmpty(callContext.Callee?.UserId) && int.TryParse(callContext.Callee.UserId, out int calleeUserId)) {
+                    if (_applicationContext.SipClients.TryGetValue(calleeUserId, out var calleeSipClient)) {
+                        calleeSipClient.Hangup();
+                        _logger.LogInformation($"成功挂断外部呼叫 - 当前用户: {currentUser.Username}, 目标用户ID: {calleeUserId}");
+                    } else {
+                        currentUserSipClient.Cancel();
+                        _logger.LogInformation($"目标用户SIP客户端不存在，取消当前用户呼叫 - 当前用户: {currentUser.Username}");
+                    }
+                } else {
+                    currentUserSipClient.Cancel();
+                    _logger.LogInformation($"无法识别目标用户，取消当前用户呼叫 - 当前用户: {currentUser.Username}");
+                }
+            } else {
+                User? targetUser = null;
+                
+                if (!string.IsNullOrEmpty(callContext.Caller?.UserId) && !string.IsNullOrEmpty(callContext.Callee?.UserId)) {                    
+                    if (int.TryParse(callContext.Caller.UserId, out int callerUserId) && int.TryParse(callContext.Callee.UserId, out int calleeUserId)) {
+                        int targetUserId = currentUser.Id == callerUserId ? calleeUserId : callerUserId;                        
+                        targetUser = await _dbContext.Users.Include(u => u.SipAccount).FirstOrDefaultAsync(u => u.Id == targetUserId);
+                            
+                        if (targetUser != null) {
+                            if (_applicationContext.SipClients.TryGetValue(targetUserId, out var targetSipClient)) {
+                                targetSipClient.Hangup();
+                                await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("callEnded", new {
+                                    reason = hangupNotification.Reason,
+                                    timestamp = DateTime.UtcNow,
+                                    callContext = callContext
+                                });
+                                _logger.LogInformation($"成功挂断Web到Web通话 - 当前用户: {currentUser.Username}, 目标用户: {targetUser.Username}");
+                            } else {
+                                currentUserSipClient.Hangup();
+                                _logger.LogInformation($"目标用户SIP客户端不存在，挂断当前用户 - 当前用户: {currentUser.Username}");
+                            }
+                        } else {
+                            currentUserSipClient.Cancel();
+                            _logger.LogInformation($"目标用户不存在，取消当前用户呼叫 - 当前用户: {currentUser.Username}");
+                        }
+                    } else {
+                        currentUserSipClient.Cancel();
+                        _logger.LogWarning($"无法解析用户ID，使用默认挂断逻辑 - 当前用户: {currentUser.Username}");
+                    }
+                } else {
+                    currentUserSipClient.Cancel();
+                    _logger.LogWarning($"缺少完整的呼叫者/被叫者信息，使用默认挂断逻辑 - 当前用户: {currentUser.Username}");
+                }
+            }
+
+            return true;
+        }
+
+        public async Task<bool> NotifyRemotePartyHangupAsync(string reason, User targetUser, HangupCallContext? callContext = null) {
             var retryCount = 0;
             var delay = _retryPolicy.RetryDelay;
 
             while (retryCount < _retryPolicy.MaxRetries) {
                 try {
-                    _logger.LogInformation($"尝试通知用户 {targetSipUsername} 挂断事件 (第 {retryCount + 1} 次尝试)");
+                    _logger.LogInformation($"尝试通知用户 {targetUser.Username} 挂断事件 (第 {retryCount + 1} 次尝试)");
 
-                    // 查找目标用户
-                    var targetUser = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == targetSipUsername);
-                    if (targetUser == null) {
-                        _logger.LogWarning($"未找到SIP用户名为 {targetSipUsername} 的用户");
-                        return false;
-                    }
-
-                    // 创建通话结束事件
                     var callEndedEvent = new CallEndedEvent {
                         CallId = Guid.NewGuid().ToString(),
-                        SipUsername = targetSipUsername,
+                        SipUsername = targetUser.SipAccount!.SipUsername,
                         EndTime = DateTime.UtcNow,
                         EndReason = reason,
                         AudioStopped = true,
@@ -417,82 +410,68 @@ namespace AI.Caller.Phone.Services {
                         RemoteNotified = true
                     };
 
-                    // 使用SignalR通知前端
                     using var cts = new CancellationTokenSource(_retryPolicy.NotificationTimeout);
                     await _hubContext.Clients.User(targetUser.Id.ToString())
                         .SendAsync("callEnded", new {
                             reason = reason,
                             timestamp = callEndedEvent.EndTime,
-                            callId = callEndedEvent.CallId
+                            callId = callEndedEvent.CallId,
+                            callContext = callContext
                         }, cts.Token);
 
-                    _logger.LogInformation($"成功通知用户 {targetSipUsername} 挂断事件");
+                    _logger.LogInformation($"成功通知用户 {targetUser.Username} 挂断事件");
                     return true;
                 } catch (OperationCanceledException) {
-                    _logger.LogWarning($"通知用户 {targetSipUsername} 超时 (第 {retryCount + 1} 次尝试)");
+                    _logger.LogWarning($"通知用户 {targetUser.Username} 超时 (第 {retryCount + 1} 次尝试)");
                 } catch (Exception ex) {
-                    _logger.LogError(ex, $"通知用户 {targetSipUsername} 挂断事件失败 (第 {retryCount + 1} 次尝试)");
+                    _logger.LogError(ex, $"通知用户 {targetUser.Username} 挂断事件失败 (第 {retryCount + 1} 次尝试)");
                 }
 
                 retryCount++;
                 if (retryCount < _retryPolicy.MaxRetries) {
-                    _logger.LogInformation($"等待 {delay.TotalSeconds} 秒后重试通知用户 {targetSipUsername}");
+                    _logger.LogInformation($"等待 {delay.TotalSeconds} 秒后重试通知用户 {targetUser.Username}");
                     await Task.Delay(delay);
 
-                    // 指数退避策略
                     delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 2, _retryPolicy.MaxRetryDelay.TotalMilliseconds));
                 }
             }
 
-            _logger.LogError($"通知用户 {targetSipUsername} 挂断事件失败，已达到最大重试次数 {_retryPolicy.MaxRetries}");
+            _logger.LogError($"无法通知用户 {targetUser.Username} 挂断事件，已达到最大重试次数 ({_retryPolicy.MaxRetries})");
             return false;
         }
 
-        /// <summary>
-        /// 生成From标签
-        /// </summary>
-        private string GenerateFromTag() {
-            // 生成符合SIP标准的From-tag
+        private string GenerateFromTag(User user) {
             var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var random = new Random().Next(1000, 9999);
-            return $"tag-{timestamp}-{random}";
+            return $"tag-{timestamp}-{user.Id}-{random}";
         }
 
-        /// <summary>
-        /// 在呼叫发起后注册呼出通话
-        /// </summary>
         private void RegisterOutboundCallAfterInitiation(SIPClient sipClient, string fromTag, string sipUsername, string destination) {
             try {
-                // 创建一个一次性的事件处理器来监听CallInitiated事件
                 Action<SIPClient, string>? callInitiatedHandler = null;
                 callInitiatedHandler = (client, callId) => {
                     try {
-                        // 注册呼出通话到CallTypeIdentifier
                         var callTypeIdentifier = GetCallTypeIdentifier();
                         if (callTypeIdentifier != null) {
                             callTypeIdentifier.RegisterOutboundCallWithSipTags(callId, fromTag, sipUsername, destination);
                             _logger.LogInformation($"已注册呼出通话 - CallId: {callId}, FromTag: {fromTag}, SipUsername: {sipUsername}, Destination: {destination}");
                         }
 
-                        // 移除事件处理器，避免重复注册
                         if (callInitiatedHandler != null) {
                             client.CallInitiated -= callInitiatedHandler;
                         }
                     } catch (Exception ex) {
                         _logger.LogError(ex, $"处理CallInitiated事件时发生错误 - SipUsername: {sipUsername}");
-                        // 移除事件处理器
                         if (callInitiatedHandler != null) {
                             client.CallInitiated -= callInitiatedHandler;
                         }
                     }
                 };
 
-                // 添加事件处理器
                 sipClient.CallInitiated += callInitiatedHandler;
 
-                // 设置超时清理，防止事件处理器泄漏
                 _ = Task.Run(async () => {
-                    await Task.Delay(30000); // 30秒超时
+                    await Task.Delay(30000);
                     try {
                         if (callInitiatedHandler != null) {
                             sipClient.CallInitiated -= callInitiatedHandler;
@@ -519,7 +498,11 @@ namespace AI.Caller.Phone.Services {
 
         private void RegisterAsync(User user) {
             //var tcs = new TaskCompletionSource<bool>();
-            var sipRegistrationClient = new SIPRegistrationUserAgent(_sipTransportManager.SIPTransport, user.SipUsername, user.SipPassword, _applicationContext.SipServer, 180);
+            if (user.SipAccount?.SipUsername == null || user.SipAccount?.SipPassword == null) {
+                throw new InvalidOperationException("用户SIP账号信息不完整");
+            }
+
+            var sipRegistrationClient = new SIPRegistrationUserAgent(_sipTransportManager.SIPTransport, user.SipAccount.SipUsername, user.SipAccount.SipPassword, user.SipAccount.SipServer, 180);
 
             sipRegistrationClient.RegistrationSuccessful += (uri, resp) => {
                 _logger.LogInformation($"register success for {uri} => {resp}");
@@ -567,12 +550,12 @@ namespace AI.Caller.Phone.Services {
                     await _hubContext.Clients.User(user.Id.ToString())
                         .SendAsync("remoteHangup", new { reason }, cts.Token);
 
-                    _logger.LogInformation($"成功通知Web端用户 {user.Id}->{user.SipUsername} 远程挂断事件");
+                    _logger.LogInformation($"成功通知Web端用户 {user.Id}->{user.SipAccount?.SipUsername} 远程挂断事件");
                     return;
                 } catch (OperationCanceledException) {
-                    _logger.LogWarning($"通知Web端用户 {user.Id}->{user.SipUsername} 超时 (第 {retryCount + 1} 次尝试)");
+                    _logger.LogWarning($"通知Web端用户 {user.Id}->{user.SipAccount?.SipUsername} 超时 (第 {retryCount + 1} 次尝试)");
                 } catch (Exception ex) {
-                    _logger.LogError(ex, $"通知Web端用户 {user.Id}->{user.SipUsername} 远程挂断事件失败 (第 {retryCount + 1} 次尝试)");
+                    _logger.LogError(ex, $"通知Web端用户 {user.Id}->{user.SipAccount?.SipUsername} 远程挂断事件失败 (第 {retryCount + 1} 次尝试)");
                 }
 
                 retryCount++;
@@ -582,7 +565,22 @@ namespace AI.Caller.Phone.Services {
                 }
             }
 
-            _logger.LogError($"通知Web端用户 {user.Id}->{user.SipUsername} 远程挂断事件失败，已达到最大重试次数 {_retryPolicy.MaxRetries}");
+            _logger.LogError($"通知Web端用户 {user.Id}->{user.SipAccount?.SipUsername} 远程挂断事件失败，已达到最大重试次数 {_retryPolicy.MaxRetries}");
+        }
+
+        public async Task PerformMaintenanceAsync() {
+            var expiredClientIds = _applicationContext.GetInactiveUserIds(TimeSpan.FromHours(2));
+            foreach (var clientId in expiredClientIds) {
+                if (_applicationContext.SipClients.TryRemove(clientId, out var sipClient)) {
+                    try {
+                        sipClient.Hangup();
+                        _logger.LogInformation($"已清理过期的SIP客户端: {clientId}");
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, $"清理SIP客户端 {clientId} 时发生错误");
+                    }
+                }
+            }
+            await Task.CompletedTask;
         }
     }
 }

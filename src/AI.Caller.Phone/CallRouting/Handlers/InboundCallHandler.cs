@@ -1,4 +1,4 @@
-using AI.Caller.Phone.Hubs;
+﻿﻿﻿﻿﻿﻿using AI.Caller.Phone.Hubs;
 using Microsoft.AspNetCore.SignalR;
 using Org.BouncyCastle.Asn1.Ocsp;
 using SIPSorcery.Net;
@@ -32,10 +32,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                     case CallHandlingStrategy.WebToWeb:
                         return await HandleWebToWebCall(sipRequest, routingResult);
                     case CallHandlingStrategy.NonWebToWeb:
-                        return await HandleNonWebToWebCall(sipRequest, routingResult);
-                    case CallHandlingStrategy.WebToNonWeb:
-                    case CallHandlingStrategy.NonWebToNonWeb:
-                        return await HandleNonWebCall(sipRequest, routingResult);
+                        return await HandleNonWebToWebCall(sipRequest, routingResult);                    
                     case CallHandlingStrategy.Fallback:
                         return await HandleFallbackCall(sipRequest, routingResult);
                     default:
@@ -53,13 +50,13 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 var sipClient = routingResult.TargetClient!;
                 var targetUser = routingResult.TargetUser!;
 
-                _logger.LogDebug($"处理Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipUsername}");
+                _logger.LogDebug($"处理Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipAccount?.SipUsername}");
 
                 sipClient.Accept(sipRequest);
 
                 var offerSdp = await sipClient.CreateOfferAsync();
 
-                sipClient.MediaSessionManager.IceCandidateGenerated += (candidate) => {
+                sipClient.MediaSessionManager!.IceCandidateGenerated += (candidate) => {
                     if (sipClient.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.have_remote_offer ||
                         sipClient.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.stable) {
                         try {
@@ -71,7 +68,14 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 };
 
                 await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("inCalling", new {
-                    caller = sipRequest.Header.From.FromURI.User,                    
+                    caller = new{ 
+                        userId = routingResult.CallerUser?.Id,
+                        sipUsername = routingResult.CallerUser?.SipAccount?.SipUsername ?? routingResult.CallerNumber,
+                    },
+                    callee = new { 
+                        userId = targetUser.Id,
+                        sipUsername = targetUser.SipAccount?.SipUsername
+                    },
                     offerSdp = offerSdp.toJSON(),
                     callId = sipRequest.Header.CallId,
                     timestamp = DateTime.UtcNow
@@ -90,18 +94,15 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 var sipClient = routingResult.TargetClient!;
                 var targetUser = routingResult.TargetUser!;
 
-                _logger.LogDebug($"处理非Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipUsername}");
-
+                _logger.LogDebug($"处理非Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipAccount?.SipUsername}");
 
                 sipClient.Accept(sipRequest);
 
                 var offerSdp = await sipClient.CreateOfferAsync();
 
-                if (!string.IsNullOrEmpty(sipRequest.Body))
-                {
+                if (!string.IsNullOrEmpty(sipRequest.Body)) {
                     var sdp = SDP.ParseSDPDescription(sipRequest.Body);
-                    var remoteDescription = new RTCSessionDescriptionInit
-                    {
+                    var remoteDescription = new RTCSessionDescriptionInit {
                         type = RTCSdpType.offer,
                         sdp = sipRequest.Body
                     };
@@ -122,17 +123,23 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 };
 
                 _logger.LogDebug($"*** SENDING inCalling TO UI *** CallId: {sipRequest.Header.CallId}");
-                _logger.LogDebug($"Target User ID: {targetUser.Id}, SipUsername: {targetUser.SipUsername}");
+                _logger.LogDebug($"Target User ID: {targetUser.Id}, SipUsername: {targetUser.SipAccount?.SipUsername}");
                 _logger.LogDebug($"Caller: {sipRequest.Header.From.FromURI.User}");
                 _logger.LogDebug($"SIP Client IsCallActive: {sipClient.IsCallActive}");
-                
+
                 if (sipClient.Dialogue != null) {
                     _logger.LogDebug($"SIP Dialogue exists - CallId: {sipClient.Dialogue.CallId}");
                 }
 
                 await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("inCalling", new {
-                    caller = sipRequest.Header.From.FromURI.User,
-                    callee = targetUser.SipUsername,
+                    caller = new {
+                        userId = routingResult.CallerUser?.Id,
+                        sipUsername = routingResult.CallerUser?.SipAccount?.SipUsername ?? routingResult.CallerNumber,
+                    },
+                    callee = new {
+                        userId = targetUser.Id,
+                        sipUsername = targetUser.SipAccount?.SipUsername
+                    },
                     offerSdp = offerSdp.toJSON(),
                     callId = sipRequest.Header.CallId,
                     isExternal = true,
@@ -147,44 +154,14 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
             }
         }
 
-        private async Task<bool> HandleNonWebCall(SIPRequest sipRequest, CallRoutingResult routingResult) {
-            try {
-                var sipClient = routingResult.TargetClient!;
-                var targetUser = routingResult.TargetUser;
-
-                _logger.LogDebug($"处理非Web通话 - CallId: {sipRequest.Header.CallId}");
-
-                sipClient.Accept(sipRequest);
-
-                var answerResult = await sipClient.AnswerAsync();
-                if (!answerResult) {
-                    _logger.LogError($"应答非Web通话失败 - CallId: {sipRequest.Header.CallId}");
-                    return false;
-                }
-
-                if (targetUser != null) {
-                    await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("callAnswered", new {
-                        callId = sipRequest.Header.CallId,
-                        caller = sipRequest.Header.From.FromURI.User,
-                        timestamp = DateTime.UtcNow
-                    });
-                }
-
-                _logger.LogDebug($"非Web通话处理完成 - CallId: {sipRequest.Header.CallId}");
-                return true;
-            } catch (Exception ex) {
-                _logger.LogError(ex, $"处理非Web通话失败 - CallId: {sipRequest.Header.CallId}");
-                return false;
-            }
-        }
-
         private async Task<bool> HandleFallbackCall(SIPRequest sipRequest, CallRoutingResult routingResult) {
             try {
                 _logger.LogDebug($"处理备用情况 - CallId: {sipRequest.Header.CallId}, Message: {routingResult.Message}");
 
 
+
                 _logger.LogDebug($"备用处理：拒绝呼叫 - CallId: {sipRequest.Header.CallId}");
-                return false; // 返回false表示拒绝呼叫
+                return false;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"处理备用情况失败 - CallId: {sipRequest.Header.CallId}");
                 return false;

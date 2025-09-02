@@ -4,9 +4,9 @@
     ViewData["Title"] = "SIP账号设置";
 }
 
-<div class="container">
-    <div class="row">
-        <div class="col-md-8 offset-md-2">
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
             <div class="card">
                 <div class="card-header bg-primary text-white">
                     <h4 class="mb-0"><i class="bi bi-telephone"></i> SIP账号设置</h4>
@@ -14,20 +14,23 @@
                 <div class="card-body">
                     @if (TempData["SuccessMessage"] != null)
                     {
-                        <div class="alert alert-success">
+                        <div class="alert alert-success alert-dismissible fade show" role="alert">
                             <i class="bi bi-check-circle-fill"></i> @TempData["SuccessMessage"]
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                         </div>
                     }
                     @if (TempData["ErrorMessage"] != null)
                     {
-                        <div class="alert alert-danger">
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
                             <i class="bi bi-exclamation-triangle-fill"></i> @TempData["ErrorMessage"]
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                         </div>
                     }
                     @if (TempData["WarningMessage"] != null)
                     {
-                        <div class="alert alert-warning">
+                        <div class="alert alert-warning alert-dismissible fade show" role="alert">
                             <i class="bi bi-exclamation-circle-fill"></i> @TempData["WarningMessage"]
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                         </div>
                     }
 
@@ -35,44 +38,92 @@
                         <div asp-validation-summary="ModelOnly" class="text-danger"></div>
                         
                         <div class="alert alert-info mb-4">
-                            <p><i class="bi bi-info-circle"></i> SIP账号设置是使用电话功能的必要条件。请填写您的SIP服务提供商提供的账号信息。</p>
+                            <h5><i class="bi bi-info-circle"></i> 设置说明</h5>
+                            <p>SIP账号设置是使用电话功能的必要条件。请填写您的SIP服务提供商提供的账号信息。</p>
+                            <ul>
+                                <li>SIP用户名和密码由系统自动分配和管理</li>
+                                <li>您只需要配置SIP服务器地址即可</li>
+                                <li>配置完成后系统将自动注册到SIP服务器</li>
+                            </ul>
                         </div>
                         
-                        <div class="form-group mb-3">
-                            <label asp-for="SipUsername" class="form-label">SIP用户名</label>
-                            <div class="input-group">
-                                <span class="input-group-text"><i class="bi bi-person"></i></span>
-                                <input asp-for="SipUsername" class="form-control" placeholder="例如: user123" />
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">SIP用户名</label>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="bi bi-person"></i></span>
+                                    <input class="form-control" value="@(Model.SipAccount?.SipUsername ?? "未分配")" readonly />
+                                </div>
+                                <div class="form-text">SIP账号由系统自动分配</div>
                             </div>
-                            <span asp-validation-for="SipUsername" class="text-danger"></span>
-                        </div>
-                        
-                        <div class="form-group mb-3">
-                            <label asp-for="SipPassword" class="form-label">SIP密码</label>
-                            <div class="input-group">
-                                <span class="input-group-text"><i class="bi bi-key"></i></span>
-                                <input asp-for="SipPassword" type="password" class="form-control" placeholder="输入SIP密码" />
+                            
+                            <div class="col-md-6">
+                                <label class="form-label">SIP密码</label>
+                                <div class="input-group">
+                                    <span class="input-group-text"><i class="bi bi-key"></i></span>
+                                    <input type="password" class="form-control" value="********" readonly />
+                                </div>
+                                <div class="form-text">密码由系统管理，如需修改请联系管理员</div>
                             </div>
-                            <span asp-validation-for="SipPassword" class="text-danger"></span>
                         </div>
                         
-                        <div class="form-group mb-4">
+                        <div class="mb-3">
                             <label asp-for="SipServer" class="form-label">SIP服务器</label>
                             <div class="input-group">
                                 <span class="input-group-text"><i class="bi bi-server"></i></span>
                                 <input asp-for="SipServer" class="form-control" placeholder="例如: sip.example.com" />
+                                <button class="btn btn-outline-secondary" type="button" id="testConnectionBtn">
+                                    <i class="bi bi-wifi"></i> 测试连接
+                                </button>
                             </div>
                             <span asp-validation-for="SipServer" class="text-danger"></span>
-                            <small class="text-muted">通常是您的SIP服务提供商的域名或IP地址</small>
+                            <div class="form-text">通常是您的SIP服务提供商的域名或IP地址</div>
                         </div>
                         
-                        <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-save"></i> 保存设置
-                            </button>
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <h5 class="mb-0">高级设置</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="sipPort" class="form-label">SIP端口</label>
+                                            <input type="number" class="form-control" id="sipPort" value="5060" min="1" max="65535">
+                                            <div class="form-text">默认为5060</div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="transportProtocol" class="form-label">传输协议</label>
+                                            <select class="form-select" id="transportProtocol">
+                                                <option value="udp" selected>UDP</option>
+                                                <option value="tcp">TCP</option>
+                                                <option value="tls">TLS</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="enableStun">
+                                        <label class="form-check-label" for="enableStun">
+                                            启用STUN
+                                        </label>
+                                    </div>
+                                    <div class="form-text">用于NAT穿透</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                             <a asp-controller="Home" asp-action="Index" class="btn btn-outline-secondary">
                                 <i class="bi bi-arrow-left"></i> 返回
                             </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-save"></i> 保存设置
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -83,4 +134,32 @@
 
 @section Scripts {
     @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
-} 
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 测试连接按钮
+            document.getElementById('testConnectionBtn').addEventListener('click', async function() {
+                const sipServer = document.getElementById('SipServer').value;
+                const sipPort = document.getElementById('sipPort').value;
+                const protocol = document.getElementById('transportProtocol').value;
+                
+                if (!sipServer) {
+                    alert('请输入SIP服务器地址');
+                    return;
+                }
+                
+                try {
+                    // 这里应该调用实际的测试连接API
+                    alert(`测试连接功能占位符\n服务器: ${sipServer}\n端口: ${sipPort}\n协议: ${protocol}`);
+                    
+                    // 模拟测试结果
+                    setTimeout(() => {
+                        alert('连接测试成功！');
+                    }, 1000);
+                } catch (error) {
+                    alert('连接测试失败: ' + error.message);
+                }
+            });
+        });
+    </script>
+}

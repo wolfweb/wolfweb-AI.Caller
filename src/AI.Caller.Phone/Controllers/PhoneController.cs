@@ -1,8 +1,11 @@
+using AI.Caller.Phone;
 using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using SIPSorcery.Net;
+using System.Security.Claims;
 using System.Threading.Tasks;
 
 namespace AI.Caller.Phone.Controllers {
@@ -11,27 +14,54 @@ namespace AI.Caller.Phone.Controllers {
     [Authorize]
     public class PhoneController : ControllerBase {
         private readonly SipService _sipService;
+        private readonly AppDbContext _dbContext;
         private readonly ILogger<PhoneController> _logger;
         private readonly ApplicationContext _applicationContext;
 
-        public PhoneController(ILogger<PhoneController> logger, SipService sipService, ApplicationContext applicationContext) {
+        public PhoneController(ILogger<PhoneController> logger, SipService sipService, AppDbContext dbContext, ApplicationContext applicationContext) {
             _logger = logger;
             _sipService = sipService;
+            _dbContext = dbContext;
             _applicationContext = applicationContext;
         }
 
         [HttpPost("call")]
         public async Task<IActionResult> Call([FromBody] CallRequest request) {
             try {
-                var username = User.FindFirst<string>("SipUser");
+                var username = User.Identity!.Name;
                 _logger.LogInformation($"用户 {username} 正在呼叫 {request.Destination}");
+                var caller = await _dbContext.Users.Include(u => u.SipAccount).FirstAsync(x => x.Username == username);
+                var callee = await _dbContext.Users.Include(u => u.SipAccount).FirstOrDefaultAsync(x => x.Username == request.Destination);
 
-                var result = await _sipService.MakeCallAsync($"sip:{request.Destination}@{_applicationContext.SipServer}", username, request.Offer);
+                var sipServer = callee != null ? callee.SipAccount!.SipServer : caller.SipAccount!.SipServer;
+
+                var result = await _sipService.MakeCallAsync($"sip:{request.Destination}@{sipServer}", caller, request.Offer);
 
                 if (!result.Success) {
                     return BadRequest(new { error = result.Message });
                 }
-                return Ok();
+
+                // 返回callContext给呼叫方，确保呼叫方也有完整的通话上下文
+                // 注意：由于SipService.MakeCallAsync不返回CallId，我们生成一个临时ID
+                var response = new { 
+                    success = true, 
+                    message = "呼叫已发起",
+                    callContext = new {
+                        callId = Guid.NewGuid().ToString(), // 生成临时CallId，实际CallId由服务器在inCalling事件中提供
+                        caller = new {
+                            userId = caller.Id,
+                            sipUsername = caller.SipAccount?.SipUsername
+                        },
+                        callee = new {
+                            userId = callee?.Id,
+                            sipUsername = request.Destination
+                        },
+                        isExternal = callee == null, // 如果找不到内部用户，则为外部呼叫
+                        timestamp = DateTime.UtcNow
+                    }
+                };
+
+                return Ok(response);
             } catch (Exception ex) {
                 _logger.LogError(ex, "呼叫失败");
                 return StatusCode(500, new { error = ex.Message });
@@ -41,18 +71,19 @@ namespace AI.Caller.Phone.Controllers {
         [HttpPost("hangup")]
         public async Task<IActionResult> Hangup() {
             try {
-                var username = User.FindFirst<string>("SipUser");
-                _logger.LogInformation($"用户 {username} 请求挂断电话");
+                var user = await _dbContext.Users
+                    .Include(u => u.SipAccount)
+                    .FirstAsync(x => x.Username == User.Identity!.Name);
+                _logger.LogInformation($"用户 {user.Username} 请求挂断电话");
 
-                // 使用SipService挂断电话
-                var result = await _sipService.HangupCallAsync(username);
+                var result = await _sipService.HangupCallAsync(user);
 
                 if (!result) {
-                    _logger.LogWarning($"用户 {username} 挂断电话失败: SipService返回失败");
+                    _logger.LogWarning($"用户 {user.Username} 挂断电话失败: SipService返回失败");
                     return BadRequest(new { error = "挂断电话失败，可能没有活动的通话" });
                 }
 
-                _logger.LogInformation($"用户 {username} 挂断电话成功");
+                _logger.LogInformation($"用户 {user.Username} 挂断电话成功");
                 return Ok(new { success = true, message = "通话已结束" });
             } catch (Exception ex) {
                 _logger.LogError(ex, "挂断电话失败");
@@ -63,9 +94,10 @@ namespace AI.Caller.Phone.Controllers {
         [HttpPost("dtmf")]
         public async Task<IActionResult> SendDtmf([FromBody] DtmfRequest request) {
             try {
-                var username = User.FindFirst<string>("SipUser");
-                // 使用SipService发送DTMF音调
-                var result = await _sipService.SendDtmfAsync(username, request.Tone);
+                var user = await _dbContext.Users
+                    .Include(u => u.SipAccount)
+                    .FirstAsync(x => x.Username == User.Identity!.Name);
+                var result = await _sipService.SendDtmfAsync(request.Tone, user);
 
                 if (!result) {
                     return BadRequest(new { error = "发送DTMF失败" });

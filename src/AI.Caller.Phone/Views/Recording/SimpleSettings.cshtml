@@ -4,7 +4,7 @@
 
 <div class="container mt-4">
     <div class="row justify-content-center">
-        <div class="col-lg-6">
+        <div class="col-lg-8">
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h2><i class="bi bi-gear text-primary"></i> 录音设置</h2>
                 <a href="@Url.Action("Index")" class="btn btn-outline-secondary">
@@ -28,47 +28,114 @@
                 </div>
             }
 
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">基本设置</h5>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">基本设置</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="settingsForm">
+                                <div class="mb-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="autoRecordingSwitch" 
+                                               @(ViewBag.AutoRecordingEnabled == true ? "checked" : "")>
+                                        <label class="form-check-label" for="autoRecordingSwitch">
+                                            <strong>自动录音</strong>
+                                            <br><small class="text-muted">通话开始时自动开始录音</small>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="recordingQuality" class="form-label">录音质量</label>
+                                    <select class="form-select" id="recordingQuality">
+                                        <option value="low">低质量 (64kbps)</option>
+                                        <option value="medium" selected>中等质量 (128kbps)</option>
+                                        <option value="high">高质量 (256kbps)</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="recordingFormat" class="form-label">录音格式</label>
+                                    <select class="form-select" id="recordingFormat">
+                                        <option value="mp3" selected>MP3</option>
+                                        <option value="wav">WAV</option>
+                                        <option value="aac">AAC</option>
+                                    </select>
+                                </div>
+
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="bi bi-check-lg"></i> 保存设置
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <form id="settingsForm">
-                        <div class="mb-3">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="autoRecordingSwitch" 
-                                       @(ViewBag.AutoRecordingEnabled == true ? "checked" : "")>
-                                <label class="form-check-label" for="autoRecordingSwitch">
-                                    <strong>自动录音</strong>
-                                    <br><small class="text-muted">通话开始时自动开始录音</small>
-                                </label>
+                
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">存储设置</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="storageLocation" class="form-label">存储位置</label>
+                                <input type="text" class="form-control" id="storageLocation" value="~/recordings" readonly>
+                                <div class="form-text">录音文件将存储在此目录中</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="maxStorageSize" class="form-label">最大存储空间</label>
+                                <select class="form-select" id="maxStorageSize">
+                                    <option value="100">100 MB</option>
+                                    <option value="500" selected>500 MB</option>
+                                    <option value="1000">1 GB</option>
+                                    <option value="5000">5 GB</option>
+                                    <option value="0">无限制</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="autoDeleteOldRecordings">
+                                    <label class="form-check-label" for="autoDeleteOldRecordings">
+                                        自动删除旧录音
+                                        <br><small class="text-muted">当存储空间接近上限时自动删除最旧的录音</small>
+                                    </label>
+                                </div>
                             </div>
                         </div>
-
-                        <div class="mb-3">
-                            <label for="recordingQuality" class="form-label">录音质量</label>
-                            <select class="form-select" id="recordingQuality">
-                                <option value="low">低质量 (64kbps)</option>
-                                <option value="medium" selected>中等质量 (128kbps)</option>
-                                <option value="high">高质量 (256kbps)</option>
-                            </select>
+                    </div>
+                    
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">高级设置</h5>
                         </div>
-
-                        <div class="mb-3">
-                            <label for="recordingFormat" class="form-label">录音格式</label>
-                            <select class="form-select" id="recordingFormat">
-                                <option value="mp3" selected>MP3</option>
-                                <option value="wav">WAV</option>
-                                <option value="aac">AAC</option>
-                            </select>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="separateRecordingsByUser">
+                                    <label class="form-check-label" for="separateRecordingsByUser">
+                                        按用户分离录音
+                                        <br><small class="text-muted">为每个用户创建单独的录音目录</small>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="includeCallerId" checked>
+                                    <label class="form-check-label" for="includeCallerId">
+                                        在文件名中包含主叫号码
+                                        <br><small class="text-muted">文件名将包含通话对方的号码</small>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
-
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-check-lg"></i> 保存设置
-                            </button>
-                        </div>
-                    </form>
+                    </div>
                 </div>
             </div>
         </div>
@@ -86,6 +153,10 @@
                 const autoRecordingEnabled = document.getElementById('autoRecordingSwitch').checked;
                 const recordingQuality = document.getElementById('recordingQuality').value;
                 const recordingFormat = document.getElementById('recordingFormat').value;
+                const maxStorageSize = document.getElementById('maxStorageSize').value;
+                const autoDeleteOldRecordings = document.getElementById('autoDeleteOldRecordings').checked;
+                const separateRecordingsByUser = document.getElementById('separateRecordingsByUser').checked;
+                const includeCallerId = document.getElementById('includeCallerId').checked;
                 
                 try {
                     const response = await fetch('/Recording/UpdateSettings', {
@@ -96,7 +167,11 @@
                         body: new URLSearchParams({
                             autoRecordingEnabled: autoRecordingEnabled,
                             recordingQuality: recordingQuality,
-                            recordingFormat: recordingFormat
+                            recordingFormat: recordingFormat,
+                            maxStorageSize: maxStorageSize,
+                            autoDeleteOldRecordings: autoDeleteOldRecordings,
+                            separateRecordingsByUser: separateRecordingsByUser,
+                            includeCallerId: includeCallerId
                         })
                     });
                     

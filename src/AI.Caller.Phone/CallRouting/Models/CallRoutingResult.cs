@@ -22,6 +22,16 @@ namespace AI.Caller.Phone.CallRouting.Models {
         public SIPClient? TargetClient { get; set; }
 
         /// <summary>
+        /// 呼叫来源号码
+        /// </summary>
+        public string? CallerNumber { get; set; } 
+
+        /// <summary>
+        /// 呼叫用户
+        /// </summary>
+        public User? CallerUser { get; set; }
+
+        /// <summary>
         /// 目标用户
         /// </summary>
         public User? TargetUser { get; set; }

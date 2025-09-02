@@ -135,6 +135,7 @@ class CallStateManager {
 
     resetToIdle() {
         console.log('Resetting to IDLE state');
+        this.clearCallContext();
         this.setState(CallState.IDLE);
     }
 
@@ -142,7 +143,20 @@ class CallStateManager {
         return this.currentState;
     }
 
-    // 测试方法
+    setCallContext(context) {
+        this.callContext = context;
+        console.log('设置通话上下文:', context);
+    }
+
+    getCallContext() {
+        return this.callContext;
+    }
+
+    clearCallContext() {
+        this.callContext = null;
+        console.log('清除通话上下文');
+    }
+
     testState(stateName) {
         if (!CallState[stateName]) {
             console.error(`Invalid state name: ${stateName}`);

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿﻿﻿using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using SIPSorcery.SIP;
 using AI.Caller.Phone.CallRouting.Interfaces;
@@ -9,9 +9,6 @@ using System.Linq;
 using AI.Caller.Core;
 
 namespace AI.Caller.Phone.CallRouting.Services {
-    /// <summary>
-    /// 通话路由服务实现
-    /// </summary>
     public class CallRoutingService : ICallRoutingService {
         private readonly ApplicationContext _applicationContext;
         private readonly AppDbContext _dbContext;
@@ -26,15 +23,12 @@ namespace AI.Caller.Phone.CallRouting.Services {
             ICallRoutingStrategy routingStrategy,
             ILogger<CallRoutingService> logger) {
             _applicationContext = applicationContext;
-            _dbContext = dbContext;
             _callTypeIdentifier = callTypeIdentifier;
             _routingStrategy = routingStrategy;
+            _dbContext = dbContext;
             _logger = logger;
         }
 
-        /// <summary>
-        /// 路由新呼入通话
-        /// </summary>
         public async Task<CallRoutingResult> RouteInboundCallAsync(SIPRequest sipRequest) {
             try {
                 _logger.LogInformation($"开始路由新呼入通话 - CallId: {sipRequest.Header.CallId}");
@@ -46,23 +40,29 @@ namespace AI.Caller.Phone.CallRouting.Services {
 
                 _logger.LogDebug($"被叫号码: {toUser}");
 
-                var targetUser = await _dbContext.Users.FirstOrDefaultAsync(u => u.SipUsername == toUser);
+                var targetUsers = await _dbContext.Users.Include(u => u.SipAccount).Where(u => u.SipAccount != null && u.SipAccount.SipUsername == toUser).ToArrayAsync();
                 SIPClient? sipClient;
-                if (targetUser == null) {
+                User? targetUser;
+                if (targetUsers == null || targetUsers.Length ==0) {
                     var client = _applicationContext.SipClients.FirstOrDefault(x => !x.Value.IsCallActive);
-                    if(client.Value != null) {
+                    if (client.Value != null) {
                         sipClient = client.Value;
-                        targetUser = await _dbContext.Users.FirstAsync(u => u.SipUsername == client.Key);
-                        _logger.LogInformation($"未找到用户信息，使用默认客户端 - SipUsername: {client.Key}");
+                        targetUser = await _dbContext.Users.FirstAsync(u => u.Id == client.Key);
+                        _logger.LogInformation($"未找到用户信息，使用默认坐席 - Id: {client.Key}");
                     } else {
-                        _logger.LogWarning($"未找到用户信息且没有可用客户端 - SipUsername: {toUser}");
+                        _logger.LogWarning($"未找到用户信息且没有可用客户端 : {toUser}");
                         return CallRoutingResult.CreateFailure($"未找到用户: {toUser}", CallHandlingStrategy.Reject);
                     }
                 } else {
-                    if (!_applicationContext.SipClients.TryGetValue(toUser, out sipClient)) {
+                    var targetUserIds = targetUsers.Select(x => x.Id).ToArray();
+                    var finded = _applicationContext.SipClients.FirstOrDefault(x => targetUserIds.Contains(x.Key) && !x.Value.IsCallActive);
+                    if (finded.Value == null) {
                         _logger.LogInformation($"用户客户端不在线 - SipUsername: {toUser}");
                         return CallRoutingResult.CreateFailure($"用户不在线: {toUser}", CallHandlingStrategy.Fallback);
                     }
+
+                    targetUser = targetUsers.First(u => u.Id == finded.Key);
+                    sipClient = finded.Value;
                 }
 
                 if (sipClient.IsCallActive) {
@@ -70,10 +70,15 @@ namespace AI.Caller.Phone.CallRouting.Services {
                     return CallRoutingResult.CreateFailure($"用户忙碌: {toUser}", CallHandlingStrategy.Fallback);
                 }
 
-                var strategy = DetermineCallHandlingStrategy(sipRequest, targetUser, sipClient);
+                var (strategy, caller, callee) = DetermineCallHandlingStrategy(sipRequest, targetUser, sipClient);
                 var result = CallRoutingResult.CreateSuccess(sipClient, targetUser, strategy, $"成功路由到用户: {toUser}");
 
-                _logger.LogInformation($"新呼入路由成功 - SipUsername: {toUser}, Strategy: {strategy}");
+                result.CallerUser = caller;
+                if(result.CallerUser == null) {
+                    result.CallerNumber = sipRequest.Header.From?.FromURI?.User;
+                }
+
+                _logger.LogInformation($"新呼入路由成功 - from: {caller?.Username ?? result.CallerNumber} to: {toUser}, Strategy: {strategy}");
                 return result;
             } catch (Exception ex) {
                 _logger.LogError(ex, "路由新呼入通话时发生错误");
@@ -81,115 +86,61 @@ namespace AI.Caller.Phone.CallRouting.Services {
             }
         }
 
-        /// <summary>
-        /// 路由呼出应答
-        /// </summary>
-        public async Task<CallRoutingResult> RouteOutboundResponseAsync(SIPRequest sipRequest) {
+        private (CallHandlingStrategy, User?, User?) DetermineCallHandlingStrategy(SIPRequest sipRequest, User targetUser, AI.Caller.Core.SIPClient sipClient) {
+            var fromUser = sipRequest.Header.From?.FromName;
+            var (isFromWebClient, caller) = IsWebClient(fromUser);
+            var (isToWebClient, callee) = (true, targetUser);
             try {
-                var callId = sipRequest.Header.CallId;
-                _logger.LogInformation($"开始路由呼出应答 - CallId: {callId}");
-
-                // 1. 根据Call-ID查找对应的呼出记录
-                var outboundCallInfo = _callTypeIdentifier.GetOutboundCallInfo(callId);
-                if (outboundCallInfo == null) {
-                    _logger.LogWarning($"未找到对应的呼出记录 - CallId: {callId}");
-                    return CallRoutingResult.CreateFailure("未找到对应的呼出记录");
-                }
-
-                // 2. 获取发起呼叫的SipClient
-                if (!_applicationContext.SipClients.TryGetValue(outboundCallInfo.SipUsername, out var sipClient)) {
-                    _logger.LogWarning($"发起呼叫的客户端不存在 - SipUsername: {outboundCallInfo.SipUsername}");
-                    return CallRoutingResult.CreateFailure($"发起呼叫的客户端不存在: {outboundCallInfo.SipUsername}");
-                }
-
-                // 3. 查找对应用户
-                var targetUser = await _dbContext.Users
-                    .FirstOrDefaultAsync(u => u.SipUsername == outboundCallInfo.SipUsername);
-
-                // 4. 返回路由结果
-                var result = CallRoutingResult.CreateSuccess(
-                    sipClient,
-                    targetUser,
-                    CallHandlingStrategy.WebToNonWeb,
-                    $"成功路由呼出应答到: {outboundCallInfo.SipUsername}");
-
-                result.OutboundCallInfo = outboundCallInfo;
-
-                _logger.LogInformation($"呼出应答路由成功 - SipUsername: {outboundCallInfo.SipUsername}");
-                return result;
-            } catch (Exception ex) {
-                _logger.LogError(ex, "路由呼出应答时发生错误");
-                return CallRoutingResult.CreateFailure($"路由失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 确定通话处理策略
-        /// </summary>
-        private CallHandlingStrategy DetermineCallHandlingStrategy(SIPRequest sipRequest, User targetUser, AI.Caller.Core.SIPClient sipClient) {
-            try {
-                // 分析来电源
-                var fromUser = sipRequest.Header.From?.FromURI?.User;
-                var isFromWebClient = IsWebClient(fromUser);
-                var isToWebClient = IsWebClient(targetUser.SipUsername);
-
                 if (isFromWebClient && isToWebClient) {
-                    return CallHandlingStrategy.WebToWeb;
+                    return (CallHandlingStrategy.WebToWeb, caller, callee);
                 } else if (isFromWebClient && !isToWebClient) {
-                    return CallHandlingStrategy.WebToNonWeb;
+                    return (CallHandlingStrategy.WebToNonWeb, caller, callee);
                 } else if (!isFromWebClient && isToWebClient) {
-                    return CallHandlingStrategy.NonWebToWeb;
+                    return (CallHandlingStrategy.NonWebToWeb, caller, callee);
                 } else {
-                    return CallHandlingStrategy.NonWebToNonWeb;
+                    return (CallHandlingStrategy.NonWebToNonWeb, caller, callee);
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "确定通话处理策略时发生错误");
-                return CallHandlingStrategy.NonWebToWeb; // 默认策略
+                return (CallHandlingStrategy.NonWebToWeb, caller, callee);
             }
         }
 
-        /// <summary>
-        /// 路由外呼请求
-        /// </summary>
         public async Task<CallRoutingResult> RouteOutboundCallAsync(OutboundCallInfo outboundCallInfo) {
             try {
                 _logger.LogInformation($"开始路由外呼请求 - SipUsername: {outboundCallInfo.SipUsername}, Destination: {outboundCallInfo.Destination}");
 
-                // 1. 验证发起呼叫的用户
-                if (!_applicationContext.SipClients.TryGetValue(outboundCallInfo.SipUsername, out var sipClient)) {
+                var callerUser = await _dbContext.Users
+                    .FirstOrDefaultAsync(u => u.SipAccount != null && u.SipAccount.SipUsername == outboundCallInfo.SipUsername);
+
+                if (callerUser == null || !_applicationContext.SipClients.TryGetValue(callerUser.Id, out var sipClient)) {
                     _logger.LogWarning($"发起呼叫的客户端不存在 - SipUsername: {outboundCallInfo.SipUsername}");
                     return CallRoutingResult.CreateFailure($"发起呼叫的客户端不存在: {outboundCallInfo.SipUsername}");
                 }
-
-                // 2. 查找发起呼叫的用户
-                var callerUser = await _dbContext.Users
-                    .FirstOrDefaultAsync(u => u.SipUsername == outboundCallInfo.SipUsername);
 
                 if (callerUser == null) {
                     _logger.LogWarning($"发起呼叫的用户不存在 - SipUsername: {outboundCallInfo.SipUsername}");
                     return CallRoutingResult.CreateFailure($"发起呼叫的用户不存在: {outboundCallInfo.SipUsername}");
                 }
 
-                // 3. 检查发起呼叫的客户端是否忙碌
                 if (sipClient.IsCallActive) {
                     _logger.LogInformation($"发起呼叫的用户正在通话中 - SipUsername: {outboundCallInfo.SipUsername}");
                     return CallRoutingResult.CreateFailure($"用户忙碌: {outboundCallInfo.SipUsername}", CallHandlingStrategy.Fallback);
                 }
 
-                // 4. 识别呼叫类型 - 创建一个模拟的SIP请求用于类型识别
-                // 注意：这里应该传入实际的SIPRequest，但为了简化，我们直接根据目标号码判断类型
 
-                // 5. 确定路由策略
                 CallHandlingStrategy strategy;
                 if (IsPstnNumber(outboundCallInfo.Destination)) {
                     strategy = CallHandlingStrategy.WebToNonWeb; // Web到PSTN
-                } else if (_applicationContext.SipClients.ContainsKey(outboundCallInfo.Destination)) {
-                    strategy = CallHandlingStrategy.WebToWeb; // Web到Web
                 } else {
-                    strategy = CallHandlingStrategy.WebToNonWeb; // 默认为Web到非Web
+                    var targetUser = await _dbContext.Users.Include(u => u.SipAccount).FirstOrDefaultAsync(u => u.SipAccount != null && u.SipAccount.SipUsername == outboundCallInfo.Destination);
+                    if (targetUser != null && _applicationContext.SipClients.ContainsKey(targetUser.Id)) {
+                        strategy = CallHandlingStrategy.WebToWeb; // Web到Web
+                    } else {
+                        strategy = CallHandlingStrategy.WebToNonWeb; // 默认为Web到非Web
+                    }
                 }
 
-                // 6. 创建成功的路由结果
                 var result = CallRoutingResult.CreateSuccess(
                     sipClient,
                     callerUser,
@@ -206,29 +157,25 @@ namespace AI.Caller.Phone.CallRouting.Services {
             }
         }
 
-        /// <summary>
-        /// 判断是否为PSTN号码
-        /// </summary>
         private static bool IsPstnNumber(string number) {
             if (string.IsNullOrEmpty(number))
                 return false;
 
-            // 简单的PSTN号码识别逻辑
-            // 通常PSTN号码是纯数字，可能包含+号开头
             return number.All(c => char.IsDigit(c) || c == '+') &&
                    number.Length >= 10 &&
                    number.Length <= 15;
         }
 
-        /// <summary>
-        /// 判断是否为Web客户端
-        /// </summary>
-        private bool IsWebClient(string? fromUser) {
+        private (bool, User?) IsWebClient(string? fromUser) {
             if (string.IsNullOrEmpty(fromUser))
-                return false;
+                return (false, null);
 
-            // 简单的启发式判断：检查是否为已知的Web客户端用户
-            return _applicationContext.SipClients.ContainsKey(fromUser);
+            try {
+                var user = _dbContext.Users.Include(x => x.SipAccount).SingleOrDefault(u => u.Username == fromUser);
+                return (user != null && _applicationContext.SipClients.ContainsKey(user.Id), user);
+            } catch {
+                return (false, null);
+            }
         }
     }
 }

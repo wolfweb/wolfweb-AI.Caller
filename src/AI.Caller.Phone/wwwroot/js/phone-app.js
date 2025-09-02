@@ -180,11 +180,32 @@ class PhoneApp {
             
             const sdpOffer = await this.webRTCManager.createPeerConnection(true, null);
 
-            const response = await fetch('/api/phone/Call', {
+            const response = await fetch('/api/phone/call', {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({Destination: destination, Offer: sdpOffer })
             });
+
+            if (response.ok) {
+                const result = await response.json();
+                
+                if (result.callContext) {
+                    console.log('收到服务器返回的callContext:', result.callContext);
+                    this.callStateManager.setCallContext(result.callContext);
+                    console.log('呼叫方callContext已设置，解决了Web2Web呼叫方缺少上下文的问题');
+                } else {
+                    console.log('服务器未返回callContext，创建基本上下文');
+                    this.callStateManager.setCallContext({
+                        caller: {
+                            sipUsername: 'self' 
+                        },
+                        callee: {
+                            sipUsername: destination
+                        },
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            }
 
             this.elements.callerName.innerHTML = destination;
             
@@ -197,22 +218,27 @@ class PhoneApp {
     async handleAnswer() {
         this.uiManager.updateStatus('正在接听...', 'warning');
         try {
+            const offerData = this.elements.answerButton.getAttribute('data-offer');
+            const offer = offerData ? JSON.parse(offerData) : null;
+            
             const answerSdp = await this.webRTCManager.createPeerConnection(
                 false, 
-                this.elements.answerButton.attributes['data-offer']
+                offer
             );
             
             console.log('接听SDP:', answerSdp);
 
-            var extral = this.elements.callerNumber.innerHTML;
-            var number = this.elements.callerName.innerText;
-            if(extral && extral.indexOf('→')){
-                number = extral.split('→')[1].trim();
-            }
+            const callContext = this.callStateManager.getCallContext();
+            let callerId = null;
+            
+            if (callContext && callContext.caller) {
+                callerId = callContext.caller.userId;
+                console.log('使用callContext中的来电方信息:', callerId);
+            } 
 
             await this.signalRManager.connection.invoke("AnswerAsync", {
-                caller: number, 
-                answerSdp: JSON.stringify(answerSdp)
+                CallerId: callerId, 
+                AnswerSdp: JSON.stringify(answerSdp)
             });
 
             this.uiManager.updateStatus('接听成功', 'success');

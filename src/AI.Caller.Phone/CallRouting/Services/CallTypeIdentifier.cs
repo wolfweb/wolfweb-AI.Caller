@@ -93,32 +93,6 @@ namespace AI.Caller.Phone.CallRouting.Services {
             }
         }
 
-        public string IdentifyCallType(SIPRequest sipRequest) {
-            try {
-                if (sipRequest?.Header?.From?.FromURI?.User != null &&
-                    sipRequest.Header.To?.ToURI?.User != null) {
-                    var fromUser = sipRequest.Header.From.FromURI.User;
-                    var toUser = sipRequest.Header.To.ToURI.User;
-
-                    // 简单的呼叫类型识别逻辑
-                    if (fromUser.Contains("@") && toUser.Contains("@")) {
-                        return "WebToWeb";
-                    } else if (fromUser.Contains("@")) {
-                        return "WebToNonWeb";
-                    } else if (toUser.Contains("@")) {
-                        return "NonWebToWeb";
-                    } else {
-                        return "NonWebToNonWeb";
-                    }
-                }
-
-                return "Unknown";
-            } catch (Exception ex) {
-                _logger.LogError(ex, "Error identifying call type");
-                return "Unknown";
-            }
-        }
-
         public void Dispose() {
             _cleanupTimer?.Dispose();
         }

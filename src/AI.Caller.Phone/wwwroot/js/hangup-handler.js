@@ -174,7 +174,6 @@ class HangupHandler {
         try {
             this.isHangingUp = true;
             
-            // 通过StateManager设置挂断状态
             if (this.stateManager && typeof this.stateManager.setState === 'function') {
                 this.stateManager.setState('ENDING');
             }
@@ -182,8 +181,40 @@ class HangupHandler {
             this.disableHangupButton();
             this.updateStatus('正在挂断...', 'warning');
 
+            let hangupData = {
+                Target: this.uiElements.destinationInput?.value || '', 
+                Reason: reason,
+                CallContext: null 
+            };
+            
+            if (this.stateManager && typeof this.stateManager.getCallContext === 'function') {
+                const callContext = this.stateManager.getCallContext();
+                if (callContext) {
+                    hangupData.Target = callContext.callee?.sipUsername || hangupData.Target;
+
+                    hangupData.CallContext = {
+                        CallId: callContext.callId,
+                        Caller: callContext.caller ? {
+                            UserId: callContext.caller.userId?.toString(),
+                            SipUsername: callContext.caller.sipUsername
+                        } : null,
+                        Callee: callContext.callee ? {
+                            UserId: callContext.callee.userId?.toString(),
+                            SipUsername: callContext.callee.sipUsername
+                        } : null,
+                        Timestamp: callContext.timestamp ? new Date(callContext.timestamp).toISOString() : new Date().toISOString(),
+                        IsExternal: callContext.isExternal || false
+                    };
+                    console.log('使用完整callContext信息进行挂断:', hangupData);
+                } else {
+                    console.log('callContext不存在，使用基本信息进行挂断:', hangupData);
+                }
+            } else {
+                console.log('状态管理器不可用，使用基本信息进行挂断:', hangupData);
+            }
+
             // 调用SignalR Hub方法
-            const result = await this.connection.invoke('HangupCallAsync', {target: this.uiElements.destinationInput.value, reason});
+            const result = await this.connection.invoke('HangupCallAsync', hangupData);
             
             if (!result) {
                 // 如果服务端返回false，等待hangupFailed事件处理
