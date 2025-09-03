@@ -114,7 +114,7 @@ namespace AI.Caller.Phone.Hubs {
             }
         }
 
-        public async Task<object> StartRecordingAsync(string calleeNumber) {
+        public async Task<object> StartRecordingAsync() {
             try {
                 var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
 

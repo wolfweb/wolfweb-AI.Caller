@@ -29,8 +29,7 @@ class SimpleRecordingManager {
                 return;
             }
             
-            const calleeNumber = this.getCalleeNumber();
-            const result = await this.signalRManager.connection.invoke("StartRecordingAsync", calleeNumber);
+            const result = await this.signalRManager.connection.invoke("StartRecordingAsync");
             
             if (result && result.success) {
                 this.updateRecordingStatus('录音已开始', 'success');
@@ -74,12 +73,6 @@ class SimpleRecordingManager {
             return false;
         }
         return true;
-    }
-
-    getCalleeNumber() {
-        return this.elements.destinationInput.value || 
-               this.elements.callerNumber.textContent || 
-               '未知';
     }
 
     updateRecordingStatus(message, type = 'info') {
