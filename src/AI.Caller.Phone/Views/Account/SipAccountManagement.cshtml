@@ -167,7 +167,7 @@
                     </div>
                     <div class="mb-3">
                         <label for="addSipPassword" class="form-label">SIP密码</label>
-                        <input type="password" class="form-control" id="addSipPassword" required>
+                        <input type="password" class="form-control" id="addSipPassword">
                     </div>
                     <div class="mb-3">
                         <label for="addSipServer" class="form-label">SIP服务器</label>
@@ -263,8 +263,8 @@
                 const server = document.getElementById('addSipServer').value;
                 const isActive = document.getElementById('addIsActive').checked;
                 
-                if (!username || !password || !server) {
-                    alert('SIP用户名、密码和服务器是必填项');
+                if (!username || !server) {
+                    alert('SIP用户名和服务器是必填项');
                     return;
                 }
                 
