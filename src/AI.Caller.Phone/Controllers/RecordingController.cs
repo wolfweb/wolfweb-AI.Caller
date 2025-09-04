@@ -51,6 +51,11 @@ namespace AI.Caller.Phone.Controllers {
         /// 录音功能测试页面
         /// </summary>
         public IActionResult Test() {
+            if (!User.HasClaim("isAdmin", "True")) {
+                TempData["ErrorMessage"] = "您没有权限访问录音测试功能";
+                return RedirectToAction("Index");
+            }
+            
             return View();
         }
 
