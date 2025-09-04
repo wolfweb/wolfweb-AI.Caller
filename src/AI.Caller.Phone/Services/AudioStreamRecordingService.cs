@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 
 namespace AI.Caller.Phone.Services {
@@ -93,7 +94,7 @@ namespace AI.Caller.Phone.Services {
 
                 var recording = new Recording {
                     UserId = user.Id,
-                    SipUsername = user.SipAccount!.SipUsername,
+                    SipUsername = sipClient.Dialogue.RemoteUserField.URI.User,
                     StartTime = DateTime.UtcNow,
                     FilePath = filePath,
                     Status = Models.RecordingStatus.Recording
@@ -219,7 +220,7 @@ namespace AI.Caller.Phone.Services {
             Recording = recording;
             _sipClient = sipClient;
             _serviceScopeFactory = serviceScopeFactory;
-            _audioRecorder = new AudioRecorder(recording.FilePath);
+            _audioRecorder = new AudioRecorder(recording.FilePath, logger);
             SubscribeToAudioEvents();
         }
 
@@ -243,7 +244,8 @@ namespace AI.Caller.Phone.Services {
         private void OnAudioPacketReceived(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
                 if (mediaType == SDPMediaTypesEnum.audio && rtpPacket?.Payload != null && rtpPacket.Payload.Length > 0) {
-                    _audioRecorder.WriteAudioData(rtpPacket.Payload, AudioDirection.Received, rtpPacket.Header.Timestamp, rtpPacket.Header.PayloadType);
+                    long localTimestamp = DateTime.UtcNow.Ticks;
+                    _audioRecorder.WriteAudioData(rtpPacket.Payload, AudioDirection.Received, rtpPacket.Header.Timestamp, localTimestamp, rtpPacket.Header.PayloadType);
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "录音写入接收音频数据失败");
@@ -253,7 +255,8 @@ namespace AI.Caller.Phone.Services {
         private void OnAudioPacketSent(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
                 if (mediaType == SDPMediaTypesEnum.audio && rtpPacket?.Payload != null && rtpPacket.Payload.Length > 0) {
-                    _audioRecorder.WriteAudioData(rtpPacket.Payload, AudioDirection.Sent, rtpPacket.Header.Timestamp, rtpPacket.Header.PayloadType);
+                    long localTimestamp = DateTime.UtcNow.Ticks;
+                    _audioRecorder.WriteAudioData(rtpPacket.Payload, AudioDirection.Sent, rtpPacket.Header.Timestamp, localTimestamp, rtpPacket.Header.PayloadType);
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "录音写入发送音频数据失败");
@@ -316,33 +319,63 @@ namespace AI.Caller.Phone.Services {
     internal class AudioRecorder : IDisposable {
         private readonly string _filePath;
         private readonly FileStream _fileStream;
-        private readonly SortedList<uint, byte[]> _audioBuffer;
+        private readonly SortedList<long, byte[]> _audioBuffer;
+        private readonly TimeSpan _flushInterval = TimeSpan.FromSeconds(1);
+        private readonly System.Timers.Timer _flushTimer;
+        private readonly ILogger _logger;
         private bool _disposed = false;
+        private static long _firstLocalTimestamp = -1;
+        private readonly int _sampleRate;
+        private static readonly Stopwatch _stopwatch = Stopwatch.StartNew();
 
-        public AudioRecorder(string filePath) {
+        public AudioRecorder(string filePath, ILogger logger) {
             _filePath = filePath;
-            _audioBuffer = new SortedList<uint, byte[]>();
+            _logger = logger;
+            _audioBuffer = new SortedList<long, byte[]>();
             _fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write);
+
+            _sampleRate = 8000;
             WriteWavHeader(0);
+
+            _flushTimer = new System.Timers.Timer(_flushInterval.TotalMilliseconds);
+            _flushTimer.Elapsed += async (s, e) => await FlushBufferAsync();
+            _flushTimer.AutoReset = true;
+            _flushTimer.Start();
         }
 
-        public void WriteAudioData(byte[] rtpPayload, AudioDirection direction, uint timestamp, int payloadType) {
+        public void WriteAudioData(byte[] rtpPayload, AudioDirection direction, uint rtpTimestamp, long localTimestamp, int payloadType) {
             if (_disposed || rtpPayload == null || rtpPayload.Length == 0) return;
 
-            byte[] pcmData = Array.Empty<byte>();
-            if (payloadType == 0) {
-                pcmData = DecodeG711MuLaw(rtpPayload);
-            } else if (payloadType == 8) {
-                pcmData = DecodeG711ALaw(rtpPayload);
+            if (rtpPayload.Length != _sampleRate / 50) {
+                _logger.LogWarning($"Unexpected rtpPayload length: {rtpPayload.Length}, expected {_sampleRate / 50}");
+                Array.Resize(ref rtpPayload, (int)(_sampleRate / 50));
+            }
+
+            long elapsedTicks = _stopwatch.ElapsedTicks;
+            if (_firstLocalTimestamp == -1) _firstLocalTimestamp = elapsedTicks;
+            long normalizedLocalTimestamp = elapsedTicks - _firstLocalTimestamp;
+            long timeSlice = normalizedLocalTimestamp / (Stopwatch.Frequency / 50); // 20ms
+            long samplesPerPacket = _sampleRate / 50;
+            int bufferSize = (int)(samplesPerPacket * 2 * 2);
+
+            byte[] pcmData = payloadType == 0 ? DecodeG711MuLaw(rtpPayload) : DecodeG711ALaw(rtpPayload);
+            if (pcmData.Length != samplesPerPacket * 2) {
+                _logger.LogWarning($"Unexpected pcmData length: {pcmData.Length}, expected {samplesPerPacket * 2}");
+                Array.Resize(ref pcmData, (int)(samplesPerPacket * 2));
             }
 
             lock (_audioBuffer) {
-                if (!_audioBuffer.ContainsKey(timestamp)) {
-                    _audioBuffer[timestamp] = new byte[pcmData.Length * 2];
+                if (!_audioBuffer.ContainsKey(timeSlice)) {
+                    _audioBuffer[timeSlice] = new byte[bufferSize];
                 }
-                var buffer = _audioBuffer[timestamp];
-                for (int i = 0; i < pcmData.Length; i += 2) {
+
+                var buffer = _audioBuffer[timeSlice];
+                for (int i = 0; i < pcmData.Length && i < samplesPerPacket * 2; i += 2) {
                     int offset = i * 2;
+                    if (offset + 3 >= buffer.Length) {
+                        _logger.LogWarning($"Offset {offset} exceeds buffer length {buffer.Length}");
+                        break;
+                    }
                     if (direction == AudioDirection.Received) {
                         buffer[offset] = pcmData[i];
                         buffer[offset + 1] = pcmData[i + 1];
@@ -351,9 +384,21 @@ namespace AI.Caller.Phone.Services {
                         buffer[offset + 3] = pcmData[i + 1];
                     }
                 }
+                _logger.LogDebug($"TimeSlice={timeSlice}, NormalizedTimestamp={normalizedLocalTimestamp}, BufferLength={buffer.Length}, pcmDataLength={pcmData.Length}, Direction={direction}, SampleRate={_sampleRate}");
             }
         }
 
+        private async Task FlushBufferAsync() {
+            if (_audioBuffer.Count == 0) return;
+
+            var audioDataToWrite = _audioBuffer.Values.SelectMany(x => x).ToArray();
+            _audioBuffer.Clear();
+
+            if (audioDataToWrite.Length > 0) {
+                await _fileStream.WriteAsync(audioDataToWrite);
+                await _fileStream.FlushAsync();
+            }
+        }
 
         private byte[] DecodeG711MuLaw(byte[] muLawData) {
             var pcmData = new byte[muLawData.Length * 2];
@@ -399,40 +444,43 @@ namespace AI.Caller.Phone.Services {
             if (_disposed) return;
 
             try {
-                // 写入所有音频数据
-                byte[] audioDataToWrite;
-                lock (_audioBuffer) {
-                    audioDataToWrite = _audioBuffer.Values.SelectMany(x => x).ToArray();
+                _flushTimer.Stop();
+                await FlushBufferAsync();
+
+                long audioDataSize = _fileStream.Length - 44;
+                long expectedBufferSize = _sampleRate / 50 * 2 * 2;
+                if (audioDataSize < 0 || audioDataSize % expectedBufferSize != 0) {
+                    _logger.LogWarning($"Invalid audioDataSize: {audioDataSize}, expected multiple of {expectedBufferSize}");
+                    audioDataSize = (audioDataSize / expectedBufferSize) * expectedBufferSize;
                 }
 
-                if (audioDataToWrite.Length > 0) {
-                    await _fileStream.WriteAsync(audioDataToWrite);
-                }
-
-                // 更新WAV文件头
                 _fileStream.Seek(0, SeekOrigin.Begin);
-                WriteWavHeader(audioDataToWrite.Length);
+                WriteWavHeader((int)audioDataSize);
 
                 await _fileStream.FlushAsync();
             } catch (Exception ex) {
-                Console.WriteLine($"完成录音文件时发生错误: {ex.Message}");
+                _logger.LogError(ex, $"完成录音文件时发生错误: {ex.Message}");
             }
         }
 
         private void WriteWavHeader(int audioDataSize) {
             var header = new byte[44];
-            var fileSize = 36 + audioDataSize;
+            var channels = 2;
+            var bitsPerSample = 16;
+            var byteRate = _sampleRate * channels * bitsPerSample / 8;
+            var blockAlign = (short)(channels * bitsPerSample / 8);
+
             Array.Copy(System.Text.Encoding.ASCII.GetBytes("RIFF"), 0, header, 0, 4);
-            BitConverter.GetBytes(fileSize).CopyTo(header, 4);
+            BitConverter.GetBytes(36 + audioDataSize).CopyTo(header, 4);
             Array.Copy(System.Text.Encoding.ASCII.GetBytes("WAVE"), 0, header, 8, 4);
             Array.Copy(System.Text.Encoding.ASCII.GetBytes("fmt "), 0, header, 12, 4);
             BitConverter.GetBytes(16).CopyTo(header, 16);
             BitConverter.GetBytes((short)1).CopyTo(header, 20); // PCM
-            BitConverter.GetBytes((short)2).CopyTo(header, 22); // Stereo
-            BitConverter.GetBytes(8000).CopyTo(header, 24); // Sample rate
-            BitConverter.GetBytes(32000).CopyTo(header, 28); // Byte rate
-            BitConverter.GetBytes((short)4).CopyTo(header, 32); // Block align
-            BitConverter.GetBytes((short)16).CopyTo(header, 34); // Bits per sample
+            BitConverter.GetBytes((short)channels).CopyTo(header, 22);
+            BitConverter.GetBytes(_sampleRate).CopyTo(header, 24);
+            BitConverter.GetBytes(byteRate).CopyTo(header, 28);
+            BitConverter.GetBytes(blockAlign).CopyTo(header, 32);
+            BitConverter.GetBytes((short)bitsPerSample).CopyTo(header, 34);
             Array.Copy(System.Text.Encoding.ASCII.GetBytes("data"), 0, header, 36, 4);
             BitConverter.GetBytes(audioDataSize).CopyTo(header, 40);
             _fileStream.Write(header, 0, 44);
@@ -440,6 +488,8 @@ namespace AI.Caller.Phone.Services {
 
         public void Dispose() {
             if (!_disposed) {
+                _flushTimer?.Stop();
+                _flushTimer?.Dispose();
                 _fileStream?.Dispose();
                 _disposed = true;
             }

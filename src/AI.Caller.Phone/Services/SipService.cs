@@ -535,7 +535,7 @@ namespace AI.Caller.Phone.Services {
         private async Task NotifyWebClientRemoteHangup(int userId, string reason) {
             using var scope = _serviceScopeProvider.CreateScope();
             var _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var user = await _dbContext.Users.FindAsync(userId);
+            var user = await _dbContext.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x=>x.Id == userId);
             if (user == null) {
                 _logger.LogWarning($"未找到SIP用户名为 {userId} 的用户");
                 return;

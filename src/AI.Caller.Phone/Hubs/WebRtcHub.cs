@@ -118,7 +118,7 @@ namespace AI.Caller.Phone.Hubs {
             try {
                 var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
 
-                var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Id == userId);
+                var user = await _appDbContext.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.Id == userId);
                 if (user == null || (user.SipAccount == null || string.IsNullOrEmpty(user.SipAccount.SipUsername))) {
                     return new { success = false, message = "用户SIP账号信息不存在" };
                 }
@@ -142,7 +142,7 @@ namespace AI.Caller.Phone.Hubs {
         public async Task<object> StopRecordingAsync() {
             try {
                 var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
-                var user = await _appDbContext.Users.FirstOrDefaultAsync(x => x.Id == userId);
+                var user = await _appDbContext.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.Id == userId);
                 if (user == null || (user.SipAccount == null || string.IsNullOrEmpty(user.SipAccount.SipUsername))) {
                     return new { success = false, message = "用户SIP账号信息不存在" };
                 }
