@@ -55,13 +55,14 @@ namespace AI.Caller.Phone.Services {
                 var user = await _dbContext.Users
                     .Include(u => u.SipAccount)
                     .FirstOrDefaultAsync(u => u.Id == userId);
-                if (user != null && user.AutoRecording) {
+                
+                if (user != null) {
                     // 延迟一点时间确保通话稳定
                     await Task.Delay(1000);
 
                     var result = await _recordingService.StartRecordingAsync(userId);
                     if (result) {
-                        _logger.LogInformation($"自动录音已开始 - 用户: {userId}");
+                        _logger.LogInformation($"自动录音已开始 - 用户: {userId} (全局自动录音)");
                     } else {
                         _logger.LogWarning($"自动录音开始失败 - 用户: {userId}");
                     }

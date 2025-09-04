@@ -12,6 +12,12 @@
                 </a>
             </div>
 
+            <!-- 全局自动录音通知 -->
+            <div class="alert alert-info mb-4">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong>系统通知：</strong>所有SIP呼叫现已启用全局自动录音功能，所有通话都会自动录音。个人自动录音设置仅作为备用选项保留。
+            </div>
+
             <!-- 状态消息 -->
             @if (TempData["SuccessMessage"] != null)
             {
@@ -41,8 +47,8 @@
                                         <input class="form-check-input" type="checkbox" id="autoRecordingSwitch" 
                                                @(ViewBag.AutoRecordingEnabled == true ? "checked" : "")>
                                         <label class="form-check-label" for="autoRecordingSwitch">
-                                            <strong>自动录音</strong>
-                                            <br><small class="text-muted">通话开始时自动开始录音</small>
+                                            <strong>个人自动录音设置</strong>
+                                            <br><small class="text-muted">备用设置 - 系统已启用全局自动录音</small>
                                         </label>
                                     </div>
                                 </div>
