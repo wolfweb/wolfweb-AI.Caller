@@ -64,7 +64,7 @@
                             <div class="d-flex justify-content-between">
                                 <div>
                                     <h6 class="card-title">自动录音</h6>
-                                    <h3>@(ViewBag.AutoRecordingEnabled == true ? "开启" : "关闭")</h3>
+                                    <h3>已开启</h3>
                                 </div>
                                 <div class="align-self-center">
                                     <i class="bi bi-record-circle fs-1"></i>
@@ -79,7 +79,7 @@
                             <div class="d-flex justify-content-between">
                                 <div>
                                     <h6 class="card-title">存储空间</h6>
-                                    <h3>计算中...</h3>
+                                    <h3>@(ViewBag.TotalStorageFormatted ?? "0 B")</h3>
                                 </div>
                                 <div class="align-self-center">
                                     <i class="bi bi-hdd fs-1"></i>
@@ -94,7 +94,7 @@
                             <div class="d-flex justify-content-between">
                                 <div>
                                     <h6 class="card-title">本月录音</h6>
-                                    <h3>0</h3>
+                                    <h3>@(ViewBag.MonthlyRecordingCount ?? 0) 个</h3>
                                 </div>
                                 <div class="align-self-center">
                                     <i class="bi bi-calendar-month fs-1"></i>

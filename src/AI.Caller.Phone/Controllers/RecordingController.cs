@@ -17,6 +17,21 @@ namespace AI.Caller.Phone.Controllers {
             _logger = logger;
         }
 
+        private string FormatFileSize(long bytes) {
+            if (bytes == 0) return "0 B";
+            
+            string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+            int order = 0;
+            double size = bytes;
+            
+            while (size >= 1024 && order < sizes.Length - 1) {
+                order++;
+                size = size / 1024;
+            }
+            
+            return $"{Math.Round(size, 2)} {sizes[order]}";
+        }
+
         /// <summary>
         /// 录音管理主页面
         /// </summary>
@@ -34,13 +49,38 @@ namespace AI.Caller.Phone.Controllers {
 
                 var autoRecordingEnabled = await _recordingService.IsAutoRecordingEnabledAsync(userId);
 
+                var totalSize = recordings.Sum(r => r.FileSize);
+                
+                var currentMonth = DateTime.Now;
+                var monthlyRecordings = recordings.Where(r => 
+                    r.StartTime.Year == currentMonth.Year && 
+                    r.StartTime.Month == currentMonth.Month).ToList();
+                
+                var monthlyCount = monthlyRecordings.Count;
+                var monthlySize = monthlyRecordings.Sum(r => r.FileSize);
+                
+                var totalDuration = recordings.Where(r => r.Duration != TimeSpan.Zero)
+                    .Sum(r => r.Duration.TotalMinutes);
+
                 ViewBag.AutoRecordingEnabled = autoRecordingEnabled;
                 ViewBag.IsAdmin = isAdmin;
+                ViewBag.TotalStorageFormatted = FormatFileSize(totalSize);
+                ViewBag.MonthlyRecordingCount = monthlyCount;
+                ViewBag.MonthlyDurationMinutes = Math.Round(monthlyRecordings.Where(r => r.Duration != TimeSpan.Zero).Sum(r => r.Duration.TotalMinutes), 0);
+                ViewBag.TotalDurationHours = Math.Round(totalDuration / 60.0, 1);
 
                 return View("Simple", recordings);
             } catch (Exception ex) {
                 _logger.LogError(ex, "加载录音管理页面时发生错误");
                 TempData["ErrorMessage"] = "加载录音列表失败，请稍后重试";
+                
+                ViewBag.AutoRecordingEnabled = false;
+                ViewBag.IsAdmin = false;
+                ViewBag.TotalStorageFormatted = "0 B";
+                ViewBag.MonthlyRecordingCount = 0;
+                ViewBag.MonthlyDurationMinutes = 0;
+                ViewBag.TotalDurationHours = 0.0;
+                
                 return View("Simple", new List<AI.Caller.Phone.Models.Recording>());
             }
         }
