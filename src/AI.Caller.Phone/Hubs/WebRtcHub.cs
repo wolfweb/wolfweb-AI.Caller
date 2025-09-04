@@ -162,6 +162,58 @@ namespace AI.Caller.Phone.Hubs {
                 return new { success = false, message = $"录音停止失败: {ex.Message}" };
             }
         }
+
+        public async Task<object> PauseRecordingAsync() {
+            var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+            try {                
+                if (!Context.User!.HasClaim("isAdmin","Ture")) {
+                    _logger.LogWarning("普通用户 {UserId} 尝试暂停录音，权限不足", userId);
+                    return new { success = false, message = "权限不足：只有管理员可以控制录音" };
+                }
+
+                var result = await _recordingService.PauseRecordingAsync(userId);
+
+                if (result) {
+                    await Clients.Caller.SendAsync("recordingPaused", new {
+                        message = "录音已暂停",
+                        timestamp = DateTime.UtcNow
+                    });
+                    _logger.LogInformation("管理员 {UserId} 暂停了录音", userId);
+                    return new { success = true, message = "录音已暂停" };
+                } else {
+                    return new { success = false, message = "录音暂停失败" };
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error pausing recording for user {UserId}", userId);
+                return new { success = false, message = $"录音暂停失败: {ex.Message}" };
+            }
+        }
+
+        public async Task<object> ResumeRecordingAsync() {
+            var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+            try {
+                if (!Context.User!.HasClaim("isAdmin", "Ture")) {
+                    _logger.LogWarning("普通用户 {UserId} 尝试恢复录音，权限不足", userId);
+                    return new { success = false, message = "权限不足：只有管理员可以控制录音" };
+                }
+
+                var result = await _recordingService.ResumeRecordingAsync(userId);
+
+                if (result) {
+                    await Clients.Caller.SendAsync("recordingResumed", new {
+                        message = "录音已恢复",
+                        timestamp = DateTime.UtcNow
+                    });
+                    _logger.LogInformation("管理员 {UserId} 恢复了录音", userId);
+                    return new { success = true, message = "录音已恢复" };
+                } else {
+                    return new { success = false, message = "录音恢复失败" };
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error resuming recording for user {UserId}", userId);
+                return new { success = false, message = $"录音恢复失败: {ex.Message}" };
+            }
+        }
     }
 
     public record WebRtcAnswerModel(int? CallerId, string AnswerSdp);

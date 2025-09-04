@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿@using AI.Caller.Phone.Entities
+﻿﻿﻿﻿﻿@using AI.Caller.Phone.Entities
 @*
     For more information on enabling MVC for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 *@
@@ -85,11 +85,11 @@
                     </div>
                     
                     <!-- 录音状态指示器 -->
-                    <div class="alert alert-info mb-4 d-none" id="recordingStatusAlert">
+                    <div class="alert alert-success mb-4" id="recordingStatusAlert">
                         <div class="d-flex align-items-center">
-                            <i class="bi bi-record-circle text-danger me-2" id="recordingIcon"></i>
+                            <i class="bi bi-record-circle-fill text-success me-2" id="recordingIcon"></i>
                             <span id="recordingStatus">录音状态</span>
-                            <span class="badge bg-secondary ms-auto" id="recordingTimer">00:00</span>
+                            <span class="badge bg-success ms-auto" id="recordingTimer">待机中</span>
                         </div>
                     </div>
                     
@@ -107,12 +107,14 @@
                         <button id="hangupButton" class="btn btn-danger d-none">
                             <i class="bi bi-telephone-x-fill"></i> 挂断
                         </button>
-                        <button id="startRecordingButton" class="btn btn-warning d-none">
-                            <i class="bi bi-record-circle"></i> 开始录音
-                        </button>
-                        <button id="stopRecordingButton" class="btn btn-secondary d-none">
-                            <i class="bi bi-stop-circle"></i> 停止录音
-                        </button>
+                        @if (User.HasClaim("isAdmin", "True")) {
+                            <button id="pauseRecordingButton" class="btn btn-warning d-none">
+                                <i class="bi bi-pause-circle"></i> 暂停录音
+                            </button>
+                            <button id="resumeRecordingButton" class="btn btn-success d-none">
+                                <i class="bi bi-play-circle"></i> 恢复录音
+                            </button>
+                        }
                     </div>
                     
                     <!-- 拨号盘 -->

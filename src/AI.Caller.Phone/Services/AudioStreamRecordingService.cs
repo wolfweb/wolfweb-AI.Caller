@@ -35,7 +35,7 @@ namespace AI.Caller.Phone.Services {
             try {
                 using var scope = _serviceScopeFactory.CreateScope();
                 AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
+                
                 if (_activeSessions.ContainsKey(userId)) {
                     _logger.LogWarning($"用户 {userId} 已经在录音中");
                     return false;
@@ -223,6 +223,38 @@ namespace AI.Caller.Phone.Services {
                 return null;
             }
         }
+
+        public async Task<bool> PauseRecordingAsync(int userId) {
+            try {
+                if (_activeSessions.TryGetValue(userId, out var session)) {
+                    session.SetPaused(true);
+                    _logger.LogInformation("录音已暂停，用户ID: {UserId}", userId);
+                    return await Task.FromResult(true);
+                }
+                
+                _logger.LogWarning("未找到用户 {UserId} 的活动录音会话", userId);
+                return await Task.FromResult(false);
+            } catch (Exception ex) {
+                _logger.LogError(ex, "暂停录音失败，用户ID: {UserId}", userId);
+                return await Task.FromResult(false);
+            }
+        }
+
+        public async Task<bool> ResumeRecordingAsync(int userId) {
+            try {
+                if (_activeSessions.TryGetValue(userId, out var session)) {
+                    session.SetPaused(false);
+                    _logger.LogInformation("录音已恢复，用户ID: {UserId}", userId);
+                    return await Task.FromResult(true);
+                }
+                
+                _logger.LogWarning("未找到用户 {UserId} 的活动录音会话", userId);
+                return await Task.FromResult(false);
+            } catch (Exception ex) {
+                _logger.LogError(ex, "恢复录音失败，用户ID: {UserId}", userId);
+                return await Task.FromResult(false);
+            }
+        }
     }
 
     internal class RecordingSession : IDisposable {
@@ -235,6 +267,7 @@ namespace AI.Caller.Phone.Services {
         private readonly IServiceScopeFactory _serviceScopeFactory;
 
         private bool _disposed = false;
+        private bool _isPaused = false;
 
         public RecordingSession(ILogger logger, Recording recording, SIPClient sipClient, IServiceScopeFactory serviceScopeFactory) {
             _logger = logger;
@@ -264,6 +297,8 @@ namespace AI.Caller.Phone.Services {
 
         private void OnAudioPacketReceived(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
+                if (_isPaused) return;
+                
                 if (mediaType == SDPMediaTypesEnum.audio && rtpPacket?.Payload != null && rtpPacket.Payload.Length > 0) {
                     long localTimestamp = DateTime.UtcNow.Ticks;
                     _audioRecorder.WriteAudioData(rtpPacket.Payload, AudioDirection.Received, rtpPacket.Header.Timestamp, localTimestamp, rtpPacket.Header.PayloadType);
@@ -275,6 +310,8 @@ namespace AI.Caller.Phone.Services {
 
         private void OnAudioPacketSent(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
+                if (_isPaused) return;
+                
                 if (mediaType == SDPMediaTypesEnum.audio && rtpPacket?.Payload != null && rtpPacket.Payload.Length > 0) {
                     long localTimestamp = DateTime.UtcNow.Ticks;
                     _audioRecorder.WriteAudioData(rtpPacket.Payload, AudioDirection.Sent, rtpPacket.Header.Timestamp, localTimestamp, rtpPacket.Header.PayloadType);
@@ -323,6 +360,11 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
+        public void SetPaused(bool isPaused) {
+            _isPaused = isPaused;
+            _logger.LogInformation("录音会话暂停状态已设置为: {IsPaused}", isPaused);
+        }
+
         public void Dispose() {
             if (!_disposed) {
                 UnsubscribeFromAudioEvents();
@@ -339,6 +381,7 @@ namespace AI.Caller.Phone.Services {
 
     internal class AudioRecorder : IDisposable {
         private readonly string _filePath;
+        private readonly SemaphoreSlim _semaphore;
         private readonly FileStream _fileStream;
         private readonly SortedList<long, byte[]> _audioBuffer;
         private readonly TimeSpan _flushInterval = TimeSpan.FromSeconds(1);
@@ -352,6 +395,7 @@ namespace AI.Caller.Phone.Services {
         public AudioRecorder(string filePath, ILogger logger) {
             _filePath = filePath;
             _logger = logger;
+            _semaphore = new SemaphoreSlim(1, 1);
             _audioBuffer = new SortedList<long, byte[]>();
             _fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write);
 
@@ -385,7 +429,8 @@ namespace AI.Caller.Phone.Services {
                 Array.Resize(ref pcmData, (int)(samplesPerPacket * 2));
             }
 
-            lock (_audioBuffer) {
+            _semaphore.Wait();
+            try {
                 if (!_audioBuffer.ContainsKey(timeSlice)) {
                     _audioBuffer[timeSlice] = new byte[bufferSize];
                 }
@@ -406,18 +451,25 @@ namespace AI.Caller.Phone.Services {
                     }
                 }
                 _logger.LogDebug($"TimeSlice={timeSlice}, NormalizedTimestamp={normalizedLocalTimestamp}, BufferLength={buffer.Length}, pcmDataLength={pcmData.Length}, Direction={direction}, SampleRate={_sampleRate}");
+            } finally {
+                _semaphore.Release();
             }
         }
 
         private async Task FlushBufferAsync() {
-            if (_audioBuffer.Count == 0) return;
+            await _semaphore.WaitAsync();
+            try {
+                if (_audioBuffer.Count == 0) return;
+                
+                var audioDataToWrite = _audioBuffer.Values.SelectMany(x => x).ToArray();
+                _audioBuffer.Clear();
 
-            var audioDataToWrite = _audioBuffer.Values.SelectMany(x => x).ToArray();
-            _audioBuffer.Clear();
-
-            if (audioDataToWrite.Length > 0) {
-                await _fileStream.WriteAsync(audioDataToWrite);
-                await _fileStream.FlushAsync();
+                if (audioDataToWrite.Length > 0) {
+                    await _fileStream.WriteAsync(audioDataToWrite);
+                    await _fileStream.FlushAsync();
+                }
+            } finally {
+                _semaphore.Release();
             }
         }
 
@@ -509,10 +561,20 @@ namespace AI.Caller.Phone.Services {
 
         public void Dispose() {
             if (!_disposed) {
+                _disposed = true;
+                
                 _flushTimer?.Stop();
                 _flushTimer?.Dispose();
+                
+                try {
+                    _semaphore?.Wait();
+                    _audioBuffer.Clear();
+                } finally {
+                    _semaphore?.Release();
+                }
+                
                 _fileStream?.Dispose();
-                _disposed = true;
+                _semaphore?.Dispose();
             }
         }
     }

@@ -17,5 +17,9 @@ namespace AI.Caller.Phone.Services {
         Task<bool> SetAutoRecordingAsync(int userId, bool enabled);
 
         Task<Models.RecordingStatus?> GetRecordingStatusAsync(int userId);
+        
+        Task<bool> PauseRecordingAsync(int userId);
+
+        Task<bool> ResumeRecordingAsync(int userId);
     }
 }

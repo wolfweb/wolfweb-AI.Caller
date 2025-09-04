@@ -13,57 +13,87 @@ class SimpleRecordingManager {
     }
 
     initialize() {
-        // 初始化全局录音状态
         window.isRecording = false;
-        window.isAutoRecording = false;
+        window.isAutoRecording = true;
         
         console.log('简化录音管理器已初始化');
     }
 
     async startRecording() {
-        try {
-            console.log('开始录音');
-            this.updateRecordingStatus('正在开始录音...', 'warning');
-            
-            if (!this.checkSignalRConnection()) {
-                return;
-            }
-            
-            const result = await this.signalRManager.connection.invoke("StartRecordingAsync");
-            
-            if (result && result.success) {
-                this.updateRecordingStatus('录音已开始', 'success');
-            } else {
-                this.updateRecordingStatus('录音开始失败', 'danger');
-            }
-            
-        } catch (error) {
-            console.error('开始录音失败:', error);
-            this.updateRecordingStatus('录音开始失败', 'danger');
-        }
+        console.log('开始录音');
+        this.updateRecordingStatus('正在开始录音...', 'success');
+        this.startRecordingTimer();
     }
 
     async stopRecording() {
+        console.log('全局自动录音模式 - 录音由系统自动停止');
+        this.updateRecordingStatus('录音已自动停止', 'info');
+        this.stopRecordingTimer();
+    }
+
+    async pauseRecording() {
+        if (!this.isAdmin()) {
+            this.updateRecordingStatus('您没有权限暂停录音', 'warning');
+            return;
+        }
+        
         try {
-            console.log('停止录音');
-            this.updateRecordingStatus('正在停止录音...', 'warning');
+            console.log('超管暂停录音');
+            this.updateRecordingStatus('正在暂停录音...', 'warning');
+            
+            if (!this.checkSignalRConnection()) {
+                return;
+            }
+
+            const result = await this.signalRManager.connection.invoke("PauseRecordingAsync");
+            
+            if (result && result.success) {
+                window.isRecording = false;
+                this.updateRecordingStatus('录音已暂停', 'warning');
+                this.stopRecordingTimer();
+            } else {
+                this.updateRecordingStatus(result?.message || '暂停录音失败', 'danger');
+            }
+            
+        } catch (error) {
+            console.error('暂停录音失败:', error);
+            this.updateRecordingStatus('暂停录音失败', 'danger');
+        }
+    }
+
+    async resumeRecording() {
+        if (!this.isAdmin()) {
+            this.updateRecordingStatus('您没有权限恢复录音', 'warning');
+            return;
+        }
+        
+        try {
+            console.log('超管恢复录音');
+            this.updateRecordingStatus('正在恢复录音...', 'info');
             
             if (!this.checkSignalRConnection()) {
                 return;
             }
             
-            const result = await this.signalRManager.connection.invoke("StopRecordingAsync");
+            const result = await this.signalRManager.connection.invoke("ResumeRecordingAsync");
             
             if (result && result.success) {
-                this.updateRecordingStatus('录音已停止', 'success');
+                window.isRecording = true;
+                this.updateRecordingStatus('录音已恢复', 'success');
+                this.startRecordingTimer();
             } else {
-                this.updateRecordingStatus('录音停止失败', 'danger');
+                this.updateRecordingStatus(result?.message || '恢复录音失败', 'danger');
             }
             
         } catch (error) {
-            console.error('停止录音失败:', error);
-            this.updateRecordingStatus('录音停止失败', 'danger');
+            console.error('恢复录音失败:', error);
+            this.updateRecordingStatus('恢复录音失败', 'danger');
         }
+    }
+
+    isAdmin() {
+        return document.body.dataset.isAdmin === 'true' || 
+               document.querySelector('meta[name="user-role"]')?.content === 'admin';
     }
 
     checkSignalRConnection() {

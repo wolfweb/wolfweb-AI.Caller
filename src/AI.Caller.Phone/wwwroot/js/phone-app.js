@@ -21,8 +21,9 @@ class PhoneApp {
             callButton: document.getElementById('callButton'),
             answerButton: document.getElementById('answerButton'),
             hangupButton: document.getElementById('hangupButton'),
-            startRecordingButton: document.getElementById('startRecordingButton'),
-            stopRecordingButton: document.getElementById('stopRecordingButton'),
+
+            pauseRecordingButton: document.getElementById('pauseRecordingButton'),
+            resumeRecordingButton: document.getElementById('resumeRecordingButton'),
             statusDiv: document.getElementById('status'),
             statusAlert: document.getElementById('statusAlert'),
             recordingStatusAlert: document.getElementById('recordingStatusAlert'),
@@ -130,13 +131,31 @@ class PhoneApp {
     }
 
     setupRecordingEvents() {
-        this.elements.startRecordingButton.addEventListener('click', () => {
-            this.recordingManager.startRecording();
-        });
+        const isAdmin = document.querySelector('meta[name="user-role"]')?.content === 'admin';
         
-        this.elements.stopRecordingButton.addEventListener('click', () => {
-            this.recordingManager.stopRecording();
-        });
+        if (isAdmin) {            
+            if (this.elements.stopRecordingButton) {
+                this.elements.stopRecordingButton.addEventListener('click', () => {
+                    this.recordingManager.stopRecording();
+                });
+            }
+            
+            if (this.elements.pauseRecordingButton) {
+                this.elements.pauseRecordingButton.addEventListener('click', () => {
+                    if (this.recordingManager.pauseRecording) {
+                        this.recordingManager.pauseRecording();
+                    }
+                });
+            }
+            
+            if (this.elements.resumeRecordingButton) {
+                this.elements.resumeRecordingButton.addEventListener('click', () => {
+                    if (this.recordingManager.resumeRecording) {
+                        this.recordingManager.resumeRecording();
+                    }
+                });
+            }
+        }
     }
 
     setupGlobalEvents() {
