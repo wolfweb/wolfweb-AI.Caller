@@ -598,14 +598,28 @@ main {
 
 .form-control {
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  border: 2px solid #ced4da !important;
   padding: 0.75rem;
   transition: all 0.3s ease;
+  background-color: #ffffff !important;
+  color: #212529 !important;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
 
 .form-control:focus {
-  border-color: #667eea;
-  box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+  border-color: #667eea !important;
+  box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25), inset 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+  background-color: #ffffff !important;
+  outline: none !important;
+}
+
+.form-control::placeholder {
+  color: #6c757d !important;
+  opacity: 0.8 !important;
+}
+
+.form-control:hover {
+  border-color: #adb5bd !important;
 }
 
 /* 录音详情模态框样式 */
