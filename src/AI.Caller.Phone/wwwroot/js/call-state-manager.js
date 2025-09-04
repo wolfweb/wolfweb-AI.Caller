@@ -12,11 +12,11 @@ const CallState = {
 };
 
 const BUTTON_STATES = {
-    IDLE: { call: true, answer: false, hangup: false },
-    OUTGOING: { call: false, answer: false, hangup: true },
-    INCOMING: { call: false, answer: true, hangup: false },
-    CONNECTED: { call: false, answer: false, hangup: true },
-    ENDING: { call: false, answer: false, hangup: false }
+    IDLE: { call: true, answer: false, hangup: false, pauseRecording: false, resumeRecording: false },
+    OUTGOING: { call: false, answer: false, hangup: true, pauseRecording: false, resumeRecording: false },
+    INCOMING: { call: false, answer: true, hangup: false, pauseRecording: false, resumeRecording: false },
+    CONNECTED: { call: false, answer: false, hangup: true, pauseRecording: true, resumeRecording: false },
+    ENDING: { call: false, answer: false, hangup: false, pauseRecording: false, resumeRecording: false }
 };
 
 class CallStateManager {
@@ -28,7 +28,8 @@ class CallStateManager {
             call: elements.callButton,
             answer: elements.answerButton,
             hangup: elements.hangupButton,
-
+            pauseRecording: elements.pauseRecordingButton,
+            resumeRecording: elements.resumeRecordingButton
         };
         
         this.updateButtonVisibility();
@@ -83,6 +84,8 @@ class CallStateManager {
             this.updateButton('call', config.call);
             this.updateButton('answer', config.answer);
             this.updateButton('hangup', config.hangup);
+            this.updateButton('pauseRecording', config.pauseRecording);
+            this.updateButton('resumeRecording', config.resumeRecording);
 
 
             console.log(`Button visibility updated for state: ${this.currentState}`, config);
@@ -98,6 +101,8 @@ class CallStateManager {
             return;
         }
 
+        console.log(`Updating button ${buttonName}: shouldShow=${shouldShow}, button=`, button);
+        
         if (shouldShow) {
             this.showButton(button);
         } else {

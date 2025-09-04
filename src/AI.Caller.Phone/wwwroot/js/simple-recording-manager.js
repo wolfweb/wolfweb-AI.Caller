@@ -51,6 +51,11 @@ class SimpleRecordingManager {
                 window.isRecording = false;
                 this.updateRecordingStatus('录音已暂停', 'warning');
                 this.stopRecordingTimer();
+
+                if (window.phoneApp && window.phoneApp.callStateManager) {
+                    window.phoneApp.callStateManager.updateButton('pauseRecording', false);
+                    window.phoneApp.callStateManager.updateButton('resumeRecording', true);
+                }
             } else {
                 this.updateRecordingStatus(result?.message || '暂停录音失败', 'danger');
             }
@@ -81,6 +86,11 @@ class SimpleRecordingManager {
                 window.isRecording = true;
                 this.updateRecordingStatus('录音已恢复', 'success');
                 this.startRecordingTimer();
+
+                if (window.phoneApp && window.phoneApp.callStateManager) {
+                    window.phoneApp.callStateManager.updateButton('pauseRecording', true);
+                    window.phoneApp.callStateManager.updateButton('resumeRecording', false);
+                }
             } else {
                 this.updateRecordingStatus(result?.message || '恢复录音失败', 'danger');
             }

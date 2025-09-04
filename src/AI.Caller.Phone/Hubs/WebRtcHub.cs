@@ -166,7 +166,7 @@ namespace AI.Caller.Phone.Hubs {
         public async Task<object> PauseRecordingAsync() {
             var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
             try {                
-                if (!Context.User!.HasClaim("isAdmin","Ture")) {
+                if (!Context.User!.HasClaim("isAdmin","True")) {
                     _logger.LogWarning("普通用户 {UserId} 尝试暂停录音，权限不足", userId);
                     return new { success = false, message = "权限不足：只有管理员可以控制录音" };
                 }
@@ -192,7 +192,7 @@ namespace AI.Caller.Phone.Hubs {
         public async Task<object> ResumeRecordingAsync() {
             var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
             try {
-                if (!Context.User!.HasClaim("isAdmin", "Ture")) {
+                if (!Context.User!.HasClaim("isAdmin", "True")) {
                     _logger.LogWarning("普通用户 {UserId} 尝试恢复录音，权限不足", userId);
                     return new { success = false, message = "权限不足：只有管理员可以控制录音" };
                 }
