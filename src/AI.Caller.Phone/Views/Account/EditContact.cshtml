@@ -2,35 +2,70 @@
 @model Contact
 
 @{
-    ViewData["Title"] = "Edit Contact";
+    ViewData["Title"] = "编辑联系人";
 }
 
-<div class="container">
-    <h2>Edit Contact</h2>
-    <hr />
-    <div class="row">
-        <div class="col-md-6">
-            <form asp-action="EditContact" method="post">
-                <input type="hidden" asp-for="Id" />
-                <input type="hidden" asp-for="UserId" />
-                
-                <div class="form-group mb-3">
-                    <label asp-for="Name" class="control-label"></label>
-                    <input asp-for="Name" class="form-control" />
-                    <span asp-validation-for="Name" class="text-danger"></span>
+<div class="container mt-4">
+    <!-- 页面标题 -->
+    <div class="contacts-management-header">
+        <h2 class="d-flex align-items-center">
+            <i class="bi bi-person-gear me-2"></i>
+            @ViewData["Title"]
+        </h2>
+    </div>
+
+    <!-- 主要内容 -->
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card modern-card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0 d-flex align-items-center">
+                        <div class="icon-wrapper me-3">
+                            <i class="bi bi-person-vcard"></i>
+                        </div>
+                        联系人信息
+                    </h5>
                 </div>
-                
-                <div class="form-group mb-3">
-                    <label asp-for="PhoneNumber" class="control-label"></label>
-                    <input asp-for="PhoneNumber" class="form-control" />
-                    <span asp-validation-for="PhoneNumber" class="text-danger"></span>
+                <div class="card-body">
+                    <form asp-action="EditContact" method="post">
+                        <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+                        
+                        <input type="hidden" asp-for="Id" />
+                        <input type="hidden" asp-for="UserId" />
+                        
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label asp-for="Name" class="form-label">
+                                    <i class="bi bi-person me-1"></i>
+                                    姓名 <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="Name" class="form-control" placeholder="请输入姓名" />
+                                <span asp-validation-for="Name" class="text-danger"></span>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label asp-for="PhoneNumber" class="form-label">
+                                    <i class="bi bi-telephone me-1"></i>
+                                    电话号码 <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="PhoneNumber" class="form-control" placeholder="请输入电话号码" />
+                                <span asp-validation-for="PhoneNumber" class="text-danger"></span>
+                            </div>
+                        </div>
+                        
+                        <div class="contacts-actions mt-4">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-check-lg me-1"></i>
+                                保存修改
+                            </button>
+                            <a asp-action="ManageContacts" class="btn btn-secondary">
+                                <i class="bi bi-arrow-left me-1"></i>
+                                返回列表
+                            </a>
+                        </div>
+                    </form>
                 </div>
-                
-                <div class="form-group mt-4">
-                    <button type="submit" class="btn btn-primary">Save</button>
-                    <a asp-action="ManageContacts" class="btn btn-secondary">Cancel</a>
-                </div>
-            </form>
+            </div>
         </div>
     </div>
 </div>
