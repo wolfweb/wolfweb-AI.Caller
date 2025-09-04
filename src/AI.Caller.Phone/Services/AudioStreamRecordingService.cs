@@ -125,12 +125,33 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        public async Task<bool> DeleteRecordingAsync(int recordingId, int userId) {
+        public async Task<List<Recording>> GetAllRecordingsAsync() {
             try {
                 using var scope = _serviceScopeFactory.CreateScope();
                 AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var recording = await _dbContext.Recordings
-                    .FirstOrDefaultAsync(r => r.Id == recordingId && r.UserId == userId);
+
+                return await _dbContext.Recordings
+                    .OrderByDescending(r => r.StartTime)
+                    .ToListAsync();
+            } catch (Exception ex) {
+                _logger.LogError(ex, "获取所有录音列表失败");
+                return new List<Recording>();
+            }
+        }
+
+        public async Task<bool> DeleteRecordingAsync(int recordingId, int? userId = null) {
+            try {
+                using var scope = _serviceScopeFactory.CreateScope();
+                AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                
+                Recording? recording;
+                if (userId.HasValue) {
+                    recording = await _dbContext.Recordings
+                        .FirstOrDefaultAsync(r => r.Id == recordingId && r.UserId == userId.Value);
+                } else {
+                    recording = await _dbContext.Recordings
+                        .FirstOrDefaultAsync(r => r.Id == recordingId);
+                }
 
                 if (recording == null) return false;
 

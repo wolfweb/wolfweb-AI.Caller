@@ -8,7 +8,9 @@ namespace AI.Caller.Phone.Services {
 
         Task<List<Recording>> GetRecordingsAsync(int userId);
 
-        Task<bool> DeleteRecordingAsync(int recordingId, int userId);
+        Task<List<Recording>> GetAllRecordingsAsync();
+
+        Task<bool> DeleteRecordingAsync(int recordingId, int? userId = null);
 
         Task<bool> IsAutoRecordingEnabledAsync(int userId);
 

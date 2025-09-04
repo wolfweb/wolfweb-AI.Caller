@@ -22,12 +22,20 @@ namespace AI.Caller.Phone.Controllers {
         /// </summary>
         public async Task<IActionResult> Index() {
             try {
-                var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
-                var recordings = await _recordingService.GetRecordingsAsync(userId);
+                var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);                
+                var isAdmin = User.HasClaim("isAdmin", "True");
+                
+                List<AI.Caller.Phone.Models.Recording> recordings;
+                if (isAdmin) {
+                    recordings = await _recordingService.GetAllRecordingsAsync();
+                } else {
+                    recordings = await _recordingService.GetRecordingsAsync(userId);
+                }
 
                 var autoRecordingEnabled = await _recordingService.IsAutoRecordingEnabledAsync(userId);
 
                 ViewBag.AutoRecordingEnabled = autoRecordingEnabled;
+                ViewBag.IsAdmin = isAdmin;
 
                 return View("Simple", recordings);
             } catch (Exception ex) {
@@ -93,8 +101,9 @@ namespace AI.Caller.Phone.Controllers {
         public async Task<IActionResult> DeleteRecording(int recordingId) {
             try {
                 var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var isAdmin = User.HasClaim("isAdmin", "True");
 
-                var result = await _recordingService.DeleteRecordingAsync(recordingId, userId);
+                var result = await _recordingService.DeleteRecordingAsync(recordingId, isAdmin ? (int?)null : userId);
 
                 if (result) {
                     return Json(new { success = true, message = "录音文件已删除" });
@@ -114,13 +123,14 @@ namespace AI.Caller.Phone.Controllers {
         public async Task<IActionResult> BatchDeleteRecordings([FromBody] int[] recordingIds) {
             try {
                 var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var isAdmin = User.HasClaim("isAdmin", "True");
 
                 int successCount = 0;
                 int failCount = 0;
 
                 foreach (var recordingId in recordingIds) {
                     try {
-                        var result = await _recordingService.DeleteRecordingAsync(recordingId, userId);
+                        var result = await _recordingService.DeleteRecordingAsync(recordingId, isAdmin ? (int?)null : userId);
                         if (result)
                             successCount++;
                         else
@@ -149,8 +159,14 @@ namespace AI.Caller.Phone.Controllers {
         public async Task<IActionResult> GetRecordingDetails(int recordingId) {
             try {
                 var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var isAdmin = User.HasClaim("isAdmin", "True");
 
-                var recordings = await _recordingService.GetRecordingsAsync(userId);
+                List<AI.Caller.Phone.Models.Recording> recordings;
+                if (isAdmin) {
+                    recordings = await _recordingService.GetAllRecordingsAsync();
+                } else {
+                    recordings = await _recordingService.GetRecordingsAsync(userId);
+                }
                 var recording = recordings.FirstOrDefault(r => r.Id == recordingId);
                 
                 if (recording == null) {
@@ -240,6 +256,7 @@ namespace AI.Caller.Phone.Controllers {
         public async Task<IActionResult> Play(string filePath) {
             try {
                 var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var isAdmin = User.HasClaim("isAdmin", "True");
 
                 if (string.IsNullOrEmpty(filePath)) {
                     return BadRequest("文件路径不能为空");
@@ -250,7 +267,12 @@ namespace AI.Caller.Phone.Controllers {
                     return NotFound("录音文件不存在");
                 }
 
-                var recordings = await _recordingService.GetRecordingsAsync(userId);
+                List<AI.Caller.Phone.Models.Recording> recordings;
+                if (isAdmin) {
+                    recordings = await _recordingService.GetAllRecordingsAsync();
+                } else {
+                    recordings = await _recordingService.GetRecordingsAsync(userId);
+                }
                 var recording = recordings.FirstOrDefault(r => r.FilePath == filePath);
 
                 if (recording == null) {
@@ -281,6 +303,7 @@ namespace AI.Caller.Phone.Controllers {
         public async Task<IActionResult> Download(string filePath) {
             try {
                 var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var isAdmin = User.HasClaim("isAdmin", "True");
 
                 if (string.IsNullOrEmpty(filePath)) {
                     return BadRequest("文件路径不能为空");
@@ -291,7 +314,12 @@ namespace AI.Caller.Phone.Controllers {
                     return NotFound("录音文件不存在");
                 }
 
-                var recordings = await _recordingService.GetRecordingsAsync(userId);
+                List<AI.Caller.Phone.Models.Recording> recordings;
+                if (isAdmin) {
+                    recordings = await _recordingService.GetAllRecordingsAsync();
+                } else {
+                    recordings = await _recordingService.GetRecordingsAsync(userId);
+                }
                 var recording = recordings.FirstOrDefault(r => r.FilePath == filePath);
 
                 if (recording == null) {
