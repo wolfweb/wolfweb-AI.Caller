@@ -82,17 +82,5 @@ namespace AI.Caller.Phone.Services {
                 _logger.LogError(ex, $"处理通话结束录音失败 - 用户: {userId}");
             }
         }
-
-        public async Task<bool> StartRecordingAsync(int userId) {
-            return await _recordingService.StartRecordingAsync(userId);
-        }
-
-        public async Task<bool> StopRecordingAsync(int userId) {
-            return await _recordingService.StopRecordingAsync(userId);
-        }
-
-        public async Task<Models.RecordingStatus?> GetRecordingStatusAsync(int userId) {
-            return await _recordingService.GetRecordingStatusAsync(userId);
-        }
     }
 }

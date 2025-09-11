@@ -11,11 +11,11 @@ using System.Net;
 
 namespace AI.Caller.Phone.Services {
     public class AudioStreamRecordingService : ISimpleRecordingService {
+        private readonly ILogger _logger;
         private readonly string _recordingsPath;
-        private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly ILogger<AudioStreamRecordingService> _logger;
-        private readonly ConcurrentDictionary<int, RecordingSession> _activeSessions;
         private readonly ApplicationContext _applicationContext;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly ConcurrentDictionary<int, RecordingSession> _activeSessions;
 
         public AudioStreamRecordingService(
             ILogger<AudioStreamRecordingService> logger,
@@ -260,10 +260,10 @@ namespace AI.Caller.Phone.Services {
     internal class RecordingSession : IDisposable {
         public Recording Recording { get; }
 
-        private readonly SIPClient _sipClient;
-
         private readonly ILogger _logger;
+        private readonly SIPClient _sipClient;
         private readonly AudioRecorder _audioRecorder;
+        private readonly System.Timers.Timer _timeoutTimer;
         private readonly IServiceScopeFactory _serviceScopeFactory;
 
         private bool _disposed = false;
@@ -276,6 +276,16 @@ namespace AI.Caller.Phone.Services {
             _serviceScopeFactory = serviceScopeFactory;
             _audioRecorder = new AudioRecorder(recording.FilePath, logger);
             SubscribeToAudioEvents();
+
+            _timeoutTimer = new System.Timers.Timer(TimeSpan.FromSeconds(30).TotalMilliseconds);
+            _timeoutTimer.Elapsed += async (s, e) => {
+                if (!_sipClient.IsCallActive) {
+                    _logger.LogWarning($"用户 {recording.UserId} 通话已结束，自动停止录音 - RecordingId: {recording.Id}");
+                    await StopAsync();
+                }
+            };
+            _timeoutTimer.AutoReset = true;
+            _timeoutTimer.Start();
         }
 
         private void SubscribeToAudioEvents() {
@@ -297,7 +307,7 @@ namespace AI.Caller.Phone.Services {
 
         private void OnAudioPacketReceived(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
-                if (_isPaused) return;
+                if (_isPaused || _audioRecorder.IsDisposed) return;
                 
                 if (mediaType == SDPMediaTypesEnum.audio && rtpPacket?.Payload != null && rtpPacket.Payload.Length > 0) {
                     long localTimestamp = DateTime.UtcNow.Ticks;
@@ -310,7 +320,7 @@ namespace AI.Caller.Phone.Services {
 
         private void OnAudioPacketSent(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
-                if (_isPaused) return;
+                if (_isPaused || _audioRecorder.IsDisposed) return;
                 
                 if (mediaType == SDPMediaTypesEnum.audio && rtpPacket?.Payload != null && rtpPacket.Payload.Length > 0) {
                     long localTimestamp = DateTime.UtcNow.Ticks;
@@ -340,6 +350,7 @@ namespace AI.Caller.Phone.Services {
                 UnsubscribeFromAudioEvents();
 
                 await _audioRecorder.FinalizeAsync();
+                _audioRecorder.Dispose();
 
                 Recording.EndTime = DateTime.UtcNow;
                 Recording.Duration = Recording.EndTime.Value - Recording.StartTime;
@@ -368,7 +379,6 @@ namespace AI.Caller.Phone.Services {
         public void Dispose() {
             if (!_disposed) {
                 UnsubscribeFromAudioEvents();
-                _audioRecorder?.Dispose();
                 _disposed = true;
             }
         }
@@ -380,13 +390,14 @@ namespace AI.Caller.Phone.Services {
     }
 
     internal class AudioRecorder : IDisposable {
+        private readonly ILogger _logger;
         private readonly string _filePath;
         private readonly SemaphoreSlim _semaphore;
         private readonly FileStream _fileStream;
         private readonly SortedList<long, byte[]> _audioBuffer;
         private readonly TimeSpan _flushInterval = TimeSpan.FromSeconds(1);
         private readonly System.Timers.Timer _flushTimer;
-        private readonly ILogger _logger;
+
         private bool _disposed = false;
         private static long _firstLocalTimestamp = -1;
         private readonly int _sampleRate;
@@ -407,6 +418,8 @@ namespace AI.Caller.Phone.Services {
             _flushTimer.AutoReset = true;
             _flushTimer.Start();
         }
+
+        public bool IsDisposed => _disposed;
 
         public void WriteAudioData(byte[] rtpPayload, AudioDirection direction, uint rtpTimestamp, long localTimestamp, int payloadType) {
             if (_disposed || rtpPayload == null || rtpPayload.Length == 0) return;
