@@ -252,3 +252,5 @@ ModelManifest.xml
 /src/AI.Caller.Phone/app.db-shm
 /src/AI.Caller.Phone/app.db-wal
 recordings/
+
+appsettings.Development.json

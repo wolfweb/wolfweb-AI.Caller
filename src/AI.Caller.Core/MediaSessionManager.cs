@@ -337,8 +337,6 @@ namespace AI.Caller.Core {
                         _mediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                         _logger.LogTrace($"Forwarded WebRTC audio to SIP: {rtpPacket.Payload.Length} bytes from {remote} to {sendToEndPoint}");
                         AudioDataSent?.Invoke(remote, mediaType, rtpPacket);
-                    } else {
-                        _logger.LogError("Cannot forward audio to SIP: dstEndPoint is null.");
                     }
                 } else {
                     if (_mediaSession == null) {

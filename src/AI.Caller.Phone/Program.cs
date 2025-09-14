@@ -5,9 +5,11 @@ using AI.Caller.Phone.Filters;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
+using FFmpeg.AutoGen;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using NLog.Extensions.Logging;
+using System.Configuration;
 
 namespace AI.Caller.Phone {
     public class Program {
@@ -23,6 +25,8 @@ namespace AI.Caller.Phone {
             }).AddNewtonsoftJson(options => {
 
             });
+
+            ffmpeg.RootPath = builder.Configuration.GetValue<string>("FFmpegDir");
 
             builder.Services.AddDistributedMemoryCache();
             builder.Services.AddSession(options => {
