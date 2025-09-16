@@ -1,4 +1,3 @@
-using AI.Caller.Core.Adapters.Tts;
 using AI.Caller.Core.Media.Tts;
 using AI.Caller.Core.Tests.Media.Tts;
 using KokoroSharp;
