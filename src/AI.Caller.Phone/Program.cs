@@ -39,9 +39,6 @@ namespace AI.Caller.Phone {
 
             builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
 
-            builder.Services.Configure<AI.Caller.Phone.CallRouting.Configuration.CallRoutingConfiguration>(
-                builder.Configuration.GetSection("CallRoutingSettings"));
-
             builder.Services.AddSingleton<ApplicationContext>(serviceProvider => {
                 var ctx = new ApplicationContext(serviceProvider);
                 return ctx;
