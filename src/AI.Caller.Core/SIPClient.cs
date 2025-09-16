@@ -114,6 +114,7 @@ namespace AI.Caller.Core {
 
         public void Accept(SIPRequest sipRequest) {
             m_pendingIncomingCall = m_userAgent.AcceptCall(sipRequest);
+            EnsureMediaSessionInitialized();
         }
 
         public async Task<bool> AnswerAsync() {

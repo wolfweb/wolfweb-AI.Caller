@@ -94,22 +94,10 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 var sipClient = routingResult.TargetClient!;
                 var targetUser = routingResult.TargetUser!;
 
-                _logger.LogDebug($"处理非Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipAccount?.SipUsername}");
+                _logger.LogDebug($"处理非Web到Web通话 - CallId: {sipRequest.Header.CallId}, User: {targetUser.SipAccount?.SipUsername}\n{sipRequest.Body}");
 
                 sipClient.Accept(sipRequest);
-
-                var offerSdp = await sipClient.CreateOfferAsync();
-
-                if (!string.IsNullOrEmpty(sipRequest.Body)) {
-                    var sdp = SDP.ParseSDPDescription(sipRequest.Body);
-                    var remoteDescription = new RTCSessionDescriptionInit {
-                        type = RTCSdpType.offer,
-                        sdp = sipRequest.Body
-                    };
-
-                    await sipClient.MediaSessionManager!.SetSipRemoteDescriptionAsync(remoteDescription);
-                    _logger.LogDebug($"Set phone SDP Offer to RTPSession for CallId: {sipRequest.Header.CallId}");
-                }
+                var sdp = SDP.ParseSDPDescription(sipRequest.Body);
 
                 sipClient.MediaSessionManager!.IceCandidateGenerated += (candidate) => {
                     if (sipClient.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.have_remote_offer ||
@@ -121,11 +109,6 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                         }
                     }
                 };
-
-                _logger.LogDebug($"*** SENDING inCalling TO UI *** CallId: {sipRequest.Header.CallId}");
-                _logger.LogDebug($"Target User ID: {targetUser.Id}, SipUsername: {targetUser.SipAccount?.SipUsername}");
-                _logger.LogDebug($"Caller: {sipRequest.Header.From.FromURI.User}");
-                _logger.LogDebug($"SIP Client IsCallActive: {sipClient.IsCallActive}");
 
                 if (sipClient.Dialogue != null) {
                     _logger.LogDebug($"SIP Dialogue exists - CallId: {sipClient.Dialogue.CallId}");
@@ -140,7 +123,10 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                         userId = targetUser.Id,
                         sipUsername = targetUser.SipAccount?.SipUsername
                     },
-                    offerSdp = offerSdp.toJSON(),
+                    offerSdp = new RTCSessionDescriptionInit {
+                        type = RTCSdpType.offer,
+                        sdp = sipRequest.Body
+                    },
                     callId = sipRequest.Header.CallId,
                     isExternal = true,
                     timestamp = DateTime.UtcNow
