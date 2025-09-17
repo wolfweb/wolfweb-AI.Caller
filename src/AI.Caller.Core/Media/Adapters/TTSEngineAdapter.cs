@@ -1,4 +1,3 @@
-using AI.Caller.Core.Configuration;
 using AI.Caller.Core.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -26,20 +25,17 @@ namespace AI.Caller.Core.Media.Adapters {
             try {
                 var config = new OfflineTtsConfig();
 
-                // 验证模型文件夹是否存在
                 if (string.IsNullOrEmpty(_settings.ModelFolder) || !Directory.Exists(_settings.ModelFolder)) {
                     _logger.LogError($"TTS model folder not found: {_settings.ModelFolder}");
                     _isEnabled = false;
                     return;
                 }
 
-                // 配置模型路径
                 config.Model.Vits.Model = Path.Combine(_settings.ModelFolder, _settings.ModelFile);
                 config.Model.Vits.Lexicon = Path.Combine(_settings.ModelFolder, _settings.LexiconFile);
                 config.Model.Vits.Tokens = Path.Combine(_settings.ModelFolder, _settings.TokensFile);
                 config.Model.Vits.DictDir = Path.Combine(_settings.ModelFolder, _settings.DictDir);
 
-                // 验证必需文件是否存在
                 if (!File.Exists(config.Model.Vits.Model)) {
                     _logger.LogError($"TTS model file not found: {config.Model.Vits.Model}");
                     _isEnabled = false;
@@ -50,7 +46,6 @@ namespace AI.Caller.Core.Media.Adapters {
                 config.Model.Debug = _settings.Debug;
                 config.Model.Provider = _settings.Provider;
 
-                // 配置规则FST文件
                 if (!string.IsNullOrEmpty(_settings.RuleFsts)) {
                     var fstFiles = _settings.RuleFsts.Split(',', StringSplitOptions.RemoveEmptyEntries)
                         .Select(f => Path.Combine(_settings.ModelFolder, f.Trim()))
@@ -111,6 +106,7 @@ namespace AI.Caller.Core.Media.Adapters {
             await foreach (var item in channel.Reader.ReadAllAsync()) {
                 yield return new AudioData {
                     FloatData = item,
+                    SampleRate = _tts.SampleRate,
                     Format = AudioDataFormat.PCM_Float
                 };
             }

@@ -67,23 +67,34 @@ namespace AI.Caller.Core {
                 if (token.IsCancellationRequested) break;
 
                 if (data.FloatData != null && data.FloatData.Length > 0) {
-                    EnqueueFloatPcm(data.FloatData);
+                    EnqueueFloatPcm(data.FloatData, data.SampleRate);
                 }
             }
         }
 
-        private void EnqueueFloatPcm(float[] src) {
+        private void EnqueueFloatPcm(float[] src, int ttsSampleRate) {
             int i = 0;
             int frame = _profile.SamplesPerFrame;
-            var tmp = new short[src.Length];
+            
+            var shortSrc = new short[src.Length];
             for (int k = 0; k < src.Length; k++) {
                 int v = (int)Math.Round(src[k] * 32767f);
-                tmp[k] = (short)Math.Clamp(v, short.MinValue, short.MaxValue);
+                shortSrc[k] = (short)Math.Clamp(v, short.MinValue, short.MaxValue);
+            }
+            
+            short[] processedSrc = shortSrc;
+            if (shortSrc.Length > 0 && ttsSampleRate != _profile.SampleRate) {
+                using var resampler = new AI.Caller.Core.Media.AudioResampler(
+                    ttsSampleRate, 
+                    _profile.SampleRate, 
+                    _logger);
+                processedSrc = resampler.Resample(shortSrc);
+                _logger.LogDebug($"Resampled audio from {ttsSampleRate}Hz to {_profile.SampleRate}Hz");
             }
 
-            while (i < tmp.Length) {
-                int len = Math.Min(frame, tmp.Length - i);
-                _playback.Enqueue(new ReadOnlySpan<short>(tmp, i, len));
+            while (i < processedSrc.Length) {
+                int len = Math.Min(frame, processedSrc.Length - i);
+                _playback.Enqueue(new ReadOnlySpan<short>(processedSrc, i, len));
                 i += len;
             }
         }

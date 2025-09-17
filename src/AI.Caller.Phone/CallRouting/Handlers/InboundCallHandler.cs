@@ -1,6 +1,8 @@
-﻿﻿using AI.Caller.Phone.Hubs;
+﻿using AI.Caller.Core;
+using AI.Caller.Phone.Hubs;
+using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.SignalR;
-using Org.BouncyCastle.Asn1.Ocsp;
+using Microsoft.Extensions.Options;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
 
@@ -9,14 +11,17 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
         private readonly ILogger<InboundCallHandler> _logger;
         private readonly IHubContext<WebRtcHub> _hubContext;
         private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly AICustomerServiceSettings _aiSettings;
 
         public InboundCallHandler(
             ILogger<InboundCallHandler> logger,
             IHubContext<WebRtcHub> hubContext,
-            IServiceScopeFactory serviceScopeFactory) {
+            IServiceScopeFactory serviceScopeFactory,
+            IOptions<AICustomerServiceSettings> aiSettings) {
             _logger = logger;
             _hubContext = hubContext;
             _serviceScopeFactory = serviceScopeFactory;
+            _aiSettings = aiSettings.Value;
         }
 
         public async Task<bool> HandleCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult) {
@@ -132,6 +137,17 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                     timestamp = DateTime.UtcNow
                 });
 
+                if (_aiSettings.Enabled && _aiSettings.AutoAnswerInbound) {
+                    _ = Task.Run(async () => {
+                        try {
+                            await Task.Delay(_aiSettings.AutoAnswerDelayMs);
+                            await AutoAnswerWithAI(sipClient, targetUser);
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, $"AI自动接听失败 - CallId: {sipRequest.Header.CallId}");
+                        }
+                    });
+                }
+
                 _logger.LogDebug($"非Web到Web通话处理完成 - CallId: {sipRequest.Header.CallId}");
                 return true;
             } catch (Exception ex) {
@@ -153,5 +169,32 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 return false;
             }
         }
+
+        private async Task AutoAnswerWithAI(AI.Caller.Core.SIPClient sipClient, AI.Caller.Phone.Entities.User targetUser) {
+            try {
+                _logger.LogInformation($"开始AI自动接听 - 用户: {targetUser.Username}");
+
+                using var scope = _serviceScopeFactory.CreateScope();
+                var sipService = scope.ServiceProvider.GetRequiredService<SipService>();
+
+                var answered = await sipClient.AnswerAsync();
+                if (answered) {
+                    _logger.LogInformation($"AI自动接听成功 - 用户: {targetUser.Username}");
+
+                    await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("aiAutoAnswered", new {
+                        message = "AI已自动接听",
+                        timestamp = DateTime.UtcNow
+                    });
+
+                    await sipService.StartAICustomerServiceAsync(targetUser, _aiSettings.DefaultWelcomeScript);
+                } else {
+                    _logger.LogWarning($"AI自动接听失败 - 用户: {targetUser.Username}");
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, $"AI自动接听过程中发生错误 - 用户: {targetUser.Username}");
+            }
+        }
+
+
     }
 }

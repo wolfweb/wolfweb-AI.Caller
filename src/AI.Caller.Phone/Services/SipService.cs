@@ -25,6 +25,7 @@ namespace AI.Caller.Phone.Services {
 
         private readonly IServiceScopeFactory _serviceScopeProvider;
         private readonly AICustomerServiceManager _aiCustomerServiceManager;
+        private readonly AICustomerServiceSettings _aiSettings;
 
         public SipService(
             ILogger<SipService> logger,
@@ -35,17 +36,20 @@ namespace AI.Caller.Phone.Services {
             IOptions<WebRTCSettings> webRTCSettings,
             IServiceScopeFactory serviceScopeProvider,
             AICustomerServiceManager aiCustomerServiceManager,
+            IOptions<AICustomerServiceSettings> aiSettings,
             HangupMonitoringService? monitoringService = null
         ) {
             _logger = logger;
             _dbContext = dbContext;
             _hubContext = hubContext;
+            _aiSettings = aiSettings.Value;
             _webRTCSettings = webRTCSettings.Value;
             _applicationContext = applicationContext;
             _sipTransportManager = sipTransportManager;
             _retryPolicy = new HangupRetryPolicy();
             _monitoringService = monitoringService ?? new HangupMonitoringService(LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<HangupMonitoringService>());
             _serviceScopeProvider = serviceScopeProvider;
+            _aiCustomerServiceManager = aiCustomerServiceManager;
         }
 
         public async Task<bool> RegisterUserAsync(User user) {
@@ -69,6 +73,18 @@ namespace AI.Caller.Phone.Services {
 
                 sipClient.CallAnswered += async _ => {
                     await _hubContext.Clients.User(user.Id.ToString()).SendAsync("answered");
+                    
+                    // 检查是否启用呼出后自动启动AI
+                    if (_aiSettings.Enabled && _aiSettings.AutoStartOnOutbound) {
+                        Task.Run(async () => {
+                            try {
+                                await Task.Delay(1000); // 等待1秒确保通话稳定
+                                await StartAICustomerServiceAsync(user, _aiSettings.DefaultWelcomeScript);
+                            } catch (Exception ex) {
+                                _logger.LogError(ex, $"呼出后自动启动AI客服失败 - 用户: {user.Username}");
+                            }
+                        });
+                    }
                 };
 
                 sipClient.CallFinishedWithContext += async (client, context) => {
@@ -161,6 +177,18 @@ namespace AI.Caller.Phone.Services {
 
                     if (result) {
                         _applicationContext.UpdateUserActivityByUserId(user.Id);
+                        
+                        // 检查是否启用来电后自动启动AI
+                        if (_aiSettings.Enabled && _aiSettings.AutoStartOnInbound) {
+                            _ = Task.Run(async () => {
+                                try {
+                                    await Task.Delay(1000); // 等待1秒确保通话稳定
+                                    await StartAICustomerServiceAsync(user, _aiSettings.DefaultWelcomeScript);
+                                } catch (Exception ex) {
+                                    _logger.LogError(ex, $"来电接听后自动启动AI客服失败 - 用户: {user.Username}");
+                                }
+                            });
+                        }
                     }
 
                     return result;
@@ -192,6 +220,16 @@ namespace AI.Caller.Phone.Services {
                 }
 
                 _logger.LogDebug($"用户 {user.Username} 有活动通话，执行挂断");
+
+                // 如果有活跃的AI客服会话，先停止它
+                if (_aiCustomerServiceManager.IsAICustomerServiceActive(user.Id)) {
+                    try {
+                        await _aiCustomerServiceManager.StopAICustomerServiceAsync(user.Id);
+                        _logger.LogDebug($"已停止用户 {user.Username} 的AI客服会话");
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, $"停止AI客服会话失败 - 用户: {user.Username}");
+                    }
+                }
 
                 sipClient.Hangup();
 
@@ -346,6 +384,14 @@ namespace AI.Caller.Phone.Services {
 
             if (callContext!.IsExternal) {                
                 if (!string.IsNullOrEmpty(callContext.Callee?.UserId) && int.TryParse(callContext.Callee.UserId, out int calleeUserId)) {
+                    if (_aiCustomerServiceManager.IsAICustomerServiceActive(calleeUserId)) {
+                        try {
+                            await _aiCustomerServiceManager.StopAICustomerServiceAsync(calleeUserId);
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, $"停止目标用户AI客服失败 - 用户ID: {calleeUserId}");
+                        }
+                    }
+                    
                     if (_applicationContext.SipClients.TryGetValue(calleeUserId, out var calleeSipClient)) {
                         calleeSipClient.Hangup();
                         _logger.LogInformation($"成功挂断外部呼叫 - 当前用户: {currentUser.Username}, 目标用户ID: {calleeUserId}");
@@ -357,6 +403,14 @@ namespace AI.Caller.Phone.Services {
                     currentUserSipClient.Cancel();
                     _logger.LogInformation($"无法识别目标用户，取消当前用户呼叫 - 当前用户: {currentUser.Username}");
                 }
+                
+                if (_aiCustomerServiceManager.IsAICustomerServiceActive(currentUser.Id)) {
+                    try {
+                        await _aiCustomerServiceManager.StopAICustomerServiceAsync(currentUser.Id);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, $"停止当前用户AI客服失败 - 用户: {currentUser.Username}");
+                    }
+                }
             } else {
                 User? targetUser = null;
                 
@@ -366,6 +420,14 @@ namespace AI.Caller.Phone.Services {
                         targetUser = await _dbContext.Users.Include(u => u.SipAccount).FirstOrDefaultAsync(u => u.Id == targetUserId);
                             
                         if (targetUser != null) {
+                            if (_aiCustomerServiceManager.IsAICustomerServiceActive(targetUserId)) {
+                                try {
+                                    await _aiCustomerServiceManager.StopAICustomerServiceAsync(targetUserId);
+                                } catch (Exception ex) {
+                                    _logger.LogError(ex, $"停止目标用户AI客服失败 - 用户: {targetUser.Username}");
+                                }
+                            }
+                            
                             if (_applicationContext.SipClients.TryGetValue(targetUserId, out var targetSipClient)) {
                                 targetSipClient.Hangup();
                                 await _hubContext.Clients.User(targetUser.Id.ToString()).SendAsync("callEnded", new {
@@ -389,6 +451,14 @@ namespace AI.Caller.Phone.Services {
                 } else {
                     currentUserSipClient.Cancel();
                     _logger.LogWarning($"缺少完整的呼叫者/被叫者信息，使用默认挂断逻辑 - 当前用户: {currentUser.Username}");
+                }
+                
+                if (_aiCustomerServiceManager.IsAICustomerServiceActive(currentUser.Id)) {
+                    try {
+                        await _aiCustomerServiceManager.StopAICustomerServiceAsync(currentUser.Id);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, $"停止当前用户AI客服失败 - 用户: {currentUser.Username}");
+                    }
                 }
             }
 
@@ -571,11 +641,66 @@ namespace AI.Caller.Phone.Services {
             _logger.LogError($"通知Web端用户 {user.Id}->{user.SipAccount?.SipUsername} 远程挂断事件失败，已达到最大重试次数 {_retryPolicy.MaxRetries}");
         }
 
+        public async Task<bool> StartAICustomerServiceAsync(User user, string scriptText) {
+            try {
+                if (!_applicationContext.SipClients.TryGetValue(user.Id, out var sipClient)) {
+                    _logger.LogWarning($"用户 {user.Username} 的SIP客户端不存在，无法启动AI客服");
+                    return false;
+                }
+
+                if (!sipClient.IsCallActive) {
+                    _logger.LogWarning($"用户 {user.Username} 没有活跃通话，无法启动AI客服");
+                    return false;
+                }
+
+                var result = await _aiCustomerServiceManager.StartAICustomerServiceAsync(user, sipClient, scriptText);
+                if (result) {
+                    _logger.LogInformation($"AI客服已为用户 {user.Username} 启动");
+                    
+                    await _hubContext.Clients.User(user.Id.ToString()).SendAsync("aiCustomerServiceStarted", new {
+                        message = "AI客服已启动",
+                        scriptText = scriptText,
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+
+                return result;
+            } catch (Exception ex) {
+                _logger.LogError(ex, $"启动AI客服失败 - 用户: {user.Username}");
+                return false;
+            }
+        }
+
+        public async Task<bool> StopAICustomerServiceAsync(User user) {
+            try {
+                var result = await _aiCustomerServiceManager.StopAICustomerServiceAsync(user.Id);
+                if (result) {
+                    _logger.LogInformation($"AI客服已为用户 {user.Username} 停止");
+                    
+                    await _hubContext.Clients.User(user.Id.ToString()).SendAsync("aiCustomerServiceStopped", new {
+                        message = "AI客服已停止",
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+
+                return result;
+            } catch (Exception ex) {
+                _logger.LogError(ex, $"停止AI客服失败 - 用户: {user.Username}");
+                return false;
+            }
+        }
+
+        public bool IsAICustomerServiceActive(int userId) {
+            return _aiCustomerServiceManager.IsAICustomerServiceActive(userId);
+        }
+
         public async Task PerformMaintenanceAsync() {
             var expiredClientIds = _applicationContext.GetInactiveUserIds(TimeSpan.FromHours(2));
             foreach (var clientId in expiredClientIds) {
                 if (_applicationContext.SipClients.TryRemove(clientId, out var sipClient)) {
                     try {
+                        await _aiCustomerServiceManager.StopAICustomerServiceAsync(clientId);
+                        
                         sipClient.Hangup();
                         _logger.LogInformation($"已清理过期的SIP客户端: {clientId}");
                     } catch (Exception ex) {

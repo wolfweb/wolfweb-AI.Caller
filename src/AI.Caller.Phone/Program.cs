@@ -39,7 +39,8 @@ namespace AI.Caller.Phone {
             builder.Services.AddSignalR();
 
             builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
-            builder.Services.Configure<AI.Caller.Core.Configuration.TTSSettings>(builder.Configuration.GetSection("TTSSettings"));
+            builder.Services.Configure<TTSSettings>(builder.Configuration.GetSection("TTSSettings"));
+            builder.Services.Configure<AICustomerServiceSettings>(builder.Configuration.GetSection("AICustomerServiceSettings"));
 
             builder.Services.AddSingleton<ApplicationContext>(serviceProvider => {
                 var ctx = new ApplicationContext(serviceProvider);
