@@ -1,13 +1,10 @@
-using AI.Caller.Core.Media.Tts;
-using Org.BouncyCastle.Asn1.X509;
+using AI.Caller.Core.Models;
 using SherpaOnnx;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Text.Json;
 using System.Threading.Channels;
 
 namespace AI.Caller.Core.Media.Adapters {
-    public sealed class TTSEngineAdapter : ITtsEngine {
+    public sealed class TTSEngineAdapter : ITTSEngine {
         private readonly OfflineTts _tts;
         public TTSEngineAdapter() {
             var folder = "";
@@ -26,7 +23,7 @@ namespace AI.Caller.Core.Media.Adapters {
             _tts = new OfflineTts(config);
         }
 
-        public async IAsyncEnumerable<float[]> SynthesizeStreamAsync(string text, int speakerId, float speed = 1.0f) {
+        public async IAsyncEnumerable<AudioData> SynthesizeStreamAsync(string text, int speakerId, float speed = 1.0f) {
             var channel = Channel.CreateUnbounded<float[]>();
 
             _ = Task.Run(() => { 
@@ -40,7 +37,10 @@ namespace AI.Caller.Core.Media.Adapters {
             });
 
             await foreach (var item in channel.Reader.ReadAllAsync()) {
-                yield return item;
+                yield return new AudioData {
+                    FloatData = item,
+                    Format = AudioDataFormat.PCM_Float
+                };
             }
         }
     }
