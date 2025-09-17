@@ -18,7 +18,7 @@
     <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.9" />
-	<PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.12.12" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.12.12" />
   </ItemGroup>
 
 </Project>

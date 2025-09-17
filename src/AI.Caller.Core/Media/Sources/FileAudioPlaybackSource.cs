@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Interfaces;
 
-namespace AI.Caller.Core.Media.Sources {
+namespace AI.Caller.Core {
     public sealed class FileAudioPlaybackSource : IAudioPlaybackSource {
         private FileStream? _fs;
         private BinaryReader? _br;
@@ -19,7 +19,7 @@ namespace AI.Caller.Core.Media.Sources {
         private int _samplesPerFrame;
         private bool _started;
 
-        public void Init(AI.Caller.Core.Media.MediaProfile profile) {
+        public void Init(MediaProfile profile) {
             _samplesPerFrame = profile.SamplesPerFrame;
         }
 

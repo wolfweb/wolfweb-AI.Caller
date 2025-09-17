@@ -1,4 +1,5 @@
 using AI.Caller.Core;
+using AI.Caller.Core.Extensions;
 using AI.Caller.Phone.BackgroundTask;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Filters;
@@ -38,6 +39,7 @@ namespace AI.Caller.Phone {
             builder.Services.AddSignalR();
 
             builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
+            builder.Services.Configure<AI.Caller.Core.Configuration.TTSSettings>(builder.Configuration.GetSection("TTSSettings"));
 
             builder.Services.AddSingleton<ApplicationContext>(serviceProvider => {
                 var ctx = new ApplicationContext(serviceProvider);
@@ -63,6 +65,11 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
             builder.Services.AddScoped<ICallRoutingStrategy, CallRouting.Strategies.DirectRoutingStrategy>();
             builder.Services.AddScoped<CallRouting.Handlers.InboundCallHandler>();
+
+            // 注册AI自动应答相关服务
+            builder.Services.AddAIAutoResponder();
+            builder.Services.AddMediaProcessing();
+            builder.Services.AddSingleton<AICustomerServiceManager>();
             builder.Services.AddAuthentication(options => {
                 options.DefaultScheme = "CookieAuth";
                 options.DefaultChallengeScheme = "CookieAuth";

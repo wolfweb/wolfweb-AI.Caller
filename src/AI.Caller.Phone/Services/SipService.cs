@@ -3,6 +3,7 @@ using AI.Caller.Core.Models;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
+using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -23,6 +24,7 @@ namespace AI.Caller.Phone.Services {
         private readonly HangupMonitoringService _monitoringService;
 
         private readonly IServiceScopeFactory _serviceScopeProvider;
+        private readonly AICustomerServiceManager _aiCustomerServiceManager;
 
         public SipService(
             ILogger<SipService> logger,
@@ -32,6 +34,7 @@ namespace AI.Caller.Phone.Services {
             SIPTransportManager sipTransportManager,
             IOptions<WebRTCSettings> webRTCSettings,
             IServiceScopeFactory serviceScopeProvider,
+            AICustomerServiceManager aiCustomerServiceManager,
             HangupMonitoringService? monitoringService = null
         ) {
             _logger = logger;

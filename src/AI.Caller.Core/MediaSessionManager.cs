@@ -3,6 +3,7 @@ using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
 using System.Net;
+using AI.Caller.Core.Media.Interfaces;
 
 namespace AI.Caller.Core {
     public class MediaSessionManager : IDisposable {
@@ -12,6 +13,7 @@ namespace AI.Caller.Core {
         private bool _disposed = false;
 
         private readonly ILogger _logger;
+        private IAudioBridge? _audioBridge;
 
         public event Action<RTCSessionDescriptionInit>? SdpOfferGenerated;
         public event Action<RTCSessionDescriptionInit>? SdpAnswerGenerated;
@@ -24,6 +26,14 @@ namespace AI.Caller.Core {
 
         public MediaSessionManager(ILogger logger) {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        /// <summary>
+        /// 设置音频桥接，用于AI处理
+        /// </summary>
+        public void SetAudioBridge(IAudioBridge audioBridge) {
+            _audioBridge = audioBridge;
+            _logger.LogDebug("Audio bridge attached to MediaSessionManager");
         }
 
         public async Task InitializeMediaSession() {
@@ -68,6 +78,12 @@ namespace AI.Caller.Core {
 
             try {
                 await _mediaSession.Start();
+                
+                // 启动音频发送循环
+                if (_audioBridge != null) {
+                    StartAudioSendLoop();
+                }
+                
                 _logger.LogInformation("MediaSession started successfully.");
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to start MediaSession");
@@ -81,6 +97,42 @@ namespace AI.Caller.Core {
                 }
                 throw;
             }
+        }
+
+        private void StartAudioSendLoop() {
+            _ = Task.Run(async () => {
+                const int frameIntervalMs = 20; // 20ms帧间隔
+                
+                while (_mediaSession != null && !_mediaSession.IsClosed && _audioBridge != null) {
+                    try {
+                        var audioFrame = _audioBridge.GetNextOutgoingFrame();
+                        if (audioFrame != null && audioFrame.Length > 0) {
+                            // 将short[]转换为byte[]
+                            var audioBytes = ConvertShortsToBytes(audioFrame);
+                            if (audioBytes.Length > 0) {
+                                _mediaSession.SendAudio((uint)audioBytes.Length, audioBytes);
+                            }
+                        }
+                        
+                        await Task.Delay(frameIntervalMs);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "Error in audio send loop");
+                        await Task.Delay(100); // 短暂延迟后重试
+                    }
+                }
+                
+                _logger.LogDebug("Audio send loop terminated");
+            });
+        }
+
+        private byte[] ConvertShortsToBytes(short[] audioData) {
+            var bytes = new byte[audioData.Length * 2];
+            for (int i = 0; i < audioData.Length; i++) {
+                var shortBytes = BitConverter.GetBytes(audioData[i]);
+                bytes[i * 2] = shortBytes[0];
+                bytes[i * 2 + 1] = shortBytes[1];
+            }
+            return bytes;
         }
 
         public void InitializePeerConnection(RTCConfiguration config) {
@@ -306,6 +358,16 @@ namespace AI.Caller.Core {
                 if (mediaType != SDPMediaTypesEnum.audio || rtpPacket?.Payload == null || rtpPacket.Payload.Length == 0) {
                     _logger.LogDebug($"Skipping non-audio or empty RTP packet: MediaType={mediaType}, PayloadLength={(rtpPacket?.Payload?.Length ?? 0)}");
                     return;
+                }
+
+                // 将音频数据传递给音频桥接进行AI处理
+                if (_audioBridge != null) {
+                    try {
+                        // 假设8kHz采样率，实际应该从RTP头或SDP中获取
+                        _audioBridge.ProcessIncomingAudio(rtpPacket.Payload, 8000);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "Error processing audio through audio bridge");
+                    }
                 }
 
                 if (_peerConnection != null) {

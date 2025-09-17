@@ -1,6 +1,6 @@
 using System;
 
-namespace AI.Caller.Core.Media {
+namespace AI.Caller.Core {
     public enum AudioCodec {
         PCMU = 0, // payload type 0
         PCMA = 8  // payload type 8
