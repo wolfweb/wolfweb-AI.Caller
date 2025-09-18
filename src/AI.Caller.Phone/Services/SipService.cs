@@ -74,11 +74,10 @@ namespace AI.Caller.Phone.Services {
                 sipClient.CallAnswered += async _ => {
                     await _hubContext.Clients.User(user.Id.ToString()).SendAsync("answered");
                     
-                    // 检查是否启用呼出后自动启动AI
                     if (_aiSettings.Enabled && _aiSettings.AutoStartOnOutbound) {
                         Task.Run(async () => {
                             try {
-                                await Task.Delay(1000); // 等待1秒确保通话稳定
+                                await Task.Delay(1000);
                                 await StartAICustomerServiceAsync(user, _aiSettings.DefaultWelcomeScript);
                             } catch (Exception ex) {
                                 _logger.LogError(ex, $"呼出后自动启动AI客服失败 - 用户: {user.Username}");

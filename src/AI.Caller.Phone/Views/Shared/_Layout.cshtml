@@ -38,6 +38,16 @@
                                     <i class="bi bi-mic"></i> 录音管理
                                 </a>
                             </li>
+                            <li class="nav-item">
+                                <a class="nav-link" asp-area="" asp-controller="TtsCall" asp-action="Index">
+                                    <i class="bi bi-telephone-outbound"></i> TTS外呼
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" asp-area="" asp-controller="Inbound" asp-action="Index">
+                                    <i class="bi bi-telephone-inbound"></i> 呼入模板
+                                </a>
+                            </li>
                             @if (User.HasClaim("isAdmin", "True")) {
                                 <li class="nav-item">
                                     <a class="nav-link" asp-area="" asp-controller="Recording" asp-action="Test">

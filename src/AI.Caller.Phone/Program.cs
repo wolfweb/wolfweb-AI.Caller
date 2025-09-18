@@ -62,6 +62,14 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<RecordingManager>();
             builder.Services.AddSingleton<HangupMonitoringService>();
 
+            // TTS外呼和呼入模板服务
+            builder.Services.AddScoped<ITtsCallDocumentService, TtsCallDocumentService>();
+            builder.Services.AddScoped<ITtsCallTaskService, TtsCallTaskService>();
+            builder.Services.AddScoped<IInboundTemplateService, InboundTemplateService>();
+            builder.Services.AddScoped<IFileStorageService, FileStorageService>();
+            builder.Services.AddScoped<ITtsTemplateIntegrationService, TtsTemplateIntegrationService>();
+            builder.Services.AddScoped<IOutboundCallExecutor, OutboundCallExecutor>();
+
             builder.Services.AddSingleton<ICallTypeIdentifier, CallRouting.Services.CallTypeIdentifier>();
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
             builder.Services.AddScoped<ICallRoutingStrategy, CallRouting.Strategies.DirectRoutingStrategy>();

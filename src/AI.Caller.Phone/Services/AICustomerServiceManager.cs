@@ -11,20 +11,21 @@ namespace AI.Caller.Phone.Services {
     /// AI客服管理器，负责管理AI自动应答实例的生命周期
     /// </summary>
     public class AICustomerServiceManager : IDisposable {
-        private readonly ILogger<AICustomerServiceManager> _logger;
-        private readonly IAIAutoResponderFactory _autoResponderFactory;
+        private readonly ILogger _logger;
         private readonly IServiceProvider _serviceProvider;
+        private readonly IAIAutoResponderFactory _autoResponderFactory;
         
         // 存储每个用户的AI应答器实例
         private readonly ConcurrentDictionary<int, AIAutoResponderSession> _activeSessions = new();
 
         public AICustomerServiceManager(
             ILogger<AICustomerServiceManager> logger,
-            IAIAutoResponderFactory autoResponderFactory,
-            IServiceProvider serviceProvider) {
+            IServiceProvider serviceProvider,
+            IAIAutoResponderFactory autoResponderFactory
+            ) {
             _logger = logger;
-            _autoResponderFactory = autoResponderFactory;
             _serviceProvider = serviceProvider;
+            _autoResponderFactory = autoResponderFactory;
         }
 
         /// <summary>

@@ -1,0 +1,110 @@
+@model List<AI.Caller.Phone.Models.InboundTemplate>
+@{
+    ViewData["Title"] = "呼入模板管理";
+}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center m-4">
+        <h2><i class="bi bi-telephone-inbound"></i> 呼入模板管理</h2>
+        <a href="@Url.Action("Create")" class="btn btn-primary">
+            <i class="bi bi-plus"></i> 创建模板
+        </a>
+    </div>
+
+    @if (TempData["Success"] != null) {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @TempData["Success"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    @if (TempData["Error"] != null) {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @TempData["Error"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-body">
+            @if (Model.Any()) {
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>模板名称</th>
+                                <th>描述</th>
+                                <th>状态</th>
+                                <th>默认</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var template in Model) {
+                                <tr class="@(template.IsDefault ? "table-warning" : "")">
+                                    <td>
+                                        <a href="@Url.Action("Details", new { id = template.Id })" class="text-decoration-none">
+                                            <i class="bi bi-file-text"></i> @template.Name
+                                        </a>
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(template.Description)) {
+                                            @template.Description
+                                        } else {
+                                            <span class="text-muted">无描述</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (template.IsActive) {
+                                            <span class="badge bg-success">启用</span>
+                                        } else {
+                                            <span class="badge bg-secondary">禁用</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (template.IsDefault) {
+                                            <span class="badge bg-warning">
+                                                <i class="bi bi-star-fill"></i> 默认
+                                            </span>
+                                        } else {
+                                            <form asp-action="SetDefault" asp-route-id="@template.Id" method="post" class="d-inline">
+                                                <button type="submit" class="btn btn-outline-warning btn-sm" title="设为默认">
+                                                    <i class="bi bi-star"></i>
+                                                </button>
+                                            </form>
+                                        }
+                                    </td>
+                                    <td>@template.CreatedTime.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <a href="@Url.Action("Details", new { id = template.Id })" class="btn btn-outline-primary">
+                                                <i class="bi bi-eye"></i>
+                                            </a>
+                                            <a href="@Url.Action("Edit", new { id = template.Id })" class="btn btn-outline-secondary">
+                                                <i class="bi bi-pencil"></i>
+                                            </a>
+                                            @if (!template.IsDefault) {
+                                                <form asp-action="Delete" asp-route-id="@template.Id" method="post" class="d-inline"
+                                                      onsubmit="return confirm('确定要删除这个模板吗？')">
+                                                    <button type="submit" class="btn btn-outline-danger" title="删除">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </form>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            } else {
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox display-1 text-muted"></i>
+                    <h4 class="text-muted mt-3">暂无呼入模板</h4>
+                    <p class="text-muted">点击上方"创建模板"按钮开始创建呼入处理模板</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>

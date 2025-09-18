@@ -5,8 +5,7 @@ namespace AI.Caller.Phone.Services;
 /// <summary>
 /// 文件存储服务接口
 /// </summary>
-public interface IFileStorageService
-{
+public interface IFileStorageService {
     /// <summary>
     /// 创建录音文件
     /// </summary>
@@ -55,4 +54,12 @@ public interface IFileStorageService
     /// <param name="path">目录路径</param>
     /// <returns>是否成功</returns>
     Task<bool> EnsureDirectoryExistsAsync(string path);
+
+    /// <summary>
+    /// 保存上传的文件
+    /// </summary>
+    /// <param name="file">上传的文件</param>
+    /// <param name="subDirectory">子目录</param>
+    /// <returns>文件路径</returns>
+    Task<string> SaveFileAsync(IFormFile file, string subDirectory);
 }

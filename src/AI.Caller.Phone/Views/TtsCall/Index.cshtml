@@ -1,0 +1,168 @@
+@model List<AI.Caller.Phone.Models.TtsCallDocument>
+@{
+    ViewData["Title"] = "TTS外呼管理";
+}
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center m-4">
+        <h2><i class="bi bi-telephone-outbound"></i> TTS外呼管理</h2>
+        <div>
+            <a href="@Url.Action("DownloadTemplate")" class="btn btn-outline-primary">
+                <i class="bi bi-download"></i> 下载模板
+            </a>
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                <i class="bi bi-upload"></i> 上传文档
+            </button>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null) {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            @TempData["Success"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    @if (TempData["Error"] != null) {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            @TempData["Error"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-body">
+            @if (Model.Any()) {
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>文档名称</th>
+                                <th>总记录数</th>
+                                <th>已完成</th>
+                                <th>失败数</th>
+                                <th>状态</th>
+                                <th>上传时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var document in Model) {
+                                <tr>
+                                    <td>
+                                        <a href="@Url.Action("Details", new { id = document.Id })" class="text-decoration-none">
+                                            <i class="bi bi-file-earmark-excel"></i> @document.FileName
+                                        </a>
+                                    </td>
+                                    <td>@document.TotalRecords</td>
+                                    <td>
+                                        <span class="badge bg-success">@document.CompletedCalls</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-danger">@document.FailedCalls</span>
+                                    </td>
+                                    <td>
+                                        @switch (document.Status) {
+                                            case AI.Caller.Phone.Models.TtsCallTaskStatus.Pending:
+                                                <span class="badge bg-secondary">待处理</span>
+                                                break;
+                                            case AI.Caller.Phone.Models.TtsCallTaskStatus.Running:
+                                                <span class="badge bg-primary">运行中</span>
+                                                break;
+                                            case AI.Caller.Phone.Models.TtsCallTaskStatus.Paused:
+                                                <span class="badge bg-warning">已暂停</span>
+                                                break;
+                                            case AI.Caller.Phone.Models.TtsCallTaskStatus.Completed:
+                                                <span class="badge bg-success">已完成</span>
+                                                break;
+                                            case AI.Caller.Phone.Models.TtsCallTaskStatus.Failed:
+                                                <span class="badge bg-danger">失败</span>
+                                                break;
+                                            case AI.Caller.Phone.Models.TtsCallTaskStatus.Cancelled:
+                                                <span class="badge bg-dark">已取消</span>
+                                                break;
+                                        }
+                                    </td>
+                                    <td>@document.UploadTime.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <a href="@Url.Action("Details", new { id = document.Id })" class="btn btn-outline-primary">
+                                                <i class="bi bi-eye"></i>
+                                            </a>
+                                            @if (document.Status == AI.Caller.Phone.Models.TtsCallTaskStatus.Pending || document.Status == AI.Caller.Phone.Models.TtsCallTaskStatus.Paused) {
+                                                <form asp-action="StartTask" asp-route-id="@document.Id" method="post" class="d-inline">
+                                                    <button type="submit" class="btn btn-outline-success" title="启动任务">
+                                                        <i class="bi bi-play"></i>
+                                                    </button>
+                                                </form>
+                                            }
+                                            @if (document.Status == AI.Caller.Phone.Models.TtsCallTaskStatus.Running) {
+                                                <form asp-action="PauseTask" asp-route-id="@document.Id" method="post" class="d-inline">
+                                                    <button type="submit" class="btn btn-outline-warning" title="暂停任务">
+                                                        <i class="bi bi-pause"></i>
+                                                    </button>
+                                                </form>
+                                            }
+                                            @if (document.Status != AI.Caller.Phone.Models.TtsCallTaskStatus.Running) {
+                                                <form asp-action="Delete" asp-route-id="@document.Id" method="post" class="d-inline"
+                                                      onsubmit="return confirm('确定要删除这个文档吗？')">
+                                                    <button type="submit" class="btn btn-outline-danger" title="删除">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                </form>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            } else {
+                <div class="text-center py-5">
+                    <i class="bi bi-inbox display-1 text-muted"></i>
+                    <h4 class="text-muted mt-3">暂无TTS外呼文档</h4>
+                    <p class="text-muted">点击上方"上传文档"按钮开始创建外呼任务</p>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- 上传文档模态框 -->
+    <div class="modal fade" id="uploadModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form asp-action="Upload" method="post" enctype="multipart/form-data">
+                    <div class="modal-header">
+                        <h5 class="modal-title">上传TTS外呼文档</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="file" class="form-label">选择Excel文件</label>
+                            <input type="file" class="form-control" id="file" name="file" accept=".xlsx,.xls" required>
+                            <div class="form-text">
+                                请使用标准模板格式：手机号、性别、称呼模板、TTS内容
+                            </div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i>
+                            <strong>使用说明：</strong>
+                            <ul class="mb-0 mt-2">
+                                <li>请先下载模板文件，按照格式填写数据</li>
+                                <li>第1列：手机号（必填）</li>
+                                <li>第2列：性别（选填）</li>
+                                <li>第3列：称呼模板（选填）</li>
+                                <li>第4列：TTS内容（必填）</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary">上传</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

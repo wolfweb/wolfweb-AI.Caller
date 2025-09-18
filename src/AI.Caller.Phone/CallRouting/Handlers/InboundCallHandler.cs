@@ -131,7 +131,7 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                     offerSdp = new RTCSessionDescriptionInit {
                         type = RTCSdpType.offer,
                         sdp = sipRequest.Body
-                    },
+                    }.toJSON(),
                     callId = sipRequest.Header.CallId,
                     isExternal = true,
                     timestamp = DateTime.UtcNow
@@ -194,7 +194,5 @@ namespace AI.Caller.Phone.CallRouting.Handlers {
                 _logger.LogError(ex, $"AI自动接听过程中发生错误 - 用户: {targetUser.Username}");
             }
         }
-
-
     }
 }
