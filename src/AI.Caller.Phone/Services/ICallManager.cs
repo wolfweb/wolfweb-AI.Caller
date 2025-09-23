@@ -2,14 +2,10 @@ using AI.Caller.Core;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
-using DocumentFormat.OpenXml.Spreadsheet;
-using DocumentFormat.OpenXml.Wordprocessing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
-using System.Collections.Concurrent;
-using System.Reflection.Metadata;
 
 namespace AI.Caller.Phone.Services {
     public interface ICallManager {
@@ -217,10 +213,12 @@ namespace AI.Caller.Phone.Services {
         private void OnHangupCall(CallContext ctx) {
             if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.Client != null) {
                 _recordingManager.OnSipHanguped(ctx.Caller.User.Id, ctx.Caller.Client.Client);
+                ctx.Caller.Client.Dispose();
             }
 
             if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.Client != null) {
                 _recordingManager.OnSipHanguped(ctx.Callee.User.Id, ctx.Callee.Client.Client);
+                ctx.Callee.Client.Dispose();
             }
 
             _contexts.Remove(ctx);
@@ -260,7 +258,7 @@ namespace AI.Caller.Phone.Services {
                 );
 
                 if (completedTask == notificationTask) {
-                    await notificationTask; // 确保任何异常被抛出
+                    await notificationTask;
                     _logger.LogDebug($"已向用户 {userId} 发送状态通知: {status} - {message}");
                 } else {
                     _logger.LogWarning($"向用户 {userId} 发送状态通知超时: {status} - {message}");
@@ -279,8 +277,7 @@ namespace AI.Caller.Phone.Services {
 
     public interface ICallScenario {
         Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext); 
-        Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext); 
-        void Cleanup(CallContext callContext);
+        Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext);
     }
 
     public abstract class CallScenarioBase : ICallScenario {
@@ -294,16 +291,7 @@ namespace AI.Caller.Phone.Services {
         public virtual Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             return Task.FromResult(true);
         }
-        public virtual void Cleanup(CallContext callContext) {
-            if (callContext.Callee != null) {
-                callContext.Callee.Client?.Dispose();
-            }
-
-            if (callContext.Caller != null) {
-                callContext.Callee?.Client?.Dispose();
-            }
-        }
-
+        
         protected async Task<bool> CheckSecureContextReady(User user, SIPClient client) {
             var timeout = TimeSpan.FromSeconds(10);
             var start = DateTime.UtcNow;
@@ -494,6 +482,12 @@ namespace AI.Caller.Phone.Services {
 
             handle.Client.Accept(sipRequest);
 
+            var sdp = SDP.ParseSDPDescription(sipRequest.Body);
+            await handle.Client.MediaSessionManager!.SetSipRemoteDescriptionAsync(new RTCSessionDescriptionInit {
+                type = RTCSdpType.offer,
+                sdp = sipRequest.Body
+            });
+
             var offer = await handle.Client.CreateOfferAsync();
             handle.Client.MediaSessionManager!.IceCandidateGenerated += (candidate) => {
                 if (handle.Client.MediaSessionManager.PeerConnection?.signalingState == RTCSignalingState.have_remote_offer ||
@@ -627,6 +621,7 @@ namespace AI.Caller.Phone.Services {
                 Client = handle
             };
 
+            await handle.Client.AnswerAsync();
             return true;
         }
 
@@ -730,6 +725,15 @@ namespace AI.Caller.Phone.Services {
             };
 
             handle.Client.Accept(sipRequest);
+
+            var sdp = SDP.ParseSDPDescription(sipRequest.Body);
+            await handle.Client.MediaSessionManager!.SetSipRemoteDescriptionAsync(new RTCSessionDescriptionInit {
+                type = RTCSdpType.offer,
+                sdp = sipRequest.Body
+            });
+
+            await handle.Client.AnswerAsync();
+
             return true;
         }
     }
