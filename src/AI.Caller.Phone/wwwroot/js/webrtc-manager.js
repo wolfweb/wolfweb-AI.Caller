@@ -3,8 +3,9 @@
  * 负责WebRTC连接的建立和媒体流处理
  */
 class WebRTCManager {
-    constructor(elements) {
+    constructor(elements, callStateManager) {
         this.elements = elements;
+        this.callStateManager = callStateManager;
         this.pc = null;
         this.localStream = null;
         this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -303,7 +304,7 @@ class WebRTCManager {
         
         this.pc.oniceconnectionstatechange = () => {
             console.log("ICE connection state: " + this.pc.iceConnectionState);
-            if (this.pc.iceConnectionState === 'disconnected' || this.pc.iceConnectionState === 'failed') {
+            if (this.pc.iceConnectionState === 'failed') {
                 console.warn('WebRTC connection disrupted, triggering reconnect');
                 this.handleWebRTCReconnect();
             } else if (this.pc.iceConnectionState === 'connected') {
@@ -355,7 +356,11 @@ class WebRTCManager {
 
     async sendIceCandidate(candidate) {
         try {
-            await window.phoneApp.signalRManager.connection.invoke("SendIceCandidateAsync", candidate);
+            const callContext = this.callStateManager.getCallContext();
+            await window.phoneApp.signalRManager.connection.invoke("SendIceCandidateAsync", {
+                callId: callContext.callId,
+                iceCandidate: JSON.stringify(candidate)
+            });
             console.log("ICE候选者发送成功:", candidate.candidate);
         } catch (error) {
             console.error("发送ICE候选者失败:", error);

@@ -8,13 +8,6 @@ namespace AI.Caller.Phone.CallRouting.Interfaces {
         /// </summary>
         /// <param name="sipRequest">SIP请求</param>
         /// <returns>路由结果</returns>
-        Task<CallRoutingResult> RouteInboundCallAsync(SIPRequest sipRequest);
-
-        /// <summary>
-        /// 路由外呼请求
-        /// </summary>
-        /// <param name="outboundCallInfo">外呼信息</param>
-        /// <returns>路由结果</returns>
-        Task<CallRoutingResult> RouteOutboundCallAsync(OutboundCallInfo outboundCallInfo);
+        Task<CallRoutingResult> RouteInboundCallAsync(string toUser, SIPRequest sipRequest);
     }
 }

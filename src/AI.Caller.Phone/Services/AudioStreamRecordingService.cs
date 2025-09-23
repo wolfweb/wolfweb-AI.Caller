@@ -17,36 +17,28 @@ namespace AI.Caller.Phone.Services {
     public class AudioStreamRecordingService : ISimpleRecordingService {
         private readonly ILogger _logger;
         private readonly string _recordingsPath;
-        private readonly ApplicationContext _applicationContext;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ConcurrentDictionary<int, RecordingSession> _activeSessions;
 
         public AudioStreamRecordingService(
             ILogger<AudioStreamRecordingService> logger,
             IConfiguration configuration,
-            IServiceScopeFactory serviceScopeFactory,
-            ApplicationContext applicationContext) {
+            IServiceScopeFactory serviceScopeFactory) {
             _logger = logger;
             _serviceScopeFactory = serviceScopeFactory;
             _recordingsPath = configuration.GetValue<string>("RecordingsPath") ?? "recordings";
             _activeSessions = new ConcurrentDictionary<int, RecordingSession>();
-            _applicationContext = applicationContext;
 
             Directory.CreateDirectory(_recordingsPath);
         }
 
-        public async Task<bool> StartRecordingAsync(int userId) {
+        public async Task<bool> StartRecordingAsync(int userId, SIPClient sipClient) {
             try {
                 using var scope = _serviceScopeFactory.CreateScope();
                 AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
                 if (_activeSessions.ContainsKey(userId)) {
                     _logger.LogWarning($"用户 {userId} 已经在录音中");
-                    return false;
-                }
-
-                if (!_applicationContext.SipClients.TryGetValue(userId, out var sipClient)) {
-                    _logger.LogError($"未找到用户 {userId} 的SIP客户端");
                     return false;
                 }
 
@@ -69,7 +61,7 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        public async Task<bool> StopRecordingAsync(int userId) {
+        public async Task<bool> StopRecordingAsync(int userId, SIPClient sipClient) {
             try {
                 if (!_activeSessions.TryRemove(userId, out var session)) {
                     _logger.LogWarning($"用户 {userId} 没有活动的录音");

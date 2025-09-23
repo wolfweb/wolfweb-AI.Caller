@@ -1,32 +1,26 @@
 ﻿using AI.Caller.Core;
 using AI.Caller.Phone.Hubs;
-using AI.Caller.Phone.Models;
-using AI.Caller.Phone.CallRouting.Handlers;
 using Microsoft.AspNetCore.SignalR;
 using SIPSorcery.SIP;
+using AI.Caller.Phone.Services;
 
 namespace AI.Caller.Phone.BackgroundTask {
     public class SipBackgroundTask : IHostedService {
         private readonly ILogger _logger;
-        private readonly IHubContext<WebRtcHub> _hubContext;
-        private readonly ApplicationContext _applicationContext;
+        private readonly ICallManager _callManager;
         private readonly SIPTransportManager _sipTransportManager;
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly ICallTypeIdentifier _callTypeIdentifier;
         public SipBackgroundTask(
             ILogger<SipBackgroundTask> logger,
             IHubContext<WebRtcHub> hubContext,
+            ICallManager callManager,
             SIPTransportManager transportManager,
-            ApplicationContext applicationContext,
-            IServiceScopeFactory serviceScopeFactory,
-            ICallTypeIdentifier callTypeIdentifier
+            IServiceScopeFactory serviceScopeFactory
             ) {
             _logger = logger;
-            _hubContext = hubContext;
-            _applicationContext = applicationContext;
+            _callManager = callManager;
             _sipTransportManager = transportManager;
             _serviceScopeFactory = serviceScopeFactory;
-            _callTypeIdentifier = callTypeIdentifier;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken) {
@@ -44,26 +38,26 @@ namespace AI.Caller.Phone.BackgroundTask {
         }
 
         public Task StopAsync(CancellationToken cancellationToken) {
-            foreach (var client in _applicationContext.SipClients.Values) {
-                client.Shutdown();
-            }
             _sipTransportManager.Shutdown();
             return Task.CompletedTask;
         }
 
         private async Task<bool> OnIncomingCall(SIPRequest sipRequest) {
             try {
-                var callId = sipRequest.Header.CallId;
+                var callId   = sipRequest.Header.CallId;
                 var fromUser = sipRequest.Header.From?.FromURI?.User;
-                var toUser = sipRequest.Header.To?.ToURI?.User;
-                using var scope = _serviceScopeFactory.CreateScope();
-                ICallRoutingService _callRoutingService = scope.ServiceProvider.GetRequiredService<ICallRoutingService>();
-                ICallHandler callHandler = scope.ServiceProvider.GetRequiredService<InboundCallHandler>();
+                var toUser   = sipRequest.Header.To?.ToURI?.User;
+                if(string.IsNullOrEmpty(toUser)) {
+                    _logger.LogWarning($"收到无效呼叫 - CallId: {callId}, From: {fromUser}, To: {toUser}, Method: {sipRequest.Method}");
+                    return false;
+                }
 
                 _logger.LogDebug($"收到呼叫 - CallId: {callId}, From: {fromUser}, To: {toUser}, Method: {sipRequest.Method}");
 
-                CallRoutingResult routingResult = await _callRoutingService.RouteInboundCallAsync(sipRequest);
-                
+                using var scope = _serviceScopeFactory.CreateScope();
+
+                ICallRoutingService _callRoutingService = scope.ServiceProvider.GetRequiredService<ICallRoutingService>();
+                CallRoutingResult routingResult = await _callRoutingService.RouteInboundCallAsync(toUser, sipRequest);
                 _logger.LogDebug($"处理新呼入 - CallId: {callId}, Success: {routingResult.Success}, Strategy: {routingResult.Strategy}");
 
                 if (!routingResult.Success) {
@@ -71,8 +65,7 @@ namespace AI.Caller.Phone.BackgroundTask {
                     return false;
                 }
 
-                var handleResult = await callHandler.HandleCallAsync(sipRequest, routingResult);
-
+                var handleResult = await _callManager.IncomingCallAsync(sipRequest, routingResult);
                 if (handleResult) {
                     _logger.LogDebug($"通话处理成功 - CallId: {callId}, Strategy: {routingResult.Strategy}");
                 } else {

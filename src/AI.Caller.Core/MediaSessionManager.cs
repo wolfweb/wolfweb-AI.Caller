@@ -3,7 +3,6 @@ using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
 using System.Net;
-using AI.Caller.Core.Media.Interfaces;
 
 namespace AI.Caller.Core {
     public class MediaSessionManager : IDisposable {
@@ -24,18 +23,19 @@ namespace AI.Caller.Core {
 
         public event Action<RTCPeerConnectionState>? ConnectionStateChanged;
 
+        public RTPSession? MediaSession => _mediaSession;
+
+        public RTCPeerConnection? PeerConnection => _peerConnection;
+
         public MediaSessionManager(ILogger logger) {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        /// <summary>
-        /// 设置音频桥接，用于AI处理
-        /// </summary>
         public void SetAudioBridge(IAudioBridge audioBridge) {
             _audioBridge = audioBridge;
             _logger.LogDebug("Audio bridge attached to MediaSessionManager");
         }
-
+        
         public async Task InitializeMediaSession() {
             ThrowIfDisposed();
 
@@ -78,12 +78,12 @@ namespace AI.Caller.Core {
 
             try {
                 await _mediaSession.Start();
-                
+
                 // 启动音频发送循环
                 if (_audioBridge != null) {
                     StartAudioSendLoop();
                 }
-                
+
                 _logger.LogInformation("MediaSession started successfully.");
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to start MediaSession");
@@ -97,42 +97,6 @@ namespace AI.Caller.Core {
                 }
                 throw;
             }
-        }
-
-        private void StartAudioSendLoop() {
-            _ = Task.Run(async () => {
-                const int frameIntervalMs = 20; // 20ms帧间隔
-                
-                while (_mediaSession != null && !_mediaSession.IsClosed && _audioBridge != null) {
-                    try {
-                        var audioFrame = _audioBridge.GetNextOutgoingFrame();
-                        if (audioFrame != null && audioFrame.Length > 0) {
-                            // 将short[]转换为byte[]
-                            var audioBytes = ConvertShortsToBytes(audioFrame);
-                            if (audioBytes.Length > 0) {
-                                _mediaSession.SendAudio((uint)audioBytes.Length, audioBytes);
-                            }
-                        }
-                        
-                        await Task.Delay(frameIntervalMs);
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, "Error in audio send loop");
-                        await Task.Delay(100); // 短暂延迟后重试
-                    }
-                }
-                
-                _logger.LogDebug("Audio send loop terminated");
-            });
-        }
-
-        private byte[] ConvertShortsToBytes(short[] audioData) {
-            var bytes = new byte[audioData.Length * 2];
-            for (int i = 0; i < audioData.Length; i++) {
-                var shortBytes = BitConverter.GetBytes(audioData[i]);
-                bytes[i * 2] = shortBytes[0];
-                bytes[i * 2 + 1] = shortBytes[1];
-            }
-            return bytes;
         }
 
         public void InitializePeerConnection(RTCConfiguration config) {
@@ -353,6 +317,115 @@ namespace AI.Caller.Core {
             }
         }
 
+        public async Task<bool> WaitForConnectionAsync(int timeoutMs = 10000) {
+            if (_peerConnection == null) {
+                return false;
+            }
+
+            if (_peerConnection.connectionState == RTCPeerConnectionState.connected) {
+                return true;
+            }
+
+            var tcs = new TaskCompletionSource<bool>();
+            var timeout = Task.Delay(timeoutMs);
+
+            void OnStateChange(RTCPeerConnectionState state) {
+                if (state == RTCPeerConnectionState.connected) {
+                    tcs.TrySetResult(true);
+                } else if (state == RTCPeerConnectionState.failed || state == RTCPeerConnectionState.closed) {
+                    tcs.TrySetResult(false);
+                }
+            }
+
+            ConnectionStateChanged += OnStateChange;
+
+            try {
+                var completedTask = await Task.WhenAny(tcs.Task, timeout);
+                if (completedTask == timeout) {
+                    _logger.LogWarning("Timeout waiting for RTCPeerConnection to connect");
+                    return false;
+                }
+                return await tcs.Task;
+            } finally {
+                ConnectionStateChanged -= OnStateChange;
+            }
+        }
+
+        public void Dispose() {
+            if (_disposed) return;
+
+            lock (_lock) {
+                if (_disposed) return;
+
+                try {
+                    SdpOfferGenerated = null;
+                    SdpAnswerGenerated = null;
+                    IceCandidateGenerated = null;
+                    AudioDataSent = null;
+                    AudioDataReceived = null;
+                    ConnectionStateChanged = null;
+
+                    if (_mediaSession != null) {
+                        try {
+                            _mediaSession.OnRtpPacketReceived -= OnRtpPacketReceived;
+                            _mediaSession.Dispose();
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "Error disposing MediaSession");
+                        } finally {
+                            _mediaSession = null;
+                        }
+                    }
+
+                    if (_peerConnection != null) {
+                        try {
+                            _peerConnection.OnRtpPacketReceived -= OnForwardMediaToSIP;
+                            _peerConnection.Dispose();
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "Error disposing RTCPeerConnection");
+                        } finally {
+                            _peerConnection = null;
+                        }
+                    }
+
+                    _logger.LogDebug("MediaSessionManager disposed successfully");
+                } catch (Exception ex) {
+                    _logger.LogError(ex, "Error during MediaSessionManager disposal");
+                } finally {
+                    _disposed = true;
+                }
+            }
+        }
+
+        private byte[] ConvertShortsToBytes(short[] audioData) {
+            var bytes = new byte[audioData.Length * 2];
+            for (int i = 0; i < audioData.Length; i++) {
+                var shortBytes = BitConverter.GetBytes(audioData[i]);
+                bytes[i * 2] = shortBytes[0];
+                bytes[i * 2 + 1] = shortBytes[1];
+            }
+            return bytes;
+        }
+
+        private async Task EnsurePeerConnectionInitializedAsync() {
+            lock (_lock) {
+                if (_peerConnection != null) {
+                    return;
+                }
+            }
+            if (_mediaSession == null) {
+                await InitializeMediaSession();
+            }
+
+            var defaultConfig = new RTCConfiguration {
+                iceServers = new List<RTCIceServer> {
+                    new RTCIceServer { urls = "stun:stun.l.google.com:19302" }
+                }
+            };
+
+            InitializePeerConnection(defaultConfig);
+            _logger.LogDebug("RTCPeerConnection auto-initialized with default configuration");
+        }
+
         private void OnRtpPacketReceived(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
                 if (mediaType != SDPMediaTypesEnum.audio || rtpPacket?.Payload == null || rtpPacket.Payload.Length == 0) {
@@ -360,10 +433,8 @@ namespace AI.Caller.Core {
                     return;
                 }
 
-                // 将音频数据传递给音频桥接进行AI处理
                 if (_audioBridge != null) {
                     try {
-                        // 假设8kHz采样率，实际应该从RTP头或SDP中获取
                         _audioBridge.ProcessIncomingAudio(rtpPacket.Payload, 8000);
                     } catch (Exception ex) {
                         _logger.LogError(ex, "Error processing audio through audio bridge");
@@ -386,7 +457,7 @@ namespace AI.Caller.Core {
             }
         }
 
-        public void OnForwardMediaToSIP(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
+        private void OnForwardMediaToSIP(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
                 if (mediaType != SDPMediaTypesEnum.audio || rtpPacket?.Payload == null || rtpPacket.Payload.Length == 0) {
                     _logger.LogDebug($"Skipping non-audio or empty RTP packet: MediaType={mediaType}, PayloadLength={(rtpPacket?.Payload?.Length ?? 0)}");
@@ -410,6 +481,32 @@ namespace AI.Caller.Core {
             } catch (Exception ex) {
                 _logger.LogError($"Error forwarding media to SIP: {ex.Message}");
             }
+        }
+
+        private void StartAudioSendLoop() {
+            _ = Task.Run(async () => {
+                const int frameIntervalMs = 20; // 20ms帧间隔
+
+                while (_mediaSession != null && !_mediaSession.IsClosed && _audioBridge != null) {
+                    try {
+                        var audioFrame = _audioBridge.GetNextOutgoingFrame();
+                        if (audioFrame != null && audioFrame.Length > 0) {
+                            // 将short[]转换为byte[]
+                            var audioBytes = ConvertShortsToBytes(audioFrame);
+                            if (audioBytes.Length > 0) {
+                                _mediaSession.SendAudio((uint)audioBytes.Length, audioBytes);
+                            }
+                        }
+
+                        await Task.Delay(frameIntervalMs);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "Error in audio send loop");
+                        await Task.Delay(100); // 短暂延迟后重试
+                    }
+                }
+
+                _logger.LogDebug("Audio send loop terminated");
+            });
         }
 
         private void SetupPeerConnectionEvents(RTCPeerConnection? peerConnection = null) {
@@ -460,111 +557,9 @@ namespace AI.Caller.Core {
             };
         }
 
-        public RTPSession? MediaSession => _mediaSession;
-        public RTCPeerConnection? PeerConnection => _peerConnection;
-
-        public async Task<bool> WaitForConnectionAsync(int timeoutMs = 10000) {
-            if (_peerConnection == null) {
-                return false;
-            }
-
-            if (_peerConnection.connectionState == RTCPeerConnectionState.connected) {
-                return true;
-            }
-
-            var tcs = new TaskCompletionSource<bool>();
-            var timeout = Task.Delay(timeoutMs);
-
-            void OnStateChange(RTCPeerConnectionState state) {
-                if (state == RTCPeerConnectionState.connected) {
-                    tcs.TrySetResult(true);
-                } else if (state == RTCPeerConnectionState.failed || state == RTCPeerConnectionState.closed) {
-                    tcs.TrySetResult(false);
-                }
-            }
-
-            ConnectionStateChanged += OnStateChange;
-
-            try {
-                var completedTask = await Task.WhenAny(tcs.Task, timeout);
-                if (completedTask == timeout) {
-                    _logger.LogWarning("Timeout waiting for RTCPeerConnection to connect");
-                    return false;
-                }
-                return await tcs.Task;
-            } finally {
-                ConnectionStateChanged -= OnStateChange;
-            }
-        }
-
         private void ThrowIfDisposed() {
             if (_disposed) {
                 throw new ObjectDisposedException(nameof(MediaSessionManager));
-            }
-        }
-
-        private async Task EnsurePeerConnectionInitializedAsync() {
-            lock (_lock) {
-                if (_peerConnection != null) {
-                    return;
-                }
-            }
-            if (_mediaSession == null) {
-                await InitializeMediaSession();
-            }
-
-            var defaultConfig = new RTCConfiguration {
-                iceServers = new List<RTCIceServer> {
-                    new RTCIceServer { urls = "stun:stun.l.google.com:19302" }
-                }
-            };
-
-            InitializePeerConnection(defaultConfig);
-            _logger.LogDebug("RTCPeerConnection auto-initialized with default configuration");
-        }
-
-        public void Dispose() {
-            if (_disposed) return;
-
-            lock (_lock) {
-                if (_disposed) return;
-
-                try {
-                    SdpOfferGenerated = null;
-                    SdpAnswerGenerated = null;
-                    IceCandidateGenerated = null;
-                    AudioDataSent = null;
-                    AudioDataReceived = null;
-                    ConnectionStateChanged = null;
-
-                    if (_mediaSession != null) {
-                        try {
-                            _mediaSession.OnRtpPacketReceived -= OnRtpPacketReceived;
-                            _mediaSession.Dispose();
-                        } catch (Exception ex) {
-                            _logger.LogError(ex, "Error disposing MediaSession");
-                        } finally {
-                            _mediaSession = null;
-                        }
-                    }
-
-                    if (_peerConnection != null) {
-                        try {
-                            _peerConnection.OnRtpPacketReceived -= OnForwardMediaToSIP;
-                            _peerConnection.Dispose();
-                        } catch (Exception ex) {
-                            _logger.LogError(ex, "Error disposing RTCPeerConnection");
-                        } finally {
-                            _peerConnection = null;
-                        }
-                    }
-
-                    _logger.LogDebug("MediaSessionManager disposed successfully");
-                } catch (Exception ex) {
-                    _logger.LogError(ex, "Error during MediaSessionManager disposal");
-                } finally {
-                    _disposed = true;
-                }
             }
         }
     }

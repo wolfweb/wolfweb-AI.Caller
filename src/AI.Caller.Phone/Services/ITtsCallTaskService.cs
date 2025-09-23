@@ -1,3 +1,5 @@
+using AI.Caller.Phone.Models;
+
 namespace AI.Caller.Phone.Services {
     public interface ITtsCallTaskService {
         /// <summary>
@@ -24,5 +26,15 @@ namespace AI.Caller.Phone.Services {
         /// 获取任务状态
         /// </summary>
         Task<bool> IsTaskRunningAsync(int documentId);
+    }
+
+    public class OutboundCallResult {
+        public bool Success { get; set; }
+        public TtsCallStatus Status { get; set; }
+        public string? FailureReason { get; set; }
+        public TimeSpan Duration { get; set; }
+        public DateTime CallTime { get; set; } = DateTime.UtcNow;
+        public string? CallId { get; set; }
+        public Dictionary<string, object> Metadata { get; set; } = new();
     }
 }

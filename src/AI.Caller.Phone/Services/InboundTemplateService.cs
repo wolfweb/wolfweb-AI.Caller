@@ -75,7 +75,6 @@ namespace AI.Caller.Phone.Services {
             using var transaction = await _context.Database.BeginTransactionAsync();
             
             try {
-                // 清除当前用户的所有默认模板
                 var currentDefaults = await _context.InboundTemplates
                     .Where(t => t.UserId == userId && t.IsDefault)
                     .ToListAsync();
@@ -84,7 +83,6 @@ namespace AI.Caller.Phone.Services {
                     template.IsDefault = false;
                 }
 
-                // 设置新的默认模板
                 var newDefault = await _context.InboundTemplates.FindAsync(templateId);
                 if (newDefault == null || newDefault.UserId != userId) {
                     return false;

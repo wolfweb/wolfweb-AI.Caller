@@ -5,19 +5,16 @@ using System.Collections.Concurrent;
 namespace AI.Caller.Phone.Services {
     public class TtsCallTaskService : ITtsCallTaskService {        
         private readonly ILogger<TtsCallTaskService> _logger;
-        private readonly IOutboundCallExecutor _callExecutor;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ITtsTemplateIntegrationService _integrationService;
         private readonly ConcurrentDictionary<int, CancellationTokenSource> _runningTasks = new();
 
         public TtsCallTaskService(
             ILogger<TtsCallTaskService> logger,
-            IOutboundCallExecutor callExecutor,
             IServiceScopeFactory serviceScopeFactory,
             ITtsTemplateIntegrationService integrationService
             ) {
             _logger = logger;
-            _callExecutor = callExecutor;
             _integrationService = integrationService;
             _serviceScopeFactory = serviceScopeFactory;
         }
@@ -131,9 +128,9 @@ namespace AI.Caller.Phone.Services {
 
                 // 准备外呼脚本
                 var script = await _integrationService.PrepareOutboundScriptAsync(record, document.UserId);
-                
+
                 // 执行外呼
-                var result = await _callExecutor.ExecuteCallAsync(record, script, cancellationToken);
+                OutboundCallResult? result = null;
                 
                 // 处理呼叫结果
                 await ProcessCallResultAsync(record, result);

@@ -1,5 +1,6 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Extensions;
+using AI.Caller.Core.Network;
 using AI.Caller.Phone.BackgroundTask;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Filters;
@@ -10,7 +11,6 @@ using FFmpeg.AutoGen;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using NLog.Extensions.Logging;
-using System.Configuration;
 
 namespace AI.Caller.Phone {
     public class Program {
@@ -42,24 +42,32 @@ namespace AI.Caller.Phone {
             builder.Services.Configure<TTSSettings>(builder.Configuration.GetSection("TTSSettings"));
             builder.Services.Configure<AICustomerServiceSettings>(builder.Configuration.GetSection("AICustomerServiceSettings"));
 
-            builder.Services.AddSingleton<ApplicationContext>(serviceProvider => {
-                var ctx = new ApplicationContext(serviceProvider);
+            builder.Services.AddSingleton<ApplicationContext>(_ => {
+                var ctx = new ApplicationContext();
                 return ctx;
             });
 
             builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
             builder.Services.AddHostedService<SipBackgroundTask>();
-            builder.Services.AddHostedService<UserSessionCleanupService>();
-            builder.Services.AddHostedService<SipMaintenanceService>();
-            builder.Services.AddSingleton<SIPTransportManager>(sp => {
+            builder.Services.AddSingleton(sp => {
                 return new SIPTransportManager(builder.Configuration.GetSection("SipSettings")["ContactHost"], sp.GetRequiredService<ILogger<SIPTransportManager>>());
             });
+            builder.Services.AddSingleton<INetworkMonitoringService, NetworkMonitoringService>();
+            builder.Services.AddSingleton<SIPClientPoolManager>();
+            builder.Services.AddSingleton<ICallManager, CallManager>();
+            builder.Services.AddSingleton<RecordingManager>();
+            builder.Services.AddTransient<WebToWebScenario>();
+            builder.Services.AddTransient<WebToMobileScenario>();
+            builder.Services.AddTransient<MobileToWebScenario>();
+            builder.Services.AddTransient<ServerToWebScenario>();
+            builder.Services.AddTransient<WebToServerScenario>();
+            builder.Services.AddTransient<ServerToMobileScenario>();
+            builder.Services.AddTransient<MobileToServerScenario>();
             builder.Services.AddScoped<UserService>();
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
             builder.Services.AddScoped<DataMigrationService>();
             builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();
-            builder.Services.AddScoped<RecordingManager>();
             builder.Services.AddSingleton<HangupMonitoringService>();
 
             // TTS外呼和呼入模板服务
@@ -68,12 +76,8 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<IInboundTemplateService, InboundTemplateService>();
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<ITtsTemplateIntegrationService, TtsTemplateIntegrationService>();
-            builder.Services.AddScoped<IOutboundCallExecutor, OutboundCallExecutor>();
 
-            builder.Services.AddSingleton<ICallTypeIdentifier, CallRouting.Services.CallTypeIdentifier>();
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
-            builder.Services.AddScoped<ICallRoutingStrategy, CallRouting.Strategies.DirectRoutingStrategy>();
-            builder.Services.AddScoped<CallRouting.Handlers.InboundCallHandler>();
 
             // 注册AI自动应答相关服务
             builder.Services.AddAIAutoResponder();
@@ -128,9 +132,6 @@ namespace AI.Caller.Phone {
                 } catch (Exception ex) {
                     app.Logger.LogError(ex, "数据迁移失败");
                 }
-
-                var recordingManager = scope.ServiceProvider.GetRequiredService<RecordingManager>();
-                recordingManager.Initialize();
             }
 
             app.Run();

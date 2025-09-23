@@ -38,7 +38,7 @@ namespace AI.Caller.Phone.Controllers {
                     return BadRequest(new { message = "脚本内容不能为空" });
                 }
 
-                var result = await _sipService.StartAICustomerServiceAsync(user, request.ScriptText);
+                var result = false;
                 
                 if (result) {
                     return Ok(new { 
@@ -65,7 +65,7 @@ namespace AI.Caller.Phone.Controllers {
                     return BadRequest(new { message = "用户不存在" });
                 }
 
-                var result = await _sipService.StopAICustomerServiceAsync(user);
+                var result = false;
                 
                 if (result) {
                     return Ok(new { 
@@ -85,7 +85,7 @@ namespace AI.Caller.Phone.Controllers {
         public async Task<IActionResult> GetAICustomerServiceStatus() {
             try {
                 var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
-                var isActive = _sipService.IsAICustomerServiceActive(userId);
+                var isActive = false;
                 
                 return Ok(new { 
                     isActive = isActive,

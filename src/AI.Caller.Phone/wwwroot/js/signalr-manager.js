@@ -337,7 +337,8 @@ class SignalRManager {
 
     async checkSecureConnection() {
         try {
-            const isSecure = await this.connection.invoke("GetSecureContextState");
+            const callContext = this.callStateManager.getCallContext();
+            const isSecure = await this.connection.invoke("GetSecureContextState", callContext.callId);
             if (!isSecure) {
                 this.updateStatus('当前连接不安全，通话质量可能受影响', 'warning');
             } else {

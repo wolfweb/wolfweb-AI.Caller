@@ -4,28 +4,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AI.Caller.Phone.Services {
     public class RecordingManager {
+        private readonly ILogger _logger;
         private readonly ISimpleRecordingService _recordingService;
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly ApplicationContext _applicationContext;
-        private readonly ILogger<RecordingManager> _logger;
 
         public RecordingManager(
             ISimpleRecordingService recordingService,
             IServiceScopeFactory serviceScopeFactory,
-            ApplicationContext applicationContext,
             ILogger<RecordingManager> logger) {
-            _recordingService = recordingService;
-            _applicationContext = applicationContext;
-            _serviceScopeFactory = serviceScopeFactory;
             _logger = logger;
+            _recordingService = recordingService;
+            _serviceScopeFactory = serviceScopeFactory;
         }
 
-        public void Initialize() {
-            _applicationContext.OnSipClientAdded += OnSipClientAdded;
-            _applicationContext.OnSipClientRemoved += OnSipClientRemoved;
-        }
-
-        private void OnSipClientAdded(int userId, SIPClient sipClient) {
+        public void OnSipCalled(int userId, SIPClient sipClient) {
             try {
                 sipClient.CallAnswered += async (client) => await OnCallAnswered(userId, client);
                 sipClient.CallEnded += async (client) => await OnCallEnded(userId, client);
@@ -36,10 +28,10 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        private void OnSipClientRemoved(int userId, SIPClient sipClient) {
+        public void OnSipHanguped(int userId, SIPClient sipClient) {
             try {
                 _ = Task.Run(async () => {
-                    await _recordingService.StopRecordingAsync(userId);
+                    await _recordingService.StopRecordingAsync(userId, sipClient);
                 });
 
                 _logger.LogDebug($"已清理SIP客户端 {userId} 的录音资源");
@@ -60,7 +52,7 @@ namespace AI.Caller.Phone.Services {
                     // 延迟一点时间确保通话稳定
                     await Task.Delay(1000);
 
-                    var result = await _recordingService.StartRecordingAsync(userId);
+                    var result = await _recordingService.StartRecordingAsync(userId, sipClient);
                     if (result) {
                         _logger.LogInformation($"自动录音已开始 - 用户: {userId} (全局自动录音)");
                     } else {
@@ -74,7 +66,7 @@ namespace AI.Caller.Phone.Services {
 
         private async Task OnCallEnded(int userId, SIPClient sipClient) {
             try {
-                var result = await _recordingService.StopRecordingAsync(userId);
+                var result = await _recordingService.StopRecordingAsync(userId, sipClient);
                 if (result) {
                     _logger.LogInformation($"通话结束，录音已自动停止 - 用户: {userId}");
                 }

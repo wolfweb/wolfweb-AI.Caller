@@ -249,15 +249,9 @@ class PhoneApp {
             console.log('接听SDP:', answerSdp);
 
             const callContext = this.callStateManager.getCallContext();
-            let callerId = null;
             
-            if (callContext && callContext.caller) {
-                callerId = callContext.caller.userId;
-                console.log('使用callContext中的来电方信息:', callerId);
-            } 
-
             await this.signalRManager.connection.invoke("AnswerAsync", {
-                CallerId: callerId, 
+                CallId: callContext.callId, 
                 AnswerSdp: JSON.stringify(answerSdp)
             });
 
@@ -314,7 +308,8 @@ class PhoneApp {
 
     async checkSecureConnection() {
         try {
-            const isSecure = await this.signalRManager.connection.invoke("GetSecureContextState");
+            const callContext = this.callStateManager.getCallContext();
+            const isSecure = await this.signalRManager.connection.invoke("GetSecureContextState", callContext.callId);
             if (!isSecure) {
                 this.uiManager.updateStatus('当前连接不安全，通话质量可能受影响', 'warning');
             } else {

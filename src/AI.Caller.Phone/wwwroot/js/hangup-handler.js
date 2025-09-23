@@ -191,20 +191,7 @@ class HangupHandler {
                 const callContext = this.stateManager.getCallContext();
                 if (callContext) {
                     hangupData.Target = callContext.callee?.sipUsername || hangupData.Target;
-
-                    hangupData.CallContext = {
-                        CallId: callContext.callId,
-                        Caller: callContext.caller ? {
-                            UserId: callContext.caller.userId?.toString(),
-                            SipUsername: callContext.caller.sipUsername
-                        } : null,
-                        Callee: callContext.callee ? {
-                            UserId: callContext.callee.userId?.toString(),
-                            SipUsername: callContext.callee.sipUsername
-                        } : null,
-                        Timestamp: callContext.timestamp ? new Date(callContext.timestamp).toISOString() : new Date().toISOString(),
-                        IsExternal: callContext.isExternal || false
-                    };
+                    hangupData.CallId = callContext.callId;
                     console.log('使用完整callContext信息进行挂断:', hangupData);
                 } else {
                     console.log('callContext不存在，使用基本信息进行挂断:', hangupData);

@@ -114,12 +114,10 @@ namespace AI.Caller.Core.Network {
             _logger.LogInformation("Starting network monitoring...");
 
             try {
-                // 执行初始网络状态检查
                 _currentNetworkStatus = await CheckNetworkStatusAsync();
                 _stats.MonitoringStarted = DateTime.UtcNow;
                 _stats.LastCheckTime = DateTime.UtcNow;
 
-                // 启动定时器
                 _monitoringTimer?.Change(_checkInterval, _checkInterval);
                 _isMonitoring = true;
 
@@ -140,7 +138,6 @@ namespace AI.Caller.Core.Network {
             _logger.LogInformation("Stopping network monitoring...");
 
             try {
-                // 停止定时器
                 _monitoringTimer?.Change(Timeout.Infinite, Timeout.Infinite);
                 _isMonitoring = false;
 
@@ -162,22 +159,17 @@ namespace AI.Caller.Core.Network {
             try {
                 _stats.TotalChecks++;
 
-                // 检查基本网络连接
                 networkStatus.IsConnected = NetworkInterface.GetIsNetworkAvailable();
 
                 if (networkStatus.IsConnected) {
-                    // 执行延迟和连通性测试
                     var pingResults = await PerformPingTestsAsync();
                     networkStatus.LatencyMs = pingResults.AverageLatency;
                     networkStatus.PacketLossRate = pingResults.PacketLossRate;
 
-                    // 估算带宽（简化实现）
                     networkStatus.BandwidthKbps = EstimateBandwidth(networkStatus.NetworkType);
 
-                    // 确定网络质量
                     networkStatus.Quality = DetermineNetworkQuality(networkStatus);
 
-                    // 检测网络问题
                     DetectNetworkIssues(networkStatus);
 
                     _stats.SuccessfulChecks++;
@@ -231,11 +223,9 @@ namespace AI.Caller.Core.Network {
                 return;
 
             try {
-                // 检查网络状态
                 var newNetworkStatus = await CheckNetworkStatusAsync();
                 await UpdateNetworkStatus(newNetworkStatus);
 
-                // 更新客户端状态
                 await UpdateClientStatuses();
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error during network monitoring check: {Message}", ex.Message);
@@ -246,17 +236,13 @@ namespace AI.Caller.Core.Network {
             var previousStatus = _currentNetworkStatus;
             _currentNetworkStatus = newStatus;
 
-            // 检查是否有状态变化
             if (HasNetworkStatusChanged(newStatus, previousStatus)) {
                 _logger.LogInformation("Network status changed: {NewStatus}", newStatus);
 
-                // 触发网络状态变化事件
                 NetworkStatusChanged?.Invoke(this, new NetworkStatusEventArgs(newStatus, previousStatus));
 
-                // 检查连接丢失/恢复
                 await CheckConnectionChanges(newStatus, previousStatus);
 
-                // 检查质量变化
                 if (newStatus.Quality != previousStatus.Quality) {
                     NetworkQualityChanged?.Invoke(this, new NetworkQualityChangedEventArgs(
                         newStatus.Quality, previousStatus.Quality, newStatus));
@@ -267,7 +253,6 @@ namespace AI.Caller.Core.Network {
         }
 
         private async Task CheckConnectionChanges(NetworkStatus newStatus, NetworkStatus previousStatus) {
-            // 连接丢失
             if (previousStatus.IsConnected && !newStatus.IsConnected) {
                 _lastConnectionLostTime = DateTime.UtcNow;
                 var affectedClients = _clientStatuses.Keys.ToList();
@@ -277,7 +262,6 @@ namespace AI.Caller.Core.Network {
                 NetworkConnectionLost?.Invoke(this, new NetworkConnectionLostEventArgs(
                     previousStatus, "Network connectivity lost", affectedClients));
             }
-            // 连接恢复
             else if (!previousStatus.IsConnected && newStatus.IsConnected) {
                 var outageDuration = _lastConnectionLostTime.HasValue ?
                     DateTime.UtcNow - _lastConnectionLostTime.Value :
@@ -304,7 +288,6 @@ namespace AI.Caller.Core.Network {
                 var clientId = kvp.Key;
                 var clientStatus = kvp.Value;
 
-                // 检查客户端超时
                 if (currentTime - clientStatus.LastActivity > _clientTimeoutDuration) {
                     if (clientStatus.IsOnline) {
                         clientStatus.IsOnline = false;
@@ -314,7 +297,6 @@ namespace AI.Caller.Core.Network {
                     }
                 }
 
-                // 更新客户端统计
                 UpdateClientStats(clientStatus);
             }
 
@@ -322,8 +304,6 @@ namespace AI.Caller.Core.Network {
         }
 
         private void UpdateClientStats(ClientNetworkStatus clientStatus) {
-            // 这里可以添加更详细的客户端统计更新逻辑
-            // 例如从实际的SIP客户端获取统计信息
             clientStatus.Stats.LastUpdated = DateTime.UtcNow;
         }
 
@@ -386,7 +366,6 @@ namespace AI.Caller.Core.Network {
             if (status.LatencyMs < 0)
                 return NetworkQuality.Unknown;
 
-            // 基于延迟和丢包率确定网络质量
             if (status.LatencyMs <= 50 && status.PacketLossRate <= 1.0)
                 return NetworkQuality.Excellent;
 

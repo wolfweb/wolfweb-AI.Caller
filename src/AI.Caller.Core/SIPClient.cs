@@ -307,6 +307,7 @@ namespace AI.Caller.Core {
         private void OnCallFailed(ISIPClientUserAgent uac, string errorMessage, SIPResponse failureResponse) {
             StatusMessage?.Invoke(this, "Call failed: " + errorMessage + ".");
             CallFinished(null);
+            Shutdown();
         }
 
         private async void OnCallAnswered(ISIPClientUserAgent uac, SIPResponse response) {

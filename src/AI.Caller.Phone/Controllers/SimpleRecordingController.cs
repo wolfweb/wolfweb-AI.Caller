@@ -19,38 +19,6 @@ namespace AI.Caller.Phone.Controllers {
             _logger = logger;
         }
 
-        [HttpPost("start")]
-        public async Task<IActionResult> StartRecording() {
-            try {
-                var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
-                var result = await _recordingService.StartRecordingAsync(userId);
-                if (result) {
-                    return Ok(new { success = true, message = "录音已开始" });
-                } else {
-                    return BadRequest(new { success = false, message = "开始录音失败" });
-                }
-            } catch (Exception ex) {
-                _logger.LogError(ex, "开始录音时发生错误");
-                return StatusCode(500, new { success = false, message = "服务器内部错误" });
-            }
-        }
-
-        [HttpPost("stop")]
-        public async Task<IActionResult> StopRecording() {
-            try {
-                var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
-                var result = await _recordingService.StopRecordingAsync(userId);
-                if (result) {
-                    return Ok(new { success = true, message = "录音已停止" });
-                } else {
-                    return BadRequest(new { success = false, message = "停止录音失败" });
-                }
-            } catch (Exception ex) {
-                _logger.LogError(ex, "停止录音时发生错误");
-                return StatusCode(500, new { success = false, message = "服务器内部错误" });
-            }
-        }
-
         [HttpGet("list")]
         public async Task<IActionResult> GetRecordings() {
             try {

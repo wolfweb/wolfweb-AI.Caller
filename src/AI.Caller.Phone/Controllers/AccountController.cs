@@ -12,20 +12,17 @@ namespace AI.Caller.Phone.Controllers {
     public class AccountController : Controller {
         private readonly ILogger _logger;
         private readonly AppDbContext _context;
-        private readonly SipService _sipService;
         private readonly UserService _userService;
         private readonly ContactService _contactService;
 
         public AccountController(
             AppDbContext context,
-            SipService sipService,
             UserService userService,
             ContactService contactService,
             ILogger<AccountController> logger) {
             _logger         = logger;
             _context        = context;
             _userService    = userService;
-            _sipService     = sipService;
             _contactService = contactService;
         }
 

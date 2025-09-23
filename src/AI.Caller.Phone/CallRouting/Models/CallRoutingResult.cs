@@ -17,11 +17,6 @@ namespace AI.Caller.Phone.CallRouting.Models {
         public string Message { get; set; } = string.Empty;
 
         /// <summary>
-        /// 目标客户端
-        /// </summary>
-        public SIPClient? TargetClient { get; set; }
-
-        /// <summary>
         /// 呼叫来源号码
         /// </summary>
         public string? CallerNumber { get; set; } 
@@ -42,20 +37,14 @@ namespace AI.Caller.Phone.CallRouting.Models {
         public CallHandlingStrategy Strategy { get; set; } = CallHandlingStrategy.Reject;
 
         /// <summary>
-        /// 呼出通话信息（仅用于呼出应答）
-        /// </summary>
-        public OutboundCallInfo? OutboundCallInfo { get; set; }
-
-        /// <summary>
         /// 创建成功的路由结果
         /// </summary>
-        public static CallRoutingResult CreateSuccess(SIPClient targetClient, User? targetUser, CallHandlingStrategy strategy, string message = "路由成功") {
+        public static CallRoutingResult CreateSuccess(User? targetUser, CallHandlingStrategy strategy, string message = "路由成功") {
             return new CallRoutingResult {
                 Success = true,
                 Message = message,
-                TargetClient = targetClient,
+                Strategy = strategy,
                 TargetUser = targetUser,
-                Strategy = strategy
             };
         }
 
