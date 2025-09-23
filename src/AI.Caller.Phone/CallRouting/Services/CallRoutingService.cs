@@ -42,7 +42,7 @@ namespace AI.Caller.Phone.CallRouting.Services {
                     var targetUserIds = targetUsers.Where(x => callingUsers.All(m => m != x.Id)).Select(x=>x.Id).ToArray();
                     var finded = inactiveUsers.FirstOrDefault(x => targetUserIds.Contains(x));
                     if (finded == 0) {
-                        _logger.LogInformation($"用户客户端无可用坐席 - SipUsername: {toUser}");
+                        _logger.LogInformation($"用户客户端无可用坐席 - SipUsername: {toUser}, target user=>{string.Join(",", targetUserIds)}, inactive users=>{string.Join(",", inactiveUsers)}");
                         return CallRoutingResult.CreateFailure($"用户客户端无可用坐席: {toUser}", CallHandlingStrategy.Fallback);
                     }
 

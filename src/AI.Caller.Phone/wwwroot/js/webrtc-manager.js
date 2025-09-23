@@ -258,17 +258,12 @@ class WebRTCManager {
             const offer = await this.pc.createOffer();
             await this.pc.setLocalDescription(offer);
             
-            // 标记SDP协商完成并发送缓存的ICE候选者
-            this.sdpNegotiationComplete = true;
-            await this.sendPendingIceCandidates();
-            
             return this.pc.localDescription;
         } else {
             await this.pc.setRemoteDescription(remoteSdp);
             const answer = await this.pc.createAnswer();
             await this.pc.setLocalDescription(answer);
-            
-            // 标记SDP协商完成并发送缓存的ICE候选者
+
             this.sdpNegotiationComplete = true;
             await this.sendPendingIceCandidates();
             
@@ -285,8 +280,8 @@ class WebRTCManager {
         // ICE候选者处理 - 修复时序问题
         this.pc.onicecandidate = async evt => {
             if (evt.candidate) {
-                console.log("新ICE候选者:", evt.candidate);
-                if (this.sdpNegotiationComplete) {
+                const context = this.callStateManager.getCallContext();
+                if (this.sdpNegotiationComplete || context) {
                     // SDP协商完成后立即发送
                     await this.sendIceCandidate(evt.candidate);
                 } else {
@@ -307,6 +302,9 @@ class WebRTCManager {
             if (this.pc.iceConnectionState === 'failed') {
                 console.warn('WebRTC connection disrupted, triggering reconnect');
                 this.handleWebRTCReconnect();
+            } else if (this.pc.iceConnectionState === 'disconnected') {
+                this.updateStatus('拨打超时', 'danger');
+                this.callStateManager.resetToIdle();
             } else if (this.pc.iceConnectionState === 'connected') {
                 console.log('WebRTC connection established');
                 this.updateStatus('WebRTC连接已建立', 'success');
@@ -321,7 +319,7 @@ class WebRTCManager {
             console.log("Connection state: " + this.pc.connectionState);
             if (this.pc.connectionState === 'failed') {
                 console.warn('WebRTC connection failed, triggering reconnect');
-                this.handleWebRTCReconnect();
+                //this.handleWebRTCReconnect();
             }
         };
     }
@@ -347,6 +345,7 @@ class WebRTCManager {
     }
 
     async sendPendingIceCandidates() {
+        this.sdpNegotiationComplete = true;
         console.log(`发送 ${this.pendingIceCandidates.length} 个缓存的ICE候选者`);
         for (const candidate of this.pendingIceCandidates) {
             await this.sendIceCandidate(candidate);
@@ -357,11 +356,15 @@ class WebRTCManager {
     async sendIceCandidate(candidate) {
         try {
             const callContext = this.callStateManager.getCallContext();
-            await window.phoneApp.signalRManager.connection.invoke("SendIceCandidateAsync", {
-                callId: callContext.callId,
-                iceCandidate: JSON.stringify(candidate)
-            });
-            console.log("ICE候选者发送成功:", candidate.candidate);
+            if (callContext) {
+                await window.phoneApp.signalRManager.connection.invoke("SendIceCandidateAsync", {
+                    callId: callContext.callId,
+                    iceCandidate: JSON.stringify(candidate)
+                });
+                console.log("ICE候选者发送成功:", candidate.candidate);
+            } else {
+                this.pendingIceCandidates.push(candidate);
+            }
         } catch (error) {
             console.error("发送ICE候选者失败:", error);
         }

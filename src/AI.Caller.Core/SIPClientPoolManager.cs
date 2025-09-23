@@ -2,7 +2,9 @@ using AI.Caller.Core.Network;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Org.BouncyCastle.Crypto.Agreement.Srp;
 using System.Collections.Concurrent;
+using System.Threading;
 
 namespace AI.Caller.Core {
     public class SIPClientHandle : IDisposable {
@@ -27,15 +29,10 @@ namespace AI.Caller.Core {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly INetworkMonitoringService _networkMonitoringService;
 
-        private readonly int _minClientsPerPool = 3;
-        private readonly int _maxClientsPerPool = 20;
         private readonly ConcurrentQueue<SIPClient> _items = new();
         private readonly TimeSpan _acquireTimeout = TimeSpan.FromSeconds(30);
-        private readonly TimeSpan _clientIdleTimeout = TimeSpan.FromMinutes(15);
-        private readonly TimeSpan _healthCheckInterval = TimeSpan.FromMinutes(2);
 
         private int _numItems;
-        private SIPClient? _fastItem;
 
         public SIPClientPoolManager(
             ILogger<SIPClientPoolManager> logger,
@@ -62,20 +59,15 @@ namespace AI.Caller.Core {
                 }
 
                 try {
-                    var item = _fastItem;
-                    if (item == null || Interlocked.CompareExchange(ref _fastItem, null, item) != item) {
-                        if (_items.TryDequeue(out item)) {
-                            Interlocked.Decrement(ref _numItems);
-                            return new SIPClientHandle(this, item);
-                        }
-
-                        using var scope = _serviceScopeFactory.CreateScope();
-                        var logger = scope.ServiceProvider.GetRequiredService<ILogger<SIPClient>>();
-                        item = new SIPClient(sipServer, logger, _sipTransportManager.SIPTransport!, _webRTCSettings, _networkMonitoringService);
+                    if (_items.TryDequeue(out var item)) {
+                        Interlocked.Decrement(ref _numItems);
                         return new SIPClientHandle(this, item);
                     }
 
-                    return null;
+                    using var scope = _serviceScopeFactory.CreateScope();
+                    var logger = scope.ServiceProvider.GetRequiredService<ILogger<SIPClient>>();
+                    item = new SIPClient(sipServer, logger, _sipTransportManager.SIPTransport!, _webRTCSettings, _networkMonitoringService);
+                    return new SIPClientHandle(this, item);
                 } finally {
                     _poolAccessSemaphore.Release();
                 }
@@ -89,12 +81,11 @@ namespace AI.Caller.Core {
         }
 
         internal void Return(SIPClient sipClient) {
-            if (_fastItem != null || Interlocked.CompareExchange(ref _fastItem, sipClient, null) != null) {
-                if (Interlocked.Increment(ref _numItems) <= _maxClientsPerPool) {
-                    _items.Enqueue(sipClient);
-                }
-
-                Interlocked.Decrement(ref _numItems);
+            try {
+                _poolAccessSemaphore.Wait();
+                _items.Enqueue(sipClient);                
+            } finally {
+                _poolAccessSemaphore.Release();
             }
         }
     }

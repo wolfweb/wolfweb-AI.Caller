@@ -173,20 +173,20 @@ class HangupHandler {
 
         try {
             this.isHangingUp = true;
-            
+
             if (this.stateManager && typeof this.stateManager.setState === 'function') {
                 this.stateManager.setState('ENDING');
             }
-            
+
             this.disableHangupButton();
             this.updateStatus('正在挂断...', 'warning');
 
             let hangupData = {
-                Target: this.uiElements.destinationInput?.value || '', 
+                Target: this.uiElements.destinationInput?.value || '',
                 Reason: reason,
-                CallContext: null 
+                CallContext: null
             };
-            
+
             if (this.stateManager && typeof this.stateManager.getCallContext === 'function') {
                 const callContext = this.stateManager.getCallContext();
                 if (callContext) {
@@ -202,7 +202,7 @@ class HangupHandler {
 
             // 调用SignalR Hub方法
             const result = await this.connection.invoke('HangupCallAsync', hangupData);
-            
+
             if (!result) {
                 // 如果服务端返回false，等待hangupFailed事件处理
                 console.log('挂断请求返回false，等待错误处理');
@@ -213,6 +213,8 @@ class HangupHandler {
                 message: `挂断请求失败: ${error.message}`,
                 timestamp: new Date().toISOString()
             });
+        } finally {
+            this.isHangingUp = false;
         }
     }
 
@@ -244,7 +246,7 @@ class HangupHandler {
         }
         
         // 确保状态管理器重置到空闲状态（clearCallUI中已处理，但双重保险）
-        if (this.stateManager && typeof this.stateManager.resetToIdle === 'function') {
+        if (this.stateManager) {
             this.stateManager.resetToIdle();
         }
         

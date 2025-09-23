@@ -112,25 +112,23 @@ namespace AI.Caller.Phone.Services {
             if (ctx.Callee != null && ctx.Callee.Client != null) {
                 if (ctx.Callee.User!.Id == hangupUser) {
                     ctx.Callee.Client.Client.Hangup();
-                    ctx.Callee.Client.Client.Shutdown();
                     await NotifyHangupStatusAsync("已挂断", ctx.Callee.User!.Id);
                 } else {
                     ctx.Callee.Client.Client.Cancel();
-                    ctx.Callee.Client.Client.Shutdown();
                     await NotifyHangupStatusAsync("对方已挂断", ctx.Callee.User!.Id);
                 }
+                ctx.Callee.Client.Client.Shutdown();
             }
 
             if (ctx.Caller != null && ctx.Caller.Client != null) {
                 if (ctx.Caller.User!.Id == hangupUser) {
                     ctx.Caller.Client.Client.Hangup();
-                    ctx.Caller.Client.Client.Shutdown();
-                    await NotifyHangupStatusAsync("已挂断", hangupUser);
+                    await NotifyHangupStatusAsync("已挂断", ctx.Caller.User!.Id);
                 } else {
                     ctx.Caller.Client.Client.Cancel();
-                    ctx.Caller.Client.Client.Shutdown();
-                    await NotifyHangupStatusAsync("对方已挂断", hangupUser);
+                    await NotifyHangupStatusAsync("对方已挂断", ctx.Caller.User!.Id);
                 }
+                ctx.Caller.Client.Client.Shutdown();
             }
 
             OnHangupCall(ctx);
@@ -194,7 +192,8 @@ namespace AI.Caller.Phone.Services {
             };
             _contexts.Add(ctx);
 
-            await callScenario.HandleOutboundCallAsync(destination, caller, offer, ctx);
+            var result = await callScenario.HandleOutboundCallAsync(destination, caller, offer, ctx);
+            if (!result) throw new Exception($"呼叫失败");
 
             OnMakeCalled(ctx);
 

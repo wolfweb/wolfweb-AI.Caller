@@ -47,7 +47,7 @@ class PhoneApp {
             this.callStateManager = new CallStateManager(this.elements);
             
             // 初始化WebRTC管理器
-            this.webRTCManager = new WebRTCManager(this.elements);
+            this.webRTCManager = new WebRTCManager(this.elements, this.callStateManager);
             await this.webRTCManager.initialize();
 
             // 初始化SignalR管理器

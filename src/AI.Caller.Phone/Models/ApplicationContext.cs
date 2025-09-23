@@ -43,7 +43,7 @@ public class ApplicationContext {
     public List<int> GetInactiveUsers(TimeSpan? inactivityThreshold = null) {
         var cutoffTime = DateTime.UtcNow - (inactivityThreshold ?? _defaultInactivityThreshold);
         return UserSessions
-            .Where(kvp => !kvp.Value.IsOnline || kvp.Value.LastActivity < cutoffTime)
+            .Where(kvp => !kvp.Value.IsOnline || kvp.Value.LastActivity >= cutoffTime)
             .Select(kvp => kvp.Value.UserId)
             .ToList();
     }
