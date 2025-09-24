@@ -11,7 +11,7 @@ class PhoneApp {
         this.recordingManager = null;
         this.uiManager = null;
         this.hangupHandler = null;
-        
+
         this.isInitialized = false;
     }
 
@@ -45,7 +45,7 @@ class PhoneApp {
 
             // 初始化状态管理器
             this.callStateManager = new CallStateManager(this.elements);
-            
+
             // 初始化WebRTC管理器
             this.webRTCManager = new WebRTCManager(this.elements, this.callStateManager);
             await this.webRTCManager.initialize();
@@ -60,12 +60,12 @@ class PhoneApp {
 
             // 初始化挂断处理器
             this.hangupHandler = new HangupHandler(
-                this.signalRManager.connection, 
+                this.signalRManager.connection,
                 {
                     ...this.elements,
                     updateStatus: (message, type) => this.uiManager.updateStatus(message, type),
                     clearCallUI: () => this.clearCallUI()
-                }, 
+                },
                 this.callStateManager
             );
 
@@ -86,16 +86,16 @@ class PhoneApp {
     setupEventListeners() {
         // 拨号盘事件
         this.setupDialpadEvents();
-        
+
         // 联系人选择事件
         this.setupContactEvents();
-        
+
         // 通话控制事件
         this.setupCallControlEvents();
-        
+
         // 录音控制事件
         this.setupRecordingEvents();
-        
+
         // 全局事件
         this.setupGlobalEvents();
     }
@@ -116,7 +116,7 @@ class PhoneApp {
             item.addEventListener('click', () => {
                 const name = item.getAttribute('data-name');
                 const phone = item.getAttribute('data-phone');
-                
+
                 this.elements.destinationInput.value = phone;
                 this.elements.callerName.textContent = name;
                 this.elements.callerNumber.textContent = phone;
@@ -132,14 +132,14 @@ class PhoneApp {
 
     setupRecordingEvents() {
         const isAdmin = document.querySelector('meta[name="user-role"]')?.content === 'admin';
-        
-        if (isAdmin) {            
+
+        if (isAdmin) {
             if (this.elements.stopRecordingButton) {
                 this.elements.stopRecordingButton.addEventListener('click', () => {
                     this.recordingManager.stopRecording();
                 });
             }
-            
+
             if (this.elements.pauseRecordingButton) {
                 this.elements.pauseRecordingButton.addEventListener('click', () => {
                     if (this.recordingManager.pauseRecording) {
@@ -147,7 +147,7 @@ class PhoneApp {
                     }
                 });
             }
-            
+
             if (this.elements.resumeRecordingButton) {
                 this.elements.resumeRecordingButton.addEventListener('click', () => {
                     if (this.recordingManager.resumeRecording) {
@@ -164,7 +164,7 @@ class PhoneApp {
             this.uiManager.updateStatus('网络已恢复连接', 'success');
             setTimeout(() => this.uiManager.updateStatus('就绪', 'success'), 3000);
         });
-        
+
         window.addEventListener('offline', () => {
             this.uiManager.updateStatus('网络已断开，通话可能受到影响', 'danger');
             if (this.callStateManager) {
@@ -178,7 +178,7 @@ class PhoneApp {
             this.uiManager.showCallInfo(false);
             this.uiManager.stopCallTimer();
         });
-        
+
         document.addEventListener('remoteHangup', (event) => {
             console.log('收到对方挂断事件:', event.detail);
             this.uiManager.showCallInfo(false);
@@ -197,38 +197,26 @@ class PhoneApp {
             console.log('开始呼叫:', destination);
             this.callStateManager.setState(CallState.OUTGOING);
             this.uiManager.updateStatus('正在呼叫...', 'warning');
-            
+
             const sdpOffer = await this.webRTCManager.createPeerConnection(true, null);
 
             const response = await fetch('/api/phone/call', {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({Destination: destination, Offer: sdpOffer })
+                body: JSON.stringify({ Destination: destination, Offer: sdpOffer })
             });
 
             if (response.ok) {
                 const result = await response.json();
-                
-                if (result.callContext) {
-                    console.log('收到服务器返回的callContext:', result.callContext);
-                    this.callStateManager.setCallContext(result.callContext);
-                    console.log('呼叫方callContext已设置，解决了Web2Web呼叫方缺少上下文的问题');
-                } else {
-                    console.log('服务器未返回callContext，创建基本上下文');
-                    this.callStateManager.setCallContext({
-                        caller: {
-                            sipUsername: 'self' 
-                        },
-                        callee: {
-                            sipUsername: destination
-                        },
-                        timestamp: new Date().toISOString()
-                    });
-                }
+
+                console.log('收到服务器返回的callContext:', result.callContext);
+                this.callStateManager.setCallContext(result.callContext);
+                await this.webRTCManager.sendPendingIceCandidates();
+                console.log('呼叫方callContext已设置，解决了Web2Web呼叫方缺少上下文的问题');
             }
 
             this.elements.callerName.innerHTML = destination;
-            
+
         } catch (error) {
             console.error('呼叫失败:', error);
             this.handleCallError(error);
@@ -240,18 +228,18 @@ class PhoneApp {
         try {
             const offerData = this.elements.answerButton.getAttribute('data-offer');
             const offer = offerData ? JSON.parse(offerData) : null;
-            
+
             const answerSdp = await this.webRTCManager.createPeerConnection(
-                false, 
+                false,
                 offer
             );
-            
+
             console.log('接听SDP:', answerSdp);
 
             const callContext = this.callStateManager.getCallContext();
-            
+
             await this.signalRManager.connection.invoke("AnswerAsync", {
-                CallId: callContext.callId, 
+                CallId: callContext.callId,
                 AnswerSdp: JSON.stringify(answerSdp)
             });
 
@@ -263,7 +251,7 @@ class PhoneApp {
 
             // 检查安全状态
             this.checkSecureConnection();
-            
+
         } catch (error) {
             this.uiManager.updateStatus(`接听失败: ${error.message}`, 'danger');
             this.callStateManager.resetToIdle();
@@ -277,14 +265,14 @@ class PhoneApp {
             console.log('开始挂断通话');
             this.callStateManager.setState(CallState.ENDING);
             this.uiManager.updateStatus('正在挂断...', 'warning');
-            
+
             await fetch('/api/phone/Hangup', {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: null
             });
         }
-        
+
         this.callStateManager.resetToIdle();
         this.uiManager.showCallInfo(false);
         this.uiManager.updateStatus('已挂断...', 'success');
@@ -292,7 +280,7 @@ class PhoneApp {
 
     handleCallError(error) {
         let errorMessage = error.message;
-        
+
         if (errorMessage.includes('JSON')) {
             errorMessage = '服务器响应格式错误，请联系管理员';
         } else if (errorMessage.includes('WebRTC')) {
@@ -300,7 +288,7 @@ class PhoneApp {
         } else if (errorMessage.includes('服务器错误')) {
             errorMessage = '服务器处理请求失败，请稍后再试';
         }
-        
+
         this.uiManager.updateStatus(`呼叫失败: ${errorMessage}`, 'danger');
         this.callStateManager.resetToIdle();
         this.uiManager.showCallInfo(false);
@@ -322,15 +310,15 @@ class PhoneApp {
 
     clearCallUI() {
         console.log('PhoneApp: 清理通话UI');
-        
+
         // 使用UIManager清理UI
         this.uiManager.clearCallUI();
-        
+
         // 重置状态管理器
         if (this.callStateManager) {
             this.callStateManager.resetToIdle();
         }
-        
+
         // 清理WebRTC连接
         if (this.webRTCManager && this.webRTCManager.pc) {
             try {
@@ -341,12 +329,12 @@ class PhoneApp {
                 console.warn('关闭WebRTC连接时出错:', error);
             }
         }
-        
+
         // 停止录音（如果正在录音）
         if (this.recordingManager && window.isRecording) {
             this.recordingManager.stopRecording();
         }
-        
+
         console.log('PhoneApp: UI清理完成');
     }
 
@@ -363,7 +351,7 @@ class PhoneApp {
 }
 
 // 全局调试函数
-window.debugCallState = function() {
+window.debugCallState = function () {
     if (window.phoneApp) {
         console.log('=== 通话状态调试信息 ===');
         console.log(window.phoneApp.getDebugInfo());
