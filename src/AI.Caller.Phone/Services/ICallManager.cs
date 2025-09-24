@@ -325,8 +325,8 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
-            if (routingResult.TargetUser == null) throw new Exception($"");
-            if (routingResult.TargetUser.SipAccount == null) throw new Exception("");
+            if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
+            if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
             var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer);
             if (handle == null) return false;
 
@@ -339,8 +339,8 @@ namespace AI.Caller.Phone.Services {
 
             var offer = await handle.Client.CreateOfferAsync();
             handle.Client.MediaSessionManager!.IceCandidateGenerated += (candidate) => {
-                if (handle.Client.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.have_remote_offer ||
-                    handle.Client.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.stable) {
+                if (handle.Client.MediaSessionManager.PeerConnection?.signalingState == RTCSignalingState.have_remote_offer ||
+                    handle.Client.MediaSessionManager.PeerConnection?.signalingState == RTCSignalingState.stable) {
                     try {
                         _hubContext.Clients.User(routingResult.TargetUser.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
                     } catch (Exception e) {
@@ -534,8 +534,8 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
-            if (routingResult.TargetUser == null) throw new Exception($"");
-            if (routingResult.TargetUser.SipAccount == null) throw new Exception("");
+            if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
+            if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
             var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer);
             if (handle == null) return false;
 
@@ -548,8 +548,8 @@ namespace AI.Caller.Phone.Services {
 
             var offer = await handle.Client.CreateOfferAsync();
             handle.Client.MediaSessionManager!.IceCandidateGenerated += (candidate) => {
-                if (handle.Client.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.have_remote_offer ||
-                    handle.Client.MediaSessionManager.PeerConnection?.signalingState == SIPSorcery.Net.RTCSignalingState.stable) {
+                if (handle.Client.MediaSessionManager.PeerConnection?.signalingState == RTCSignalingState.have_remote_offer ||
+                    handle.Client.MediaSessionManager.PeerConnection?.signalingState == RTCSignalingState.stable) {
                     try {
                         _hubContext.Clients.User(routingResult.TargetUser.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
                     } catch (Exception e) {
@@ -608,8 +608,8 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
-            if (routingResult.TargetUser == null) throw new Exception($"");
-            if (routingResult.TargetUser.SipAccount == null) throw new Exception("");
+            if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
+            if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
             var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer);
             if (handle == null) return false;
 
