@@ -13,6 +13,7 @@ namespace AI.Caller.Core {
 
         private readonly ILogger _logger;
         private IAudioBridge? _audioBridge;
+        private readonly bool _enableWebRtcBridging;
 
         public event Action<RTCSessionDescriptionInit>? SdpOfferGenerated;
         public event Action<RTCSessionDescriptionInit>? SdpAnswerGenerated;
@@ -27,8 +28,9 @@ namespace AI.Caller.Core {
 
         public RTCPeerConnection? PeerConnection => _peerConnection;
 
-        public MediaSessionManager(ILogger logger) {
+        public MediaSessionManager(ILogger logger, bool enableWebRtcBridging = true) {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _enableWebRtcBridging = enableWebRtcBridging;
         }
 
         public void SetAudioBridge(IAudioBridge audioBridge) {
@@ -407,6 +409,11 @@ namespace AI.Caller.Core {
         }
 
         private async Task EnsurePeerConnectionInitializedAsync() {
+            if (!_enableWebRtcBridging) {
+                _logger.LogDebug("WebRTC bridging disabled, skipping RTCPeerConnection initialization");
+                return;
+            }
+
             lock (_lock) {
                 if (_peerConnection != null) {
                     return;
@@ -441,7 +448,7 @@ namespace AI.Caller.Core {
                     }
                 }
 
-                if (_peerConnection != null) {
+                if (_enableWebRtcBridging && _peerConnection != null) {
                     try {
                         _peerConnection.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                         _logger.LogTrace($"Forwarded RTP audio to WebRTC: {rtpPacket.Payload.Length} bytes from {remote}");
@@ -449,6 +456,9 @@ namespace AI.Caller.Core {
                     } catch (Exception ex) {
                         _logger.LogError($"Error sending audio to RTCPeerConnection (DTLS may not be ready): {ex.Message}");
                     }
+                } else if (!_enableWebRtcBridging) {
+                    _logger.LogTrace("WebRTC bridging disabled, skipping WebRTC audio forwarding");
+                    AudioDataReceived?.Invoke(remote, mediaType, rtpPacket);
                 } else {
                     _logger.LogDebug("RTCPeerConnection not available, skipping WebRTC audio forwarding");
                 }
@@ -464,13 +474,15 @@ namespace AI.Caller.Core {
                     return;
                 }
 
-                if (_mediaSession != null && !_mediaSession.IsClosed) {
+                if (_enableWebRtcBridging && _mediaSession != null && !_mediaSession.IsClosed) {
                     var sendToEndPoint = _mediaSession.AudioDestinationEndPoint;
                     if (sendToEndPoint != null) {
                         _mediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                         _logger.LogTrace($"Forwarded WebRTC audio to SIP: {rtpPacket.Payload.Length} bytes from {remote} to {sendToEndPoint}");
                         AudioDataSent?.Invoke(remote, mediaType, rtpPacket);
                     }
+                } else if (!_enableWebRtcBridging) {
+                    _logger.LogTrace("WebRTC bridging disabled, skipping SIP audio forwarding");
                 } else {
                     if (_mediaSession == null) {
                         _logger.LogError("*** MEDIA SESSION NULL *** Cannot forward audio to SIP - MediaSession not initialized");

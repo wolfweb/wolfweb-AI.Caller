@@ -21,6 +21,7 @@ namespace AI.Caller.Core {
 
         private readonly string _clientId;
         private readonly INetworkMonitoringService? _networkMonitoringService;
+        private readonly bool _enableWebRtcBridging;
 
         public event Action<SIPClient>? CallAnswered;
         public event Action<SIPClient>? CallEnded;
@@ -50,13 +51,15 @@ namespace AI.Caller.Core {
             ILogger logger,
             SIPTransport sipTransport,
             WebRTCSettings? webRTCSettings = null,
-            INetworkMonitoringService? networkMonitoringService = null
+            INetworkMonitoringService? networkMonitoringService = null,
+            bool enableWebRtcBridging = true
         ) {
             _logger = logger;
             _sipServer = sipServer;
             m_sipTransport = sipTransport;
             _webRTCSettings = webRTCSettings;            
             _networkMonitoringService = networkMonitoringService;
+            _enableWebRtcBridging = enableWebRtcBridging;
             _clientId = $"SIPClient_{Guid.NewGuid():N}[{sipServer}]";
 
             m_userAgent = new(m_sipTransport, null);
@@ -432,6 +435,7 @@ namespace AI.Caller.Core {
         }
 
         public MediaSessionManager? MediaSessionManager => _mediaManager;
+        public bool EnableWebRtcBridging => _enableWebRtcBridging;
 
         private HangupEventContext CreateHangupEventContext(SIPDialogue? dialogue) {
             var context = new HangupEventContext {
@@ -444,9 +448,9 @@ namespace AI.Caller.Core {
 
         private void EnsureMediaSessionInitialized() {
             if (_mediaManager == null) {
-                _mediaManager = new MediaSessionManager(_logger);
+                _mediaManager = new MediaSessionManager(_logger, _enableWebRtcBridging);
                 SetupMediaSessionEvents();
-                _logger.LogDebug("Created new MediaSessionManager for call");
+                _logger.LogDebug($"Created new MediaSessionManager for call (WebRTC bridging: {_enableWebRtcBridging})");
             }
         }
 
