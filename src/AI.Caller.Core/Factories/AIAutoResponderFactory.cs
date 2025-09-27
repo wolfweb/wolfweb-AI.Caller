@@ -23,6 +23,25 @@ namespace AI.Caller.Core {
             _serviceProvider = serviceProvider;
         }
 
+        public AIAutoResponder CreateAutoResponder(IAudioBridge audioBridge, MediaProfile profile) {
+            var playbackSource = new QueueAudioPlaybackSource();
+
+            var vad = new EnergyVad();
+            vad.Configure(
+                energyThreshold: 0.02f,
+                enterSpeakingMs: 200,
+                resumeSilenceMs: 600,
+                sampleRate: profile.SampleRate,
+                frameMs: profile.PtimeMs
+            );
+
+            var autoResponder = new AIAutoResponder(_logger, _ttsEngine, playbackSource, vad, profile);
+
+            ConnectAudioBridge(autoResponder, audioBridge, playbackSource, vad);
+
+            return autoResponder;
+        }
+
         public AIAutoResponder CreateWithRtp(IAudioBridge audioBridge, MediaProfile profile, RTPSession rtpSession) {
             var playbackSource = new QueueAudioPlaybackSource();
 

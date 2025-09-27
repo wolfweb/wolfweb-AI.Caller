@@ -17,35 +17,26 @@ namespace AI.Caller.Phone.Services {
         private readonly IHubContext<WebRtcHub> _hubContext;
         private readonly ApplicationContext _applicationContext;
         private readonly SIPTransportManager _sipTransportManager;
-        private readonly HangupMonitoringService _monitoringService;
 
         private readonly IServiceScopeFactory _serviceScopeProvider;
-        private readonly AICustomerServiceManager _aiCustomerServiceManager;
-        private readonly AICustomerServiceSettings _aiSettings;
 
         public SipService(
             ILogger<SipService> logger,
             AppDbContext dbContext,
             IHubContext<WebRtcHub> hubContext,
             ApplicationContext applicationContext,
-            SIPTransportManager sipTransportManager,
             IOptions<WebRTCSettings> webRTCSettings,
-            IServiceScopeFactory serviceScopeProvider,
-            AICustomerServiceManager aiCustomerServiceManager,
-            IOptions<AICustomerServiceSettings> aiSettings,
-            HangupMonitoringService? monitoringService = null
+            SIPTransportManager sipTransportManager,
+            IServiceScopeFactory serviceScopeProvider
         ) {
             _logger = logger;
             _dbContext = dbContext;
             _hubContext = hubContext;
-            _aiSettings = aiSettings.Value;
-            _webRTCSettings = webRTCSettings.Value;
+            _webRTCSettings = webRTCSettings.Value;            
+            _retryPolicy = new HangupRetryPolicy();
             _applicationContext = applicationContext;
             _sipTransportManager = sipTransportManager;
-            _retryPolicy = new HangupRetryPolicy();
-            _monitoringService = monitoringService ?? new HangupMonitoringService(LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<HangupMonitoringService>());
             _serviceScopeProvider = serviceScopeProvider;
-            _aiCustomerServiceManager = aiCustomerServiceManager;
         }
 
         public async Task<bool> RegisterUserAsync(User user) {

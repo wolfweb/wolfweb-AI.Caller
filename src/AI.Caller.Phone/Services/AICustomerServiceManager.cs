@@ -1,9 +1,6 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Interfaces;
-using AI.Caller.Core.Media;
-using AI.Caller.Core.Media.Interfaces;
 using AI.Caller.Phone.Entities;
-using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
 namespace AI.Caller.Phone.Services {
