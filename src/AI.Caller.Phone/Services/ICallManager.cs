@@ -49,14 +49,14 @@ namespace AI.Caller.Phone.Services {
         }
 
         public void AddIceCandidate(string callId, int userId, RTCIceCandidateInit candidate) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"ÎŞĞ§µÄºô½Ğ±êÊ¶:{callId}");
+            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"æ— æ•ˆçš„å‘¼å«æ ‡è¯†:{callId}");
             if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.User.Id == userId) {
-                if (ctx.Caller.Client == null) throw new Exception($"ºô½ĞÉÏÏÂÎÄºô½ĞÎ´³õÊ¼»¯:{callId}");
+                if (ctx.Caller.Client == null) throw new Exception($"å‘¼å«ä¸Šä¸‹æ–‡å‘¼å«æœªåˆå§‹åŒ–:{callId}");
                 ctx.Caller.Client.Client.AddIceCandidate(candidate);
             }
 
             if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.User.Id == userId) {
-                if (ctx.Callee.Client == null) throw new Exception($"ºô½ĞÉÏÏÂÎÄºô½ĞÎ´³õÊ¼»¯:{callId}");
+                if (ctx.Callee.Client == null) throw new Exception($"å‘¼å«ä¸Šä¸‹æ–‡å‘¼å«æœªåˆå§‹åŒ–:{callId}");
                 ctx.Callee.Client.Client.AddIceCandidate(candidate);
             }
         }
@@ -69,10 +69,10 @@ namespace AI.Caller.Phone.Services {
         }
 
         public async Task AnswerAsync(string callId, RTCSessionDescriptionInit? answer) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"ÎŞĞ§µÄºô½Ğ±êÊ¶:{callId}");
+            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"æ— æ•ˆçš„å‘¼å«æ ‡è¯†:{callId}");
 
-            if (ctx.Callee == null) throw new Exception($"ºô½ĞÉÏÏÂÎÄ±»½Ğ²»ÄÜÊÇ¿Õ:{callId}");
-            if (ctx.Callee.Client == null) throw new Exception($"ºô½ĞÉÏÏÂÎÄ±»½ĞÎ´³õÊ¼»¯:{callId}");
+            if (ctx.Callee == null) throw new Exception($"å‘¼å«ä¸Šä¸‹æ–‡è¢«å«ä¸èƒ½æ˜¯ç©º:{callId}");
+            if (ctx.Callee.Client == null) throw new Exception($"å‘¼å«ä¸Šä¸‹æ–‡è¢«å«æœªåˆå§‹åŒ–:{callId}");
             if (answer != null) {
                 ctx.Callee.Client.Client.SetRemoteDescription(answer);
 
@@ -92,14 +92,14 @@ namespace AI.Caller.Phone.Services {
         }
 
         public bool GetSecureContextState(string callId, int userId) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"ÎŞĞ§µÄºô½Ğ±êÊ¶:{callId}");
+            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"æ— æ•ˆçš„å‘¼å«æ ‡è¯†:{callId}");
             if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.User.Id == userId) {
-                if (ctx.Caller.Client == null) throw new Exception($"ºô½ĞÉÏÏÂÎÄºô½ĞÎ´³õÊ¼»¯:{callId}");
+                if (ctx.Caller.Client == null) throw new Exception($"å‘¼å«ä¸Šä¸‹æ–‡å‘¼å«æœªåˆå§‹åŒ–:{callId}");
                 return ctx.Caller.Client.Client.IsSecureContextReady();
             }
 
             if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.User.Id == userId) {
-                if (ctx.Callee.Client == null) throw new Exception($"ºô½ĞÉÏÏÂÎÄºô½ĞÎ´³õÊ¼»¯:{callId}");
+                if (ctx.Callee.Client == null) throw new Exception($"å‘¼å«ä¸Šä¸‹æ–‡å‘¼å«æœªåˆå§‹åŒ–:{callId}");
                 return ctx.Callee.Client.Client.IsSecureContextReady();
             }
 
@@ -107,15 +107,15 @@ namespace AI.Caller.Phone.Services {
         }
 
         public async Task HangupCallAsync(string callId, int hangupUser) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"ÎŞĞ§µÄºô½Ğ±êÊ¶:{callId}");
+            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"æ— æ•ˆçš„å‘¼å«æ ‡è¯†:{callId}");
 
             if (ctx.Callee != null && ctx.Callee.Client != null) {
                 if (ctx.Callee.User!.Id == hangupUser) {
                     ctx.Callee.Client.Client.Hangup();
-                    await NotifyHangupStatusAsync("ÒÑ¹Ò¶Ï", ctx.Callee.User!.Id);
+                    await NotifyHangupStatusAsync("å·²æŒ‚æ–­", ctx.Callee.User!.Id);
                 } else {
                     ctx.Callee.Client.Client.Cancel();
-                    await NotifyHangupStatusAsync("¶Ô·½ÒÑ¹Ò¶Ï", ctx.Callee.User!.Id);
+                    await NotifyHangupStatusAsync("å¯¹æ–¹å·²æŒ‚æ–­", ctx.Callee.User!.Id);
                 }
                 ctx.Callee.Client.Client.Shutdown();
             }
@@ -123,10 +123,10 @@ namespace AI.Caller.Phone.Services {
             if (ctx.Caller != null && ctx.Caller.Client != null) {
                 if (ctx.Caller.User!.Id == hangupUser) {
                     ctx.Caller.Client.Client.Hangup();
-                    await NotifyHangupStatusAsync("ÒÑ¹Ò¶Ï", ctx.Caller.User!.Id);
+                    await NotifyHangupStatusAsync("å·²æŒ‚æ–­", ctx.Caller.User!.Id);
                 } else {
                     ctx.Caller.Client.Client.Cancel();
-                    await NotifyHangupStatusAsync("¶Ô·½ÒÑ¹Ò¶Ï", ctx.Caller.User!.Id);
+                    await NotifyHangupStatusAsync("å¯¹æ–¹å·²æŒ‚æ–­", ctx.Caller.User!.Id);
                 }
                 ctx.Caller.Client.Client.Shutdown();
             }
@@ -141,7 +141,7 @@ namespace AI.Caller.Phone.Services {
 
             CallContext? ctx = null;
             if (!string.IsNullOrEmpty(id)) {
-                ctx = _contexts.FirstOrDefault(x => x.CallId == id) ?? throw new Exception($"ÎŞĞ§µÄºôÈëid: {id}");
+                ctx = _contexts.FirstOrDefault(x => x.CallId == id) ?? throw new Exception($"æ— æ•ˆçš„å‘¼å…¥id: {id}");
             } else {
                 ctx = new CallContext {
                     Caller = new Models.Caller {
@@ -166,7 +166,7 @@ namespace AI.Caller.Phone.Services {
             }
 
             if(callScenario == null) {
-                _logger.LogWarning($"ĞÂºôÈë{sipRequest.Header.From.FromURI.User} : {sipRequest.Header.To.ToURI.User} Â·ÓÉ²ßÂÔ: {routingResult.Strategy} Î´ÕÒµ½¿ÉÒÔ´¦ÀíÍ¨»°µÄ³¡¾°");
+                _logger.LogWarning($"æ–°å‘¼å…¥{sipRequest.Header.From.FromURI.User} : {sipRequest.Header.To.ToURI.User} è·¯ç”±ç­–ç•¥: {routingResult.Strategy} æœªæ‰¾åˆ°å¯ä»¥å¤„ç†é€šè¯çš„åœºæ™¯");
                 return false;
             }
 
@@ -193,7 +193,7 @@ namespace AI.Caller.Phone.Services {
             _contexts.Add(ctx);
 
             var result = await callScenario.HandleOutboundCallAsync(destination, caller, offer, ctx);
-            if (!result) throw new Exception($"ºô½ĞÊ§°Ü");
+            if (!result) throw new Exception($"å‘¼å«å¤±è´¥");
 
             OnMakeCalled(ctx);
 
@@ -201,7 +201,7 @@ namespace AI.Caller.Phone.Services {
         }
 
         public async Task SendDtmfAsync(byte tone, int sendUser, string callId) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"ÎŞĞ§µÄºô½Ğ±êÊ¶:{callId}");
+            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"æ— æ•ˆçš„å‘¼å«æ ‡è¯†:{callId}");
             if (ctx.Caller != null && ctx.Caller.Client != null && ctx.Caller.User !=null && ctx.Caller.User.Id == sendUser) {
                 await ctx.Caller.Client!.Client.SendDTMFAsync(tone);
             } else if (ctx.Callee != null && ctx.Callee.Client != null && ctx.Callee.User != null && ctx.Callee.User.Id == sendUser) {
@@ -258,14 +258,14 @@ namespace AI.Caller.Phone.Services {
 
                 if (completedTask == notificationTask) {
                     await notificationTask;
-                    _logger.LogDebug($"ÒÑÏòÓÃ»§ {userId} ·¢ËÍ×´Ì¬Í¨Öª: {status} - {message}");
+                    _logger.LogDebug($"å·²å‘ç”¨æˆ· {userId} å‘é€çŠ¶æ€é€šçŸ¥: {status} - {message}");
                 } else {
-                    _logger.LogWarning($"ÏòÓÃ»§ {userId} ·¢ËÍ×´Ì¬Í¨Öª³¬Ê±: {status} - {message}");
+                    _logger.LogWarning($"å‘ç”¨æˆ· {userId} å‘é€çŠ¶æ€é€šçŸ¥è¶…æ—¶: {status} - {message}");
                 }
             } catch (OperationCanceledException) when (notificationCts.Token.IsCancellationRequested) {
-                _logger.LogWarning($"ÏòÓÃ»§ {userId} ·¢ËÍ×´Ì¬Í¨Öª±»È¡Ïû»ò³¬Ê±: {status}");
+                _logger.LogWarning($"å‘ç”¨æˆ· {userId} å‘é€çŠ¶æ€é€šçŸ¥è¢«å–æ¶ˆæˆ–è¶…æ—¶: {status}");
             } catch (Exception ex) {
-                _logger.LogError(ex, $"·¢ËÍ¹Ò¶Ï×´Ì¬Í¨ÖªÊ§°Ü - ÓÃ»§: {userId}, ×´Ì¬: {status}");
+                _logger.LogError(ex, $"å‘é€æŒ‚æ–­çŠ¶æ€é€šçŸ¥å¤±è´¥ - ç”¨æˆ·: {userId}, çŠ¶æ€: {status}");
             }
         }
 
@@ -325,8 +325,8 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
-            if (routingResult.TargetUser == null) throw new Exception($"±»½Ğ×øÏ¯ÓÃ»§²»ÄÜÎª¿Õ");
-            if (routingResult.TargetUser.SipAccount == null) throw new Exception($"±»½ĞÓÃ»§²»ÊÇÓĞĞ§×øÏ¯£º{routingResult.TargetUser.Id}");
+            if (routingResult.TargetUser == null) throw new Exception($"è¢«å«åå¸­ç”¨æˆ·ä¸èƒ½ä¸ºç©º");
+            if (routingResult.TargetUser.SipAccount == null) throw new Exception($"è¢«å«ç”¨æˆ·ä¸æ˜¯æœ‰æ•ˆåå¸­ï¼š{routingResult.TargetUser.Id}");
             var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true);
             if (handle == null) return false;
 
@@ -344,7 +344,7 @@ namespace AI.Caller.Phone.Services {
                     try {
                         _hubContext.Clients.User(routingResult.TargetUser.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
                     } catch (Exception e) {
-                        _logger.LogError(e, "·¢ËÍICE candidateÊ§°Ü");
+                        _logger.LogError(e, "å‘é€ICE candidateå¤±è´¥");
                     }
                 }
             };
@@ -367,7 +367,7 @@ namespace AI.Caller.Phone.Services {
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             if (sdpOffer == null) throw new ArgumentNullException(nameof(sdpOffer));
-            if(callerUser.SipAccount == null) throw new Exception($"ÓÃ»§{callerUser.Username}:{callerUser.Id}²»ÊÇÓĞĞ§µÄSIP¿Í·ş");
+            if(callerUser.SipAccount == null) throw new Exception($"ç”¨æˆ·{callerUser.Username}:{callerUser.Id}ä¸æ˜¯æœ‰æ•ˆçš„SIPå®¢æœ");
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true);
             if (handle == null) return false;
@@ -375,7 +375,7 @@ namespace AI.Caller.Phone.Services {
             callContext.Type = CallScenario.WebToWeb;
             callContext.Caller!.Client = handle;
 
-            var answer = await handle.Client.OfferAsync(sdpOffer) ?? throw new Exception("ÎŞ·¨ÅäÖÃRTPPeerContext");
+            var answer = await handle.Client.OfferAsync(sdpOffer) ?? throw new Exception("æ— æ³•é…ç½®RTPPeerContext");
             await _hubContext.Clients.User(callerUser.Id.ToString()).SendAsync("sdpAnswered", answer.toJSON());
 
             handle.Client.MediaSessionManager!.IceCandidateGenerated += async (candidate) => {
@@ -414,7 +414,7 @@ namespace AI.Caller.Phone.Services {
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             if (sdpOffer == null) throw new ArgumentNullException(nameof(sdpOffer));
-            if (callerUser.SipAccount == null) throw new Exception($"ÓÃ»§{callerUser.Username}:{callerUser.Id}²»ÊÇÓĞĞ§µÄSIP¿Í·ş");
+            if (callerUser.SipAccount == null) throw new Exception($"ç”¨æˆ·{callerUser.Username}:{callerUser.Id}ä¸æ˜¯æœ‰æ•ˆçš„SIPå®¢æœ");
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true);
             if (handle == null) return false;
@@ -422,7 +422,7 @@ namespace AI.Caller.Phone.Services {
             callContext.Type = CallScenario.WebToMobile; 
             callContext.Caller!.Client = handle;
 
-            var answer = await handle.Client.OfferAsync(sdpOffer) ?? throw new Exception("ÎŞ·¨ÅäÖÃRTPPeerContext");
+            var answer = await handle.Client.OfferAsync(sdpOffer) ?? throw new Exception("æ— æ³•é…ç½®RTPPeerContext");
             await _hubContext.Clients.User(callerUser.Id.ToString()).SendAsync("sdpAnswered", answer.toJSON());
 
             handle.Client.MediaSessionManager!.IceCandidateGenerated += async (candidate) => {
@@ -494,7 +494,7 @@ namespace AI.Caller.Phone.Services {
                     try {
                         _hubContext.Clients.User(user.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
                     } catch (Exception e) {
-                        _logger.LogError(e, "·¢ËÍICE candidateÊ§°Ü");
+                        _logger.LogError(e, "å‘é€ICE candidateå¤±è´¥");
                     }
                 }
             };
@@ -534,8 +534,8 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
-            if (routingResult.TargetUser == null) throw new Exception($"±»½Ğ×øÏ¯ÓÃ»§²»ÄÜÎª¿Õ");
-            if (routingResult.TargetUser.SipAccount == null) throw new Exception($"±»½ĞÓÃ»§²»ÊÇÓĞĞ§×øÏ¯£º{routingResult.TargetUser.Id}");
+            if (routingResult.TargetUser == null) throw new Exception($"è¢«å«åå¸­ç”¨æˆ·ä¸èƒ½ä¸ºç©º");
+            if (routingResult.TargetUser.SipAccount == null) throw new Exception($"è¢«å«ç”¨æˆ·ä¸æ˜¯æœ‰æ•ˆåå¸­ï¼š{routingResult.TargetUser.Id}");
             var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true);
             if (handle == null) return false;
 
@@ -553,7 +553,7 @@ namespace AI.Caller.Phone.Services {
                     try {
                         _hubContext.Clients.User(routingResult.TargetUser.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
                     } catch (Exception e) {
-                        _logger.LogError(e, "·¢ËÍICE candidateÊ§°Ü");
+                        _logger.LogError(e, "å‘é€ICE candidateå¤±è´¥");
                     }
                 }
             };
@@ -575,8 +575,8 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
-            if (callerUser.SipAccount == null) throw new Exception($"ÓÃ»§{callerUser.Username}:{callerUser.Id}²»ÊÇÓĞĞ§µÄSIP¿Í·ş");
-            if (callContext.Callee == null || callContext.Callee.User == null) throw new Exception("±»½ĞÓÃ»§²»ÄÜÎª¿Õ");
+            if (callerUser.SipAccount == null) throw new Exception($"ç”¨æˆ·{callerUser.Username}:{callerUser.Id}ä¸æ˜¯æœ‰æ•ˆçš„SIPå®¢æœ");
+            if (callContext.Callee == null || callContext.Callee.User == null) throw new Exception("è¢«å«ç”¨æˆ·ä¸èƒ½ä¸ºç©º");
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false);
             if (handle == null) return false;
@@ -611,8 +611,8 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
-            if (routingResult.TargetUser == null) throw new Exception($"±»½Ğ×øÏ¯ÓÃ»§²»ÄÜÎª¿Õ");
-            if (routingResult.TargetUser.SipAccount == null) throw new Exception($"±»½ĞÓÃ»§²»ÊÇÓĞĞ§×øÏ¯£º{routingResult.TargetUser.Id}");
+            if (routingResult.TargetUser == null) throw new Exception($"è¢«å«åå¸­ç”¨æˆ·ä¸èƒ½ä¸ºç©º");
+            if (routingResult.TargetUser.SipAccount == null) throw new Exception($"è¢«å«ç”¨æˆ·ä¸æ˜¯æœ‰æ•ˆåå¸­ï¼š{routingResult.TargetUser.Id}");
             var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, false);
             if (handle == null) return false;
 
@@ -633,7 +633,7 @@ namespace AI.Caller.Phone.Services {
                         var success = await _aiManager.StartAICustomerServiceAsync(
                             callContext.Callee.User,
                             callContext.Callee.Client.Client,
-                            "ÄúºÃ£¬»¶Ó­ÖÂµçÎÒÃÇ¹«Ë¾£¬ÎÒÊÇAI¿Í·şĞ¡ÖúÊÖ¡£ÇëÎÊÓĞÊ²Ã´¿ÉÒÔ°ïÖúÄúµÄÂğ£¿"
+                            "æ‚¨å¥½ï¼Œæ¬¢è¿è‡´ç”µæˆ‘ä»¬å…¬å¸ï¼Œæˆ‘æ˜¯AIå®¢æœå°åŠ©æ‰‹ã€‚è¯·é—®æœ‰ä»€ä¹ˆå¯ä»¥å¸®åŠ©æ‚¨çš„å—ï¼Ÿ"
                         );
                         handle.Client.Hangup();
                         if (success) {
@@ -651,8 +651,8 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
-            if (callerUser.SipAccount == null) throw new Exception($"ÓÃ»§{callerUser.Username}:{callerUser.Id}²»ÊÇÓĞĞ§µÄSIP¿Í·ş");
-            if (callContext.Callee == null || callContext.Callee.User == null) throw new Exception("±»½ĞÓÃ»§²»ÄÜÎª¿Õ");
+            if (callerUser.SipAccount == null) throw new Exception($"ç”¨æˆ·{callerUser.Username}:{callerUser.Id}ä¸æ˜¯æœ‰æ•ˆçš„SIPå®¢æœ");
+            if (callContext.Callee == null || callContext.Callee.User == null) throw new Exception("è¢«å«ç”¨æˆ·ä¸èƒ½ä¸ºç©º");
             if (sdpOffer == null) throw new ArgumentNullException(nameof(sdpOffer));
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true);
@@ -661,7 +661,7 @@ namespace AI.Caller.Phone.Services {
             callContext.Type = CallScenario.WebToServer;
             callContext.Caller!.Client = handle;
 
-            var answer = await handle.Client.OfferAsync(sdpOffer) ?? throw new Exception("ÎŞ·¨ÅäÖÃRTPPeerContext");
+            var answer = await handle.Client.OfferAsync(sdpOffer) ?? throw new Exception("æ— æ³•é…ç½®RTPPeerContext");
             await _hubContext.Clients.User(callerUser.Id.ToString()).SendAsync("sdpAnswered", answer.toJSON());
 
             handle.Client.MediaSessionManager!.IceCandidateGenerated += (candidate) => {
@@ -670,7 +670,7 @@ namespace AI.Caller.Phone.Services {
                     try {
                         _hubContext.Clients.User(callerUser.Id.ToString()).SendAsync("receiveIceCandidate", candidate.toJSON());
                     } catch (Exception e) {
-                        _logger.LogError(e, "·¢ËÍICE candidateÊ§°Ü");
+                        _logger.LogError(e, "å‘é€ICE candidateå¤±è´¥");
                     }
                 }
             };
@@ -701,8 +701,8 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
-            if (callerUser.SipAccount == null) throw new Exception($"ÓÃ»§{callerUser.Username}:{callerUser.Id}²»ÊÇÓĞĞ§µÄSIP¿Í·ş");
-            if (callContext.Callee == null || callContext.Callee.User == null) throw new Exception("±»½ĞÓÃ»§²»ÄÜÎª¿Õ");
+            if (callerUser.SipAccount == null) throw new Exception($"ç”¨æˆ·{callerUser.Username}:{callerUser.Id}ä¸æ˜¯æœ‰æ•ˆçš„SIPå®¢æœ");
+            if (callContext.Callee == null || callContext.Callee.User == null) throw new Exception("è¢«å«ç”¨æˆ·ä¸èƒ½ä¸ºç©º");
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false);
             if (handle == null) return false;
