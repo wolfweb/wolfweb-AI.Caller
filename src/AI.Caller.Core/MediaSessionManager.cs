@@ -398,15 +398,6 @@ namespace AI.Caller.Core {
             }
         }
 
-        private byte[] ConvertShortsToBytes(short[] audioData) {
-            var bytes = new byte[audioData.Length * 2];
-            for (int i = 0; i < audioData.Length; i++) {
-                var shortBytes = BitConverter.GetBytes(audioData[i]);
-                bytes[i * 2] = shortBytes[0];
-                bytes[i * 2 + 1] = shortBytes[1];
-            }
-            return bytes;
-        }
 
         private async Task EnsurePeerConnectionInitializedAsync() {
             if (!_enableWebRtcBridging) {
@@ -503,11 +494,7 @@ namespace AI.Caller.Core {
                     try {
                         var audioFrame = _audioBridge.GetNextOutgoingFrame();
                         if (audioFrame != null && audioFrame.Length > 0) {
-                            // 将short[]转换为byte[]
-                            var audioBytes = ConvertShortsToBytes(audioFrame);
-                            if (audioBytes.Length > 0) {
-                                _mediaSession.SendAudio((uint)audioBytes.Length, audioBytes);
-                            }
+                            _mediaSession.SendAudio((uint)audioFrame.Length, audioFrame);
                         }
 
                         await Task.Delay(frameIntervalMs);

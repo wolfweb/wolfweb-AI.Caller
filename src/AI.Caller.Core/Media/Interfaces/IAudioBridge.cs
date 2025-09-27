@@ -3,17 +3,17 @@ using System;
 
 namespace AI.Caller.Core {
     public interface IAudioBridge : IDisposable {
-        event Action<short[]>? IncomingAudioReceived;
+        event Action<byte[]>? IncomingAudioReceived;
         
-        event Action<short[]>? OutgoingAudioRequested;
+        event Action<byte[]>? OutgoingAudioRequested;
         
         void Initialize(MediaProfile profile);
         
         void ProcessIncomingAudio(byte[] audioData, int sampleRate);
         
-        void InjectOutgoingAudio(short[] audioData);
+        void InjectOutgoingAudio(byte[] audioData);
         
-        short[] GetNextOutgoingFrame();
+        byte[] GetNextOutgoingFrame();
         
         void Start();
         

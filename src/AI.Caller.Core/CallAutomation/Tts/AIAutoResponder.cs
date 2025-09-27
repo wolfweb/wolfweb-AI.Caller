@@ -41,11 +41,11 @@ namespace AI.Caller.Core {
             _logger.LogInformation("AIAutoResponder started successfully");
         }
 
-        public void OnUplinkPcmFrame(short[] pcm) {
-            if (!_isStarted || pcm == null || pcm.Length == 0) return;
+        public void OnUplinkPcmFrame(byte[] pcmBytes) {
+            if (!_isStarted || pcmBytes == null || pcmBytes.Length == 0) return;
 
             try {
-                var result = _vad.Update(pcm);
+                var result = _vad.Update(pcmBytes);
                 if (result.State == VADState.Speaking) {
                     if (!_playback.IsPaused) {
                         _playback.Pause();
@@ -74,7 +74,7 @@ namespace AI.Caller.Core {
         }
 
         private void EnqueueFloatPcm(float[] src, int ttsSampleRate) {            
-            int frame = _profile.SamplesPerFrame;
+            int frame = _profile.SamplesPerFrame * 2;
 
             byte[] byteArray = new byte[src.Length * 2];
 

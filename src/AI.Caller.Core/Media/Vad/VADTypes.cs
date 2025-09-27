@@ -16,6 +16,6 @@ namespace AI.Caller.Core.Media.Vad {
 
     public interface IVoiceActivityDetector {
         void Configure(float energyThreshold, int enterSpeakingMs, int resumeSilenceMs, int sampleRate, int frameMs);
-        VADResult Update(short[] pcm);
+        VADResult Update(byte[] pcmBytes);        
     }
 }

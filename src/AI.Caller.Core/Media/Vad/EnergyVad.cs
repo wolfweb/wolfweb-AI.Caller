@@ -1,7 +1,7 @@
 using System;
 
 namespace AI.Caller.Core.Media.Vad {
-    // 简易能量门限 VAD：进入说话/回到静音含去抖，满足最小可运行
+    // 简易能量门限 VAD：进入说话/回到静音含去抖
     public sealed class EnergyVad : IVoiceActivityDetector {
         private float _threshold = 0.02f;
         private int _enterMs = 200;
@@ -29,16 +29,11 @@ namespace AI.Caller.Core.Media.Vad {
             _state = VADState.Silence;
         }
 
-        public VADResult Update(short[] pcm) {
-            if (pcm == null || pcm.Length == 0)
+        public VADResult Update(byte[] pcmBytes) {
+            if (pcmBytes == null || pcmBytes.Length < 2)
                 return new VADResult(_state, 0f);
 
-            double sumSq = 0;
-            for (int i = 0; i < pcm.Length; i++) {
-                float v = pcm[i] / 32768f;
-                sumSq += v * v;
-            }
-            float rms = (float)Math.Sqrt(sumSq / pcm.Length);
+            float rms = CalculateEnergyFromBytes(pcmBytes);
 
             bool speakingNow = rms >= _threshold;
 
@@ -57,6 +52,25 @@ namespace AI.Caller.Core.Media.Vad {
             }
 
             return new VADResult(_state, rms);
+        }
+
+        private float CalculateEnergyFromBytes(byte[] pcmBytes) {
+            if (pcmBytes.Length % 2 != 0) {
+                return 0f;
+            }
+
+            double sumSq = 0;
+            int sampleCount = pcmBytes.Length / 2;
+            
+            for (int i = 0; i < sampleCount; i++) {
+                int sample = pcmBytes[i * 2] | (pcmBytes[i * 2 + 1] << 8);
+                if (sample > 32767) sample -= 65536;
+                
+                float v = sample / 32768f;
+                sumSq += v * v;
+            }
+            
+            return (float)Math.Sqrt(sumSq / sampleCount);
         }
     }
 }

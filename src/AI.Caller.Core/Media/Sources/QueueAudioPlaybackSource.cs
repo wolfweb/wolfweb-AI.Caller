@@ -30,18 +30,19 @@ namespace AI.Caller.Core.Media.Sources {
 
         public byte[] ReadNextPcmFrame() {
             if (!_started) return Array.Empty<byte>();
-            if (_paused) return new byte[_samplesPerFrame];
+            int frameBytes = _samplesPerFrame * 2;
+            if (_paused) return new byte[frameBytes];
 
             if (_queue.TryDequeue(out var frame)) {
                 UpdatePlaybackRms(frame);
 
-                if (frame.Length == _samplesPerFrame) return frame;
-                var buf = new byte[_samplesPerFrame];
-                int copy = Math.Min(frame.Length, _samplesPerFrame);
+                if (frame.Length == frameBytes) return frame;
+                var buf = new byte[frameBytes];
+                int copy = Math.Min(frame.Length, frameBytes);
                 Array.Copy(frame, 0, buf, 0, copy);
                 return buf;
             }
-            return new byte[_samplesPerFrame];
+            return new byte[frameBytes];
         }
 
         public Task StopAsync() {
@@ -74,13 +75,21 @@ namespace AI.Caller.Core.Media.Sources {
         }
 
         private void UpdatePlaybackRms(byte[] frame) {
-            if (frame == null || frame.Length == 0) { _playbackRms = 0f; return; }
+            if (frame == null || frame.Length < 2) { _playbackRms = 0f; return; }
+            
+            if (frame.Length % 2 != 0) { _playbackRms = 0f; return; }
+            
             double sumSq = 0;
-            for (int i = 0; i < frame.Length; i++) {
-                float v = frame[i] / 32768f;
+            int sampleCount = frame.Length / 2;
+            
+            for (int i = 0; i < sampleCount; i++) {
+                int sample = frame[i * 2] | (frame[i * 2 + 1] << 8);
+                if (sample > 32767) sample -= 65536;
+                
+                float v = sample / 32768f;
                 sumSq += v * v;
             }
-            _playbackRms = (float)Math.Sqrt(sumSq / frame.Length);
+            _playbackRms = (float)Math.Sqrt(sumSq / sampleCount);
         }
     }
 }

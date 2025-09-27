@@ -21,14 +21,14 @@ namespace AI.Caller.Core.Media {
             else if (typeof(T) == typeof(short))
                 _sampleFormat = AVSampleFormat.AV_SAMPLE_FMT_S16;
             else if (typeof(T) == typeof(byte))
-                _sampleFormat = AVSampleFormat.AV_SAMPLE_FMT_U8;
+                _sampleFormat = AVSampleFormat.AV_SAMPLE_FMT_S16;
             else
                 throw new InvalidOperationException($"Unsupported type: {typeof(T)}. Supported types are float, short, byte.");
 
             if (_inputSampleRate != _outputSampleRate) {
                 try {
                     InitializeSwrContext();
-                    _logger.LogDebug($"AudioResampler initialized with FFmpeg.AutoGen: {inputSampleRate}Hz -> {outputSampleRate}Hz");
+                    _logger.LogDebug($"AudioResampler<{typeof(T).Name}> initialized with FFmpeg.AutoGen: {inputSampleRate}Hz -> {outputSampleRate}Hz");
                 } catch (Exception ex) {
                     _logger.LogWarning(ex, $"Failed to initialize FFmpeg resampler, will use passthrough");
                     _swrContext = null;
@@ -71,11 +71,23 @@ namespace AI.Caller.Core.Media {
             }
 
             try {
-                int inputSamples = input.Length;
-                int outputSamples = (int)ffmpeg.av_rescale_rnd(inputSamples, _outputSampleRate, _inputSampleRate, AVRounding.AV_ROUND_UP);
-                int sampleSize = sizeof(T); // Size of each sample in bytes
+                int inputSamples;
+                int outputSamples;
+                
+                if (typeof(T) == typeof(byte)) {
+                    inputSamples = input.Length / 2;
+                    outputSamples = (int)ffmpeg.av_rescale_rnd(inputSamples, _outputSampleRate, _inputSampleRate, AVRounding.AV_ROUND_UP);
+                } else {
+                    inputSamples = input.Length;
+                    outputSamples = (int)ffmpeg.av_rescale_rnd(inputSamples, _outputSampleRate, _inputSampleRate, AVRounding.AV_ROUND_UP);
+                }
 
-                var output = new T[outputSamples];
+                T[] output;
+                if (typeof(T) == typeof(byte)) {
+                    output = new T[outputSamples * 2];
+                } else {
+                    output = new T[outputSamples];
+                }
 
                 fixed (T* inputPtr = input)
                 fixed (T* outputPtr = output) {
@@ -88,8 +100,14 @@ namespace AI.Caller.Core.Media {
                     if (converted < 0)
                         throw new InvalidOperationException($"Resampling failed: {converted}");
 
-                    if (converted != outputSamples) {
-                        Array.Resize(ref output, converted);
+                    if (typeof(T) == typeof(byte)) {
+                        if (converted * 2 != output.Length) {
+                            Array.Resize(ref output, converted * 2);
+                        }
+                    } else {
+                        if (converted != output.Length) {
+                            Array.Resize(ref output, converted);
+                        }
                     }
                 }
 

@@ -12,7 +12,6 @@ namespace AI.Caller.Phone.Services {
         private readonly IServiceProvider _serviceProvider;
         private readonly IAIAutoResponderFactory _autoResponderFactory;
         
-        // 存储每个用户的AI应答器实例
         private readonly ConcurrentDictionary<int, AIAutoResponderSession> _activeSessions = new();
 
         public AICustomerServiceManager(
@@ -35,7 +34,6 @@ namespace AI.Caller.Phone.Services {
                     return false;
                 }
 
-                // 创建媒体配置
                 var mediaProfile = new MediaProfile(
                     codec: AI.Caller.Core.AudioCodec.PCMU,
                     payloadType: 0,
@@ -44,20 +42,16 @@ namespace AI.Caller.Phone.Services {
                     channels: 1
                 );
 
-                // 创建音频桥接
                 using var scope = _serviceProvider.CreateScope();
                 var audioBridge = scope.ServiceProvider.GetRequiredService<IAudioBridge>();
                 audioBridge.Initialize(mediaProfile);
 
-                // 创建AI自动应答器
                 var autoResponder = _autoResponderFactory.CreateAutoResponder(audioBridge, mediaProfile);
 
-                // 将音频桥接连接到SIP客户端的媒体会话
                 if (sipClient.MediaSessionManager != null) {
                     sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
                 }
 
-                // 创建会话
                 var session = new AIAutoResponderSession {
                     User = user,
                     AutoResponder = autoResponder,
@@ -66,11 +60,9 @@ namespace AI.Caller.Phone.Services {
                     StartTime = DateTime.UtcNow
                 };
 
-                // 启动AI应答器
                 await autoResponder.StartAsync();
                 audioBridge.Start();
 
-                // 开始播放脚本
                 _ = Task.Run(async () => {
                     try {
                         await autoResponder.PlayScriptAsync(scriptText);

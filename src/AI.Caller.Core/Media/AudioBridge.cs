@@ -1,5 +1,6 @@
 using AI.Caller.Core.Media.Interfaces;
 using AI.Caller.Core.Models;
+using AI.Caller.Core.Media;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -7,13 +8,13 @@ using System.Collections.Concurrent;
 namespace AI.Caller.Core {
     public sealed class AudioBridge : IAudioBridge {
         private readonly ILogger _logger;
-        private readonly ConcurrentQueue<short[]> _outgoingQueue = new();
+        private readonly ConcurrentQueue<byte[]> _outgoingQueue = new();
         private MediaProfile? _profile;
         private bool _isStarted;
         private readonly object _lock = new();
 
-        public event Action<short[]>? IncomingAudioReceived;
-        public event Action<short[]>? OutgoingAudioRequested;
+        public event Action<byte[]>? IncomingAudioReceived;
+        public event Action<byte[]>? OutgoingAudioRequested;
 
         public AudioBridge(ILogger<AudioBridge> logger) {
             _logger = logger;
@@ -55,13 +56,14 @@ namespace AI.Caller.Core {
             if (!_isStarted || _profile == null) return;
 
             try {
-                var samples = ConvertBytesToShorts(audioData);
-                
+                byte[] processedData = audioData;
                 if (sampleRate != _profile.SampleRate) {
-                    samples = ResampleAudio(samples, sampleRate, _profile.SampleRate);
+                    _logger.LogWarning($"Sample rate mismatch: input={sampleRate}, expected={_profile.SampleRate}. Using AudioResampler.");
+                    using var resampler = new AudioResampler<byte>(sampleRate, _profile.SampleRate, _logger);
+                    processedData = resampler.Resample(audioData);
                 }
                 
-                ProcessAudioFrames(samples, frame => {
+                ProcessAudioFrames(processedData, frame => {
                     IncomingAudioReceived?.Invoke(frame);
                 });
                 
@@ -70,7 +72,7 @@ namespace AI.Caller.Core {
             }
         }
 
-        public void InjectOutgoingAudio(short[] audioData) {
+        public void InjectOutgoingAudio(byte[] audioData) {
             if (!_isStarted || audioData == null || audioData.Length == 0) return;
 
             try {
@@ -83,16 +85,17 @@ namespace AI.Caller.Core {
             }
         }
 
-        public short[] GetNextOutgoingFrame() {
+        public byte[] GetNextOutgoingFrame() {
             if (!_isStarted || _profile == null) {
-                return Array.Empty<short>();
+                return Array.Empty<byte>();
             }
 
             if (_outgoingQueue.TryDequeue(out var frame)) {
                 return frame;
             }
 
-            var requestedFrame = new short[_profile.SamplesPerFrame];
+            var frameBytes = _profile.SamplesPerFrame * 2;
+            var requestedFrame = new byte[frameBytes];
             OutgoingAudioRequested?.Invoke(requestedFrame);
             
             bool hasAudio = false;
@@ -103,69 +106,31 @@ namespace AI.Caller.Core {
                 }
             }
 
-            return hasAudio ? requestedFrame : new short[_profile.SamplesPerFrame];
+            return hasAudio ? requestedFrame : new byte[frameBytes];
         }
 
-        private short[] ConvertBytesToShorts(byte[] audioData) {
-            if (audioData.Length % 2 != 0) {
-                _logger.LogWarning("Audio data length is not even, truncating last byte");
-            }
 
-            int sampleCount = audioData.Length / 2;
-            var samples = new short[sampleCount];
-            
-            for (int i = 0; i < sampleCount; i++) {
-                samples[i] = BitConverter.ToInt16(audioData, i * 2);
-            }
-            
-            return samples;
-        }
-
-        private short[] ResampleAudio(short[] input, int inputSampleRate, int outputSampleRate) {
-            if (inputSampleRate == outputSampleRate) {
-                return input;
-            }
-
-            double ratio = (double)outputSampleRate / inputSampleRate;
-            int outputLength = (int)(input.Length * ratio);
-            var output = new short[outputLength];
-
-            for (int i = 0; i < outputLength; i++) {
-                double sourceIndex = i / ratio;
-                int index = (int)sourceIndex;
-                
-                if (index >= input.Length - 1) {
-                    output[i] = input[input.Length - 1];
-                } else {
-                    double fraction = sourceIndex - index;
-                    output[i] = (short)(input[index] * (1 - fraction) + input[index + 1] * fraction);
-                }
-            }
-
-            return output;
-        }
-
-        private void ProcessAudioFrames(short[] audioData, Action<short[]> frameProcessor) {
+        private void ProcessAudioFrames(byte[] audioData, Action<byte[]> frameProcessor) {
             if (_profile == null) return;
 
-            int frameSize = _profile.SamplesPerFrame;
+            int frameBytes = _profile.SamplesPerFrame * 2; 
             int offset = 0;
 
             while (offset < audioData.Length) {
-                int remainingSamples = audioData.Length - offset;
-                int currentFrameSize = Math.Min(frameSize, remainingSamples);
+                int remainingBytes = audioData.Length - offset;
+                int currentFrameBytes = Math.Min(frameBytes, remainingBytes);
                 
-                var frame = new short[frameSize];
-                Array.Copy(audioData, offset, frame, 0, currentFrameSize);
+                var frame = new byte[frameBytes];
+                Array.Copy(audioData, offset, frame, 0, currentFrameBytes);
                 
-                if (currentFrameSize < frameSize) {
-                    for (int i = currentFrameSize; i < frameSize; i++) {
+                if (currentFrameBytes < frameBytes) {
+                    for (int i = currentFrameBytes; i < frameBytes; i++) {
                         frame[i] = 0;
                     }
                 }
                 
                 frameProcessor(frame);
-                offset += currentFrameSize;
+                offset += currentFrameBytes;
             }
         }
 

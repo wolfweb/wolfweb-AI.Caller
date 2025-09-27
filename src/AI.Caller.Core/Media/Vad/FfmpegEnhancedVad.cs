@@ -45,14 +45,23 @@ namespace AI.Caller.Core.Media.Vad {
             _state = VADState.Silence;
         }
 
-        public VADResult Update(short[] pcm) {
-            if (pcm == null || pcm.Length == 0) return new VADResult(_state, 0f);
+        public VADResult Update(byte[] pcmBytes) {
+            if (pcmBytes == null || pcmBytes.Length < 2) return new VADResult(_state, 0f);
 
-            // 预处理
-            var proc = _pre.Process(pcm);
+            if (pcmBytes.Length % 2 != 0) return new VADResult(_state, 0f);
+            
+            int sampleCount = pcmBytes.Length / 2;
+            var samples = new short[sampleCount];
+            
+            for (int i = 0; i < sampleCount; i++) {
+                int sample = pcmBytes[i * 2] | (pcmBytes[i * 2 + 1] << 8);
+                if (sample > 32767) sample -= 65536;
+                samples[i] = (short)sample;
+            }
+
+            var proc = _pre.Process(samples);
             if (proc.Length == 0) return new VADResult(_state, 0f);
 
-            // 计算RMS
             double sumSq = 0;
             for (int i = 0; i < proc.Length; i++) {
                 float v = proc[i] / 32768f;
@@ -60,7 +69,6 @@ namespace AI.Caller.Core.Media.Vad {
             }
             float rms = (float)Math.Sqrt(sumSq / proc.Length);
 
-            // 自适应噪声底线（静音或接近底线时缓慢跟踪）
             if (_state == VADState.Silence || rms < _noiseFloor * DbToLin(3f)) {
                 _noiseFloor = (1 - _emaAlpha) * _noiseFloor + _emaAlpha * Math.Max(rms, 1e-6f);
             }
