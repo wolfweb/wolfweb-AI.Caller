@@ -1,11 +1,12 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Interfaces;
 using AI.Caller.Core.Media.Sources;
 using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using static vpxmd.VpxCodecCxPkt;
 
 namespace AI.Caller.Core {
     public sealed class AIAutoResponder : IAsyncDisposable {
@@ -72,30 +73,31 @@ namespace AI.Caller.Core {
             }
         }
 
-        private void EnqueueFloatPcm(float[] src, int ttsSampleRate) {
-            int i = 0;
+        private void EnqueueFloatPcm(float[] src, int ttsSampleRate) {            
             int frame = _profile.SamplesPerFrame;
-            
-            var shortSrc = new short[src.Length];
-            for (int k = 0; k < src.Length; k++) {
-                int v = (int)Math.Round(src[k] * 32767f);
-                shortSrc[k] = (short)Math.Clamp(v, short.MinValue, short.MaxValue);
+
+            byte[] byteArray = new byte[src.Length * 2];
+
+            for (var i = 0; i < src.Length; i++) {
+                short sample = (short)(src[i] * 32767.0f);
+                byteArray[i * 2] = (byte)(sample & 0xFF);
+                byteArray[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
             }
-            
-            short[] processedSrc = shortSrc;
-            if (shortSrc.Length > 0 && ttsSampleRate != _profile.SampleRate) {
-                using var resampler = new AI.Caller.Core.Media.AudioResampler(
+            byte[] processedSrc = byteArray;
+
+            if (byteArray.Length > 0 && ttsSampleRate != _profile.SampleRate) {
+                using var resampler = new AudioResampler<byte>(
                     ttsSampleRate, 
                     _profile.SampleRate, 
                     _logger);
-                processedSrc = resampler.Resample(shortSrc);
+                processedSrc = resampler.Resample(byteArray);
                 _logger.LogDebug($"Resampled audio from {ttsSampleRate}Hz to {_profile.SampleRate}Hz");
             }
-
-            while (i < processedSrc.Length) {
-                int len = Math.Min(frame, processedSrc.Length - i);
-                _playback.Enqueue(new ReadOnlySpan<short>(processedSrc, i, len));
-                i += len;
+            var k = 0;
+            while (k < processedSrc.Length) {
+                int len = Math.Min(frame, processedSrc.Length - k);
+                _playback.Enqueue(new ReadOnlySpan<byte>(processedSrc, k, len));
+                k += len;
             }
         }
 

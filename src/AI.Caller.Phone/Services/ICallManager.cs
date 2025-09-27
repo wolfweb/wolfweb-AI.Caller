@@ -595,14 +595,17 @@ namespace AI.Caller.Phone.Services {
     public class WebToServerScenario : CallScenarioBase {
         private readonly ILogger _logger;
         private readonly SIPClientPoolManager _poolManager;
+        private readonly AICustomerServiceManager _aiManager;
         private readonly IHubContext<WebRtcHub> _hubContext;
 
         public WebToServerScenario(
             ILogger<ServerToWebScenario> logger,
             IHubContext<WebRtcHub> hubContext,
-            SIPClientPoolManager poolManager
+            SIPClientPoolManager poolManager,
+            AICustomerServiceManager aiManager
             ) : base(logger) {
             _logger = logger;
+            _aiManager  = aiManager;
             _hubContext = hubContext;
             _poolManager = poolManager;
         }
@@ -621,6 +624,29 @@ namespace AI.Caller.Phone.Services {
             };
 
             await handle.Client.AnswerAsync();
+
+            try {
+                _ = Task.Run(() => {
+                    _ = Task.Run(async () => {
+                        await Task.Delay(3000);
+
+                        var success = await _aiManager.StartAICustomerServiceAsync(
+                            callContext.Callee.User,
+                            callContext.Callee.Client.Client,
+                            "您好，欢迎致电我们公司，我是AI客服小助手。请问有什么可以帮助您的吗？"
+                        );
+                        handle.Client.Hangup();
+                        if (success) {
+                            _logger.LogInformation($"AI TTS started for WebToServer call: {callContext.CallId}");
+                        } else {
+                            _logger.LogWarning($"Failed to start AI TTS for call: {callContext.CallId}");
+                        }
+                    });
+                });
+            } catch (Exception ex) {
+                _logger.LogError(ex, $"Error starting AI TTS for call: {callContext.CallId}");
+            }
+
             return true;
         }
 

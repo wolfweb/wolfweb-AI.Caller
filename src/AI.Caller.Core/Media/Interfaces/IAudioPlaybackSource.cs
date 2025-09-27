@@ -7,7 +7,7 @@ namespace AI.Caller.Core {
     public interface IAudioPlaybackSource : IAsyncDisposable {
         void Init(MediaProfile profile);
         Task StartAsync(CancellationToken ct);
-        short[] ReadNextPcmFrame();
+        byte[] ReadNextPcmFrame();
         Task StopAsync();
     }
 }

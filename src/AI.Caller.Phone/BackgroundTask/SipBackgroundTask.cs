@@ -1,8 +1,9 @@
 ﻿using AI.Caller.Core;
+using AI.Caller.Core.Media;
 using AI.Caller.Phone.Hubs;
+using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.SignalR;
 using SIPSorcery.SIP;
-using AI.Caller.Phone.Services;
 
 namespace AI.Caller.Phone.BackgroundTask {
     public class SipBackgroundTask : IHostedService {
@@ -14,6 +15,7 @@ namespace AI.Caller.Phone.BackgroundTask {
             ILogger<SipBackgroundTask> logger,
             IHubContext<WebRtcHub> hubContext,
             ICallManager callManager,
+            ITTSEngine ttsEngine,
             SIPTransportManager transportManager,
             IServiceScopeFactory serviceScopeFactory
             ) {

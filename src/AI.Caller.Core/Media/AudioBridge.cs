@@ -45,7 +45,6 @@ namespace AI.Caller.Core {
                 
                 _isStarted = false;
                 
-                // 清空队列
                 while (_outgoingQueue.TryDequeue(out _)) { }
                 
                 _logger.LogInformation("AudioBridge stopped");
@@ -56,15 +55,12 @@ namespace AI.Caller.Core {
             if (!_isStarted || _profile == null) return;
 
             try {
-                // 将byte[]转换为short[]
                 var samples = ConvertBytesToShorts(audioData);
                 
-                // 重采样到目标采样率（如果需要）
                 if (sampleRate != _profile.SampleRate) {
                     samples = ResampleAudio(samples, sampleRate, _profile.SampleRate);
                 }
                 
-                // 分帧处理
                 ProcessAudioFrames(samples, frame => {
                     IncomingAudioReceived?.Invoke(frame);
                 });
@@ -78,7 +74,6 @@ namespace AI.Caller.Core {
             if (!_isStarted || audioData == null || audioData.Length == 0) return;
 
             try {
-                // 分帧并加入队列
                 ProcessAudioFrames(audioData, frame => {
                     _outgoingQueue.Enqueue(frame);
                 });
@@ -93,16 +88,13 @@ namespace AI.Caller.Core {
                 return Array.Empty<short>();
             }
 
-            // 尝试从队列获取音频帧
             if (_outgoingQueue.TryDequeue(out var frame)) {
                 return frame;
             }
 
-            // 如果队列为空，请求新的音频数据
             var requestedFrame = new short[_profile.SamplesPerFrame];
             OutgoingAudioRequested?.Invoke(requestedFrame);
             
-            // 检查是否有数据被填充
             bool hasAudio = false;
             for (int i = 0; i < requestedFrame.Length; i++) {
                 if (requestedFrame[i] != 0) {
@@ -111,7 +103,7 @@ namespace AI.Caller.Core {
                 }
             }
 
-            return hasAudio ? requestedFrame : new short[_profile.SamplesPerFrame]; // 返回静音帧
+            return hasAudio ? requestedFrame : new short[_profile.SamplesPerFrame];
         }
 
         private short[] ConvertBytesToShorts(byte[] audioData) {
@@ -134,7 +126,6 @@ namespace AI.Caller.Core {
                 return input;
             }
 
-            // 简单的线性重采样（生产环境建议使用更高质量的重采样算法）
             double ratio = (double)outputSampleRate / inputSampleRate;
             int outputLength = (int)(input.Length * ratio);
             var output = new short[outputLength];
@@ -146,7 +137,6 @@ namespace AI.Caller.Core {
                 if (index >= input.Length - 1) {
                     output[i] = input[input.Length - 1];
                 } else {
-                    // 线性插值
                     double fraction = sourceIndex - index;
                     output[i] = (short)(input[index] * (1 - fraction) + input[index + 1] * fraction);
                 }
@@ -168,7 +158,6 @@ namespace AI.Caller.Core {
                 var frame = new short[frameSize];
                 Array.Copy(audioData, offset, frame, 0, currentFrameSize);
                 
-                // 如果帧不完整，剩余部分填充静音
                 if (currentFrameSize < frameSize) {
                     for (int i = currentFrameSize; i < frameSize; i++) {
                         frame[i] = 0;

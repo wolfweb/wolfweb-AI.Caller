@@ -7,7 +7,7 @@ using AI.Caller.Core.Media.Interfaces;
 
 namespace AI.Caller.Core.Media.Sources {
     public sealed class QueueAudioPlaybackSource : IAudioPlaybackSource, IPlaybackMeter, IPausablePlayback {
-        private readonly ConcurrentQueue<short[]> _queue = new();
+        private readonly ConcurrentQueue<byte[]> _queue = new();
         private int _samplesPerFrame = 160; // 8k/20ms
         private volatile bool _started;
         private volatile bool _paused;
@@ -28,21 +28,20 @@ namespace AI.Caller.Core.Media.Sources {
             return Task.CompletedTask;
         }
 
-        public short[] ReadNextPcmFrame() {
-            if (!_started) return Array.Empty<short>();
-            if (_paused) return new short[_samplesPerFrame];
+        public byte[] ReadNextPcmFrame() {
+            if (!_started) return Array.Empty<byte>();
+            if (_paused) return new byte[_samplesPerFrame];
 
             if (_queue.TryDequeue(out var frame)) {
-                // 更新播放电平计
                 UpdatePlaybackRms(frame);
 
                 if (frame.Length == _samplesPerFrame) return frame;
-                var buf = new short[_samplesPerFrame];
+                var buf = new byte[_samplesPerFrame];
                 int copy = Math.Min(frame.Length, _samplesPerFrame);
                 Array.Copy(frame, 0, buf, 0, copy);
                 return buf;
             }
-            return new short[_samplesPerFrame];
+            return new byte[_samplesPerFrame];
         }
 
         public Task StopAsync() {
@@ -59,10 +58,9 @@ namespace AI.Caller.Core.Media.Sources {
             return ValueTask.CompletedTask;
         }
 
-        // 供TTS/上层注入
-        public void Enqueue(ReadOnlySpan<short> pcm) {
+        public void Enqueue(ReadOnlySpan<byte> pcm) {
             if (!_started) return;
-            var copy = new short[pcm.Length];
+            var copy = new byte[pcm.Length];
             pcm.CopyTo(copy);
             _queue.Enqueue(copy);
         }
@@ -75,7 +73,7 @@ namespace AI.Caller.Core.Media.Sources {
             lock (_gateLock) { _paused = false; }
         }
 
-        private void UpdatePlaybackRms(short[] frame) {
+        private void UpdatePlaybackRms(byte[] frame) {
             if (frame == null || frame.Length == 0) { _playbackRms = 0f; return; }
             double sumSq = 0;
             for (int i = 0; i < frame.Length; i++) {

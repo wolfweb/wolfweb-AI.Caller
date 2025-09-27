@@ -1,21 +1,30 @@
-using System;
-using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using FFmpeg.AutoGen;
 
 namespace AI.Caller.Core.Media {
-    public unsafe class AudioResampler : IDisposable {
+    public unsafe class AudioResampler<T> : IDisposable {
         private readonly ILogger _logger;
         private readonly int _inputSampleRate;
         private readonly int _outputSampleRate;
+        private readonly AVSampleFormat _sampleFormat;
+
         private SwrContext* _swrContext;
         private bool _disposed;
 
         public AudioResampler(int inputSampleRate, int outputSampleRate, ILogger logger) {
+            _logger = logger;
             _inputSampleRate = inputSampleRate;
             _outputSampleRate = outputSampleRate;
-            _logger = logger;
-            
+
+            if (typeof(T) == typeof(float))
+                _sampleFormat = AVSampleFormat.AV_SAMPLE_FMT_FLT;
+            else if (typeof(T) == typeof(short))
+                _sampleFormat = AVSampleFormat.AV_SAMPLE_FMT_S16;
+            else if (typeof(T) == typeof(byte))
+                _sampleFormat = AVSampleFormat.AV_SAMPLE_FMT_U8;
+            else
+                throw new InvalidOperationException($"Unsupported type: {typeof(T)}. Supported types are float, short, byte.");
+
             if (_inputSampleRate != _outputSampleRate) {
                 try {
                     InitializeSwrContext();
@@ -28,24 +37,34 @@ namespace AI.Caller.Core.Media {
         }
 
         private void InitializeSwrContext() {
-            _swrContext = ffmpeg.swr_alloc();
-            if (_swrContext == null)
+            SwrContext* ctx = ffmpeg.swr_alloc();
+            if (ctx == null)
                 throw new InvalidOperationException("Failed to allocate SWR context");
 
-            ffmpeg.av_opt_set_int(_swrContext, "in_channel_layout", (long)ffmpeg.AV_CH_LAYOUT_MONO, 0);
-            ffmpeg.av_opt_set_int(_swrContext, "out_channel_layout", (long)ffmpeg.AV_CH_LAYOUT_MONO, 0);
-            ffmpeg.av_opt_set_int(_swrContext, "in_sample_rate", _inputSampleRate, 0);
-            ffmpeg.av_opt_set_int(_swrContext, "out_sample_rate", _outputSampleRate, 0);
-            ffmpeg.av_opt_set_sample_fmt(_swrContext, "in_sample_fmt", AVSampleFormat.AV_SAMPLE_FMT_S16, 0);
-            ffmpeg.av_opt_set_sample_fmt(_swrContext, "out_sample_fmt", AVSampleFormat.AV_SAMPLE_FMT_S16, 0);
+            AVChannelLayout inCh, outCh;
+            ffmpeg.av_channel_layout_default(&inCh, 1);   // mono
+            ffmpeg.av_channel_layout_default(&outCh, 1);  // mono
 
-            int ret = ffmpeg.swr_init(_swrContext);
+            SwrContext* configured = null;
+            int ret = ffmpeg.swr_alloc_set_opts2(
+                &configured,
+                &outCh, _sampleFormat, _outputSampleRate,
+                &inCh, _sampleFormat, _inputSampleRate,
+                0, null
+            );
+
+            if (ret < 0 || configured == null)
+                throw new InvalidOperationException($"Failed to set SWR options: {ret}");
+
+            _swrContext = configured;
+
+            ret = ffmpeg.swr_init(_swrContext);
             if (ret < 0)
                 throw new InvalidOperationException($"Failed to initialize SWR context: {ret}");
         }
 
-        public short[] Resample(short[] input) {
-            if (_disposed) throw new ObjectDisposedException(nameof(AudioResampler));
+        public T[] Resample(T[] input) {
+            if (_disposed) throw new ObjectDisposedException(nameof(AudioResampler<T>));
             
             if (_inputSampleRate == _outputSampleRate || _swrContext == null) {
                 return input;
@@ -54,11 +73,12 @@ namespace AI.Caller.Core.Media {
             try {
                 int inputSamples = input.Length;
                 int outputSamples = (int)ffmpeg.av_rescale_rnd(inputSamples, _outputSampleRate, _inputSampleRate, AVRounding.AV_ROUND_UP);
+                int sampleSize = sizeof(T); // Size of each sample in bytes
 
-                var output = new short[outputSamples];
+                var output = new T[outputSamples];
 
-                fixed (short* inputPtr = input)
-                fixed (short* outputPtr = output) {
+                fixed (T* inputPtr = input)
+                fixed (T* outputPtr = output) {
                     byte* inputData = (byte*)inputPtr;
                     byte* outputData = (byte*)outputPtr;
                     byte** inputDataPtr = &inputData;

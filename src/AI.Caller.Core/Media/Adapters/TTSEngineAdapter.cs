@@ -83,11 +83,9 @@ namespace AI.Caller.Core.Media.Adapters {
                     
                     _tts.GenerateWithCallback(text, speed, speakerId, new OfflineTtsCallback((IntPtr samples, int n) => {
                         try {
-                            if (n > 0) {
-                                float[] data = new float[n];
-                                Marshal.Copy(samples, data, 0, n);
-                                channel.Writer.TryWrite(data);
-                            }
+                            float[] data = new float[n];
+                            Marshal.Copy(samples, data, 0, n);
+                            channel.Writer.TryWrite(data);
                             return 1;
                         } catch (Exception ex) {
                             _logger.LogError(ex, "Error in TTS callback");
