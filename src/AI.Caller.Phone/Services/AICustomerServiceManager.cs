@@ -42,8 +42,7 @@ namespace AI.Caller.Phone.Services {
                     channels: 1
                 );
 
-                using var scope = _serviceProvider.CreateScope();
-                var audioBridge = scope.ServiceProvider.GetRequiredService<IAudioBridge>();
+                var audioBridge = _serviceProvider.GetRequiredService<IAudioBridge>();
                 audioBridge.Initialize(mediaProfile);
 
                 var autoResponder = _autoResponderFactory.CreateAutoResponder(audioBridge, mediaProfile);

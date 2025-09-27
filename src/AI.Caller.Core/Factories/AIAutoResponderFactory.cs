@@ -113,7 +113,7 @@ namespace AI.Caller.Core {
 
             audioBridge.OutgoingAudioRequested += (requestedFrame) => {
                 try {
-                    var playbackFrame = playbackSource.ReadNextPcmFrame();
+                    var playbackFrame = playbackSource.ReadNextPcmFrame();                    
                     if (playbackFrame != null && playbackFrame.Length > 0) {
                         Array.Copy(playbackFrame, requestedFrame, Math.Min(playbackFrame.Length, requestedFrame.Length));
                     }

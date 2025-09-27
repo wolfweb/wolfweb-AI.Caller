@@ -46,6 +46,7 @@ namespace AI.Caller.Core {
 
             try {
                 var result = _vad.Update(pcmBytes);
+                //todo: 这里检测有问题
                 if (result.State == VADState.Speaking) {
                     if (!_playback.IsPaused) {
                         _playback.Pause();

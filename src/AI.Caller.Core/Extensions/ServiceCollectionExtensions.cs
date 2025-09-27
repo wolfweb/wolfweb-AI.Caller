@@ -11,10 +11,11 @@ namespace AI.Caller.Core.Extensions {
     public static class ServiceCollectionExtensions {
         public static IServiceCollection AddAIAutoResponder(this IServiceCollection services) {            
             services.TryAddSingleton<ITTSEngine, TTSEngineAdapter>();
+            services.TryAddSingleton<IAIAutoResponderFactory, AIAutoResponderFactory>();
+
             services.TryAddTransient<IVoiceActivityDetector, EnergyVad>();
             services.TryAddTransient<IAudioBridge, AudioBridge>();
             services.TryAddTransient<QueueAudioPlaybackSource>();
-            services.TryAddTransient<IAIAutoResponderFactory, AIAutoResponderFactory>();
             return services;
         }
 

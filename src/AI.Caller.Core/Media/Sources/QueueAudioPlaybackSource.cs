@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using AI.Caller.Core.Media;
@@ -16,6 +17,10 @@ namespace AI.Caller.Core.Media.Sources {
 
         public bool IsPaused => _paused;
         public float PlaybackRms => _playbackRms;
+
+        public QueueAudioPlaybackSource() {
+            Trace.WriteLine("");
+        }
 
         public void Init(MediaProfile profile) {
             _samplesPerFrame = profile.SamplesPerFrame;
@@ -63,6 +68,7 @@ namespace AI.Caller.Core.Media.Sources {
             if (!_started) return;
             var copy = new byte[pcm.Length];
             pcm.CopyTo(copy);
+            Trace.WriteLine($"add queue data => {string.Join(",",copy)}");
             _queue.Enqueue(copy);
         }
 

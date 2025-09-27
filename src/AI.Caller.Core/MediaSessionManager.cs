@@ -35,6 +35,7 @@ namespace AI.Caller.Core {
 
         public void SetAudioBridge(IAudioBridge audioBridge) {
             _audioBridge = audioBridge;
+            StartAudioSendLoop();
             _logger.LogDebug("Audio bridge attached to MediaSessionManager");
         }
         
@@ -80,12 +81,6 @@ namespace AI.Caller.Core {
 
             try {
                 await _mediaSession.Start();
-
-                // 启动音频发送循环
-                if (_audioBridge != null) {
-                    StartAudioSendLoop();
-                }
-
                 _logger.LogInformation("MediaSession started successfully.");
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to start MediaSession");

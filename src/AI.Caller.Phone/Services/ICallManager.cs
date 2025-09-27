@@ -634,8 +634,7 @@ namespace AI.Caller.Phone.Services {
                             callContext.Callee.User,
                             callContext.Callee.Client.Client,
                             "您好，欢迎致电我们公司，我是AI客服小助手。请问有什么可以帮助您的吗？"
-                        );
-                        handle.Client.Hangup();
+                        );                        
                         if (success) {
                             _logger.LogInformation($"AI TTS started for WebToServer call: {callContext.CallId}");
                         } else {
@@ -643,6 +642,10 @@ namespace AI.Caller.Phone.Services {
                         }
                     });
                 });
+
+                await Task.Delay(30 * 1000);
+                handle.Client.Hangup();
+                await _aiManager.StopAICustomerServiceAsync(callContext.Callee.User.Id);
             } catch (Exception ex) {
                 _logger.LogError(ex, $"Error starting AI TTS for call: {callContext.CallId}");
             }
