@@ -1,16 +1,16 @@
 using AI.Caller.Core.Interfaces;
 using AI.Caller.Core.Media;
+using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Sources;
 using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.Logging;
-using SIPSorcery.Net;
-using AI.Caller.Core.Media.Encoders;
 using System.Collections.Concurrent;
 
 namespace AI.Caller.Core {
     public class AIAutoResponderFactory : IAIAutoResponderFactory {
         private readonly ILogger<AIAutoResponder> _logger;
         private readonly ITTSEngine _ttsEngine;
+        private readonly G711Codec _g711 = new ();
         private readonly IServiceProvider _serviceProvider;
         private readonly ConcurrentDictionary<AIAutoResponder, CancellationTokenSource> _senderLoops = new();
 
@@ -26,73 +26,29 @@ namespace AI.Caller.Core {
         public AIAutoResponder CreateAutoResponder(IAudioBridge audioBridge, MediaProfile profile) {
             var playbackSource = new QueueAudioPlaybackSource();
 
-            var vad = new EnergyVad();
+            var vad = new FfmpegEnhancedVad(
+                inputSampleRate: profile.SampleRate,    // 8000Hz
+                targetSampleRate: profile.SampleRate,   // 8000Hz  
+                hpCutoffHz: 80                          // 电话频带下限约300Hz，设80Hz高通
+            );
+            
             vad.Configure(
-                energyThreshold: 0.02f,
-                enterSpeakingMs: 200,
-                resumeSilenceMs: 600,
+                energyThreshold: 0.005f,    // 作为初始噪声地板，会自适应调整
+                enterSpeakingMs: 150,       // 稍快进入Speaking
+                resumeSilenceMs: 400,       // 减少恢复静音时间
                 sampleRate: profile.SampleRate,
                 frameMs: profile.PtimeMs
+            );
+            
+            vad.SetAdaptive(
+                emaAlpha: 0.08f,           // 稍快的噪声地板适应
+                enterMarginDb: 8f,         // 进入Speaking需要8dB以上
+                resumeMarginDb: 4f         // 恢复静音需要4dB以上
             );
 
             var autoResponder = new AIAutoResponder(_logger, _ttsEngine, playbackSource, vad, profile);
 
-            ConnectAudioBridge(autoResponder, audioBridge, playbackSource, vad);
-
-            return autoResponder;
-        }
-
-        public AIAutoResponder CreateWithRtp(IAudioBridge audioBridge, MediaProfile profile, RTPSession rtpSession) {
-            var playbackSource = new QueueAudioPlaybackSource();
-
-            var vad = new EnergyVad();
-            vad.Configure(
-                energyThreshold: 0.02f,
-                enterSpeakingMs: 200,
-                resumeSilenceMs: 600,
-                sampleRate: profile.SampleRate,
-                frameMs: profile.PtimeMs
-            );
-
-            var autoResponder = new AIAutoResponder(_logger, _ttsEngine, playbackSource, vad, profile);
-
-            ConnectAudioBridge(autoResponder, audioBridge, playbackSource, vad);
-
-            var cts = new CancellationTokenSource();
-            _senderLoops[autoResponder] = cts;
-
-            var g711 = new G711Codec();
-            _ = Task.Run(async () => {
-                var token = cts.Token;
-                var frameIntervalMs = profile.PtimeMs > 0 ? profile.PtimeMs : 20;
-
-                while (!token.IsCancellationRequested) {
-                    try {
-                        var frame = audioBridge.GetNextOutgoingFrame();
-                        if (frame != null && frame.Length > 0 && rtpSession != null && !rtpSession.IsClosed) {
-                            byte[] payload;
-                            if (profile.Codec == AudioCodec.PCMU) {
-                                payload = g711.EncodeMuLaw(frame);
-                            } else {
-                                payload = g711.EncodeALaw(frame);
-                            }
-
-                            if (payload.Length > 0) {
-                                rtpSession.SendAudio((uint)payload.Length, payload);
-                            }
-                        }
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, "Error in AI RTP sender loop");
-                        await Task.Delay(100, token);
-                    }
-
-                    try {
-                        await Task.Delay(frameIntervalMs, token);
-                    } catch { /* cancellation */ }
-                }
-
-                _logger.LogDebug("AI RTP sender loop stopped");
-            });
+            ConnectAudioBridge(autoResponder, audioBridge, playbackSource, vad, profile);
 
             return autoResponder;
         }
@@ -101,7 +57,8 @@ namespace AI.Caller.Core {
             AIAutoResponder autoResponder,
             IAudioBridge audioBridge,
             QueueAudioPlaybackSource playbackSource,
-            IVoiceActivityDetector vad) {
+            IVoiceActivityDetector vad, 
+            MediaProfile profile) {
 
             audioBridge.IncomingAudioReceived += (audioFrame) => {
                 try {
@@ -113,9 +70,17 @@ namespace AI.Caller.Core {
 
             audioBridge.OutgoingAudioRequested += (requestedFrame) => {
                 try {
-                    var playbackFrame = playbackSource.ReadNextPcmFrame();                    
-                    if (playbackFrame != null && playbackFrame.Length > 0) {
-                        Array.Copy(playbackFrame, requestedFrame, Math.Min(playbackFrame.Length, requestedFrame.Length));
+                    if (autoResponder.ShouldSendAudio) {
+                        var playbackFrame = playbackSource.ReadNextPcmFrame();                    
+                        if (playbackFrame != null && playbackFrame.Length > 0) {
+                            byte[] payload;
+                            if (profile.Codec == AudioCodec.PCMU) {
+                                payload = _g711.EncodeMuLaw(playbackFrame);
+                            } else {
+                                payload = _g711.EncodeALaw(playbackFrame);
+                            }
+                            Array.Copy(payload, requestedFrame, Math.Min(payload.Length, requestedFrame.Length));
+                        }
                     }
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Error providing outgoing audio from AutoResponder");

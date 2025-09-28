@@ -18,6 +18,7 @@ namespace AI.Caller.Core {
 
         private CancellationTokenSource? _cts;
         private bool _isStarted;
+        private volatile bool _shouldSendAudio = true; // æŽ§åˆ¶æ˜¯å¦åº”è¯¥å‘é€éŸ³é¢‘åˆ°RTP
 
         public AIAutoResponder(ILogger logger, ITTSEngine tts, QueueAudioPlaybackSource playback, IVoiceActivityDetector vad, MediaProfile profile) {
             _tts = tts;
@@ -46,22 +47,26 @@ namespace AI.Caller.Core {
 
             try {
                 var result = _vad.Update(pcmBytes);
-                //todo: ÕâÀï¼ì²âÓÐÎÊÌâ
+                
                 if (result.State == VADState.Speaking) {
                     if (!_playback.IsPaused) {
                         _playback.Pause();
                         _logger.LogDebug($"Paused TTS playback - detected speaking (energy: {result.Energy:F4})");
                     }
+                    _shouldSendAudio = false; 
                 } else {
                     if (_playback.IsPaused) {
                         _playback.Resume();
                         _logger.LogDebug($"Resumed TTS playback - silence detected (energy: {result.Energy:F4})");
                     }
+                    _shouldSendAudio = true;
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error processing uplink PCM frame");
             }
         }
+
+        public bool ShouldSendAudio => _shouldSendAudio;
 
         public async Task PlayScriptAsync(string text, int speakerId = 0, float speed = 1.0f, CancellationToken ct = default) {
             var token = _cts?.Token ?? ct;
@@ -74,31 +79,44 @@ namespace AI.Caller.Core {
             }
         }
 
-        private void EnqueueFloatPcm(float[] src, int ttsSampleRate) {            
-            int frame = _profile.SamplesPerFrame * 2;
+        private void EnqueueFloatPcm(float[] src, int ttsSampleRate) {
+            int frameBytes = _profile.SamplesPerFrame * 2;
 
-            byte[] byteArray = new byte[src.Length * 2];
-
-            for (var i = 0; i < src.Length; i++) {
-                short sample = (short)(src[i] * 32767.0f);
-                byteArray[i * 2] = (byte)(sample & 0xFF);
-                byteArray[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
-            }
-            byte[] processedSrc = byteArray;
-
-            if (byteArray.Length > 0 && ttsSampleRate != _profile.SampleRate) {
-                using var resampler = new AudioResampler<byte>(
+            float[] processedFloat = src;
+            if (src.Length > 0 && ttsSampleRate != _profile.SampleRate) {
+                using var resampler = new AudioResampler<float>(
                     ttsSampleRate, 
                     _profile.SampleRate, 
                     _logger);
-                processedSrc = resampler.Resample(byteArray);
+                processedFloat = resampler.Resample(src);
                 _logger.LogDebug($"Resampled audio from {ttsSampleRate}Hz to {_profile.SampleRate}Hz");
             }
-            var k = 0;
-            while (k < processedSrc.Length) {
-                int len = Math.Min(frame, processedSrc.Length - k);
-                _playback.Enqueue(new ReadOnlySpan<byte>(processedSrc, k, len));
-                k += len;
+
+            var shortSamples = new short[processedFloat.Length];
+            for (int i = 0; i < processedFloat.Length; i++) {
+                float sample = processedFloat[i];
+                if (float.IsNaN(sample) || float.IsInfinity(sample)) {
+                    sample = 0f;
+                } else {
+                    sample = Math.Clamp(sample, -1f, 1f);
+                }
+                
+                int intSample = (int)MathF.Round(sample * 32767f);
+                shortSamples[i] = (short)Math.Clamp(intSample, short.MinValue, short.MaxValue);
+            }
+
+            var byteArray = new byte[shortSamples.Length * 2];
+            for (int i = 0; i < shortSamples.Length; i++) {
+                short sample = shortSamples[i];
+                byteArray[i * 2] = (byte)(sample & 0xFF);        // ä½Žå­—èŠ‚
+                byteArray[i * 2 + 1] = (byte)((sample >> 8) & 0xFF); // é«˜å­—èŠ‚
+            }
+
+            int offset = 0;
+            while (offset < byteArray.Length) {
+                int len = Math.Min(frameBytes, byteArray.Length - offset);
+                _playback.Enqueue(new ReadOnlySpan<byte>(byteArray, offset, len));
+                offset += len;
             }
         }
 
