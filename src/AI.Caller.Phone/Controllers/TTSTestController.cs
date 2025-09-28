@@ -1,7 +1,8 @@
+using AI.Caller.Core;
 using AI.Caller.Core.Media;
+using FFmpeg.AutoGen;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using AI.Caller.Core;
 
 namespace AI.Caller.Phone.Controllers {
     [AllowAnonymous]
@@ -64,17 +65,34 @@ namespace AI.Caller.Phone.Controllers {
                         originalSampleRate = audioData.SampleRate;
                         totalOriginalSamples += audioData.FloatData.Length;
 
-                        var pcmData = ConvertFloatToPcm16(audioData.FloatData);
-                        _logger.LogDebug($"转换: {audioData.FloatData.Length} float -> {pcmData.Length} bytes");
-
-                        byte[] resampledData = pcmData;
+                        float[] processedFloat = audioData.FloatData;
                         if (originalSampleRate != aiProfile.SampleRate) {
-                            using var resampler = new AudioResampler<byte>(originalSampleRate, aiProfile.SampleRate, _logger);
-                            resampledData = resampler.Resample(pcmData);
-                            _logger.LogDebug($"重采样: {pcmData.Length} bytes -> {resampledData.Length} bytes");
+                            using var resampler = new AudioResampler<float>(originalSampleRate, aiProfile.SampleRate, _logger);
+                            processedFloat = resampler.Resample(audioData.FloatData);
+                            _logger.LogDebug($"重采样: {audioData.FloatData.Length} bytes -> {processedFloat.Length} bytes");
                         }
 
-                        allResampledData.AddRange(resampledData);
+                        var shortSamples = new short[processedFloat.Length];
+                        for (int i = 0; i < processedFloat.Length; i++) {
+                            float sample = processedFloat[i];
+                            if (float.IsNaN(sample) || float.IsInfinity(sample)) {
+                                sample = 0f;
+                            } else {
+                                sample = Math.Clamp(sample, -1f, 1f);
+                            }
+
+                            int intSample = (int)MathF.Round(sample * 32767f);
+                            shortSamples[i] = (short)Math.Clamp(intSample, short.MinValue, short.MaxValue);
+                        }
+
+                        var byteArray = new byte[shortSamples.Length * 2];
+                        for (int i = 0; i < shortSamples.Length; i++) {
+                            short sample = shortSamples[i];
+                            byteArray[i * 2] = (byte)(sample & 0xFF);        // 低字节
+                            byteArray[i * 2 + 1] = (byte)((sample >> 8) & 0xFF); // 高字节
+                        }
+
+                        allResampledData.AddRange(byteArray);
                     }
                 }
 
@@ -185,30 +203,43 @@ namespace AI.Caller.Phone.Controllers {
             int frame = profile.SamplesPerFrame * 2;
             _logger.LogDebug($"AI帧大小: {frame} bytes (SamplesPerFrame: {profile.SamplesPerFrame})");
 
-            // 步骤2: Float32 -> PCM16 (完全按照AI代码)
-            byte[] byteArray = new byte[src.Length * 2];
-            for (var i = 0; i < src.Length; i++) {
-                short sample = (short)(src[i] * 32767.0f);
-                byteArray[i * 2] = (byte)(sample & 0xFF);
-                byteArray[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+            float[] processedFloat = src;
+            if (src.Length > 0 && ttsSampleRate != 8000) {
+                using var resampler = new AudioResampler<float>(
+                    ttsSampleRate,
+                    8000,
+                    _logger);
+                processedFloat = resampler.Resample(src);
+                _logger.LogDebug($"Resampled audio from {ttsSampleRate}Hz to {8000}Hz");
             }
-            
-            byte[] processedSrc = byteArray;
 
-            // 步骤3: 重采样 (完全按照AI代码)
-            if (byteArray.Length > 0 && ttsSampleRate != profile.SampleRate) {
-                using var resampler = new AudioResampler<byte>(ttsSampleRate, profile.SampleRate, _logger);
-                processedSrc = resampler.Resample(byteArray);
-                _logger.LogDebug($"AI重采样: {byteArray.Length} bytes -> {processedSrc.Length} bytes");
+            var shortSamples = new short[processedFloat.Length];
+            for (int i = 0; i < processedFloat.Length; i++) {
+                float sample = processedFloat[i];
+                if (float.IsNaN(sample) || float.IsInfinity(sample)) {
+                    sample = 0f;
+                } else {
+                    sample = Math.Clamp(sample, -1f, 1f);
+                }
+
+                int intSample = (int)MathF.Round(sample * 32767f);
+                shortSamples[i] = (short)Math.Clamp(intSample, short.MinValue, short.MaxValue);
+            }
+
+            var byteArray = new byte[shortSamples.Length * 2];
+            for (int i = 0; i < shortSamples.Length; i++) {
+                short sample = shortSamples[i];
+                byteArray[i * 2] = (byte)(sample & 0xFF);        // 低字节
+                byteArray[i * 2 + 1] = (byte)((sample >> 8) & 0xFF); // 高字节
             }
 
             // 步骤4: 分帧处理 (完全按照AI代码) - 这是关键差异！
             var finalProcessed = new List<byte>();
             var k = 0;
-            while (k < processedSrc.Length) {
-                int len = Math.Min(frame, processedSrc.Length - k);
+            while (k < byteArray.Length) {
+                int len = Math.Min(frame, byteArray.Length - k);
                 var frameData = new byte[len];
-                Array.Copy(processedSrc, k, frameData, 0, len);
+                Array.Copy(byteArray, k, frameData, 0, len);
                 finalProcessed.AddRange(frameData);
                 k += len;
                 _logger.LogTrace($"AI分帧: {len} bytes (帧大小: {frame})");

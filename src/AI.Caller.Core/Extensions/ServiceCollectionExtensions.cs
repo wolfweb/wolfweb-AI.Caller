@@ -13,7 +13,6 @@ namespace AI.Caller.Core.Extensions {
             services.TryAddSingleton<ITTSEngine, TTSEngineAdapter>();
             services.TryAddSingleton<IAIAutoResponderFactory, AIAutoResponderFactory>();
 
-            services.TryAddTransient<IVoiceActivityDetector, FfmpegEnhancedVad>();
             services.TryAddTransient<IAudioBridge, AudioBridge>();
             services.TryAddTransient<QueueAudioPlaybackSource>();
             return services;
