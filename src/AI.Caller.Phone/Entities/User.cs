@@ -24,6 +24,8 @@ namespace AI.Caller.Phone.Entities {
 
         public bool IsAdmin { get; set; } = false;
 
+        public bool EnableAI { get; set; } = false;
+
         public virtual ICollection<Contact> Contacts { get; set; } = new List<Contact>();
 
         public int? SipAccountId { get; set; }

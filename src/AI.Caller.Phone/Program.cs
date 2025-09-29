@@ -49,6 +49,7 @@ namespace AI.Caller.Phone {
 
             builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
             builder.Services.AddHostedService<SipBackgroundTask>();
+            builder.Services.AddHostedService<AISipRegistrationService>();
             builder.Services.AddSingleton(sp => {
                 return new SIPTransportManager(builder.Configuration.GetSection("SipSettings")["ContactHost"], sp.GetRequiredService<ILogger<SIPTransportManager>>());
             });
