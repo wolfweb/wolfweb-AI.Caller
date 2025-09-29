@@ -8,7 +8,7 @@ using System.Collections.Concurrent;
 
 namespace AI.Caller.Core {
     public class AIAutoResponderFactory : IAIAutoResponderFactory {
-        private readonly ILogger<AIAutoResponder> _logger;
+        private readonly ILogger _logger;
         private readonly ITTSEngine _ttsEngine;
         private readonly G711Codec _g711 = new();
         private readonly IServiceProvider _serviceProvider;
@@ -24,7 +24,7 @@ namespace AI.Caller.Core {
         }
 
         public AIAutoResponder CreateAutoResponder(IAudioBridge audioBridge, MediaProfile profile) {
-            var playbackSource = new QueueAudioPlaybackSource();
+            var playbackSource = new QueueAudioPlaybackSource(_logger);
             playbackSource.Init(profile);
 
             var vad = new FfmpegEnhancedVad(
@@ -83,17 +83,8 @@ namespace AI.Caller.Core {
                                 payload = playbackFrame; // Not a G.711 codec, use PCM directly
                             }
 
-                            if (payload.Length > 0) {
-                                if (payload.Length != requestedFrame.Length) {
-                                    _logger.LogWarning($"Payload size mismatch: got {payload.Length}, requested {requestedFrame.Length}. This may cause audio quality issues.");
-                                    int bytesToCopy = Math.Min(payload.Length, requestedFrame.Length);
-                                    Array.Copy(payload, 0, requestedFrame, 0, bytesToCopy);
-                                    if (bytesToCopy < requestedFrame.Length) {
-                                        Array.Clear(requestedFrame, bytesToCopy, requestedFrame.Length - bytesToCopy);
-                                    }
-                                } else {
-                                    Array.Copy(payload, requestedFrame, requestedFrame.Length);
-                                }
+                            if (payload.Length > 0) {                                
+                                Array.Copy(payload, requestedFrame, requestedFrame.Length);
                             } else {
                                 Array.Clear(requestedFrame, 0, requestedFrame.Length);
                             }

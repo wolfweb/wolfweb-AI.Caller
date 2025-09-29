@@ -1,12 +1,6 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace AI.Caller.Core.Media.Sources {
     public sealed class QueueAudioPlaybackSource : IAudioPlaybackSource, IPlaybackMeter, IPausablePlayback {
@@ -15,24 +9,29 @@ namespace AI.Caller.Core.Media.Sources {
 
         private readonly ConcurrentQueue<byte[]> _queue = new();
         private readonly object _bufferLock = new();
+        private readonly ILogger _logger;
 
-        private byte[] _buffer = Array.Empty<byte>();
-        private int _samplesPerFrame = 160;
         private volatile bool _paused;
-        private float _playbackRms;
 
         private PlaybackState _state = PlaybackState.Stopped;
+        private byte[] _buffer = Array.Empty<byte>();
+        private int _samplesPerFrame = 160;
         private int _prebufferThresholdBytes;
         private int _totalBufferedBytes;
+        private float _playbackRms;
 
         public bool IsPaused => _paused;
         public float PlaybackRms => _playbackRms;
+
+        public QueueAudioPlaybackSource(ILogger logger) {
+            _logger = logger;
+        }
 
         public void Init(MediaProfile profile) {
             const int prebufferDurationMs = 200; // Default prebuffer time
             _samplesPerFrame = profile.SamplesPerFrame;
             _prebufferThresholdBytes = profile.SampleRate * 2 * prebufferDurationMs / 1000;
-            Trace.WriteLine($"QueueAudioPlaybackSource initialized. SamplesPerFrame: {_samplesPerFrame}, PrebufferThreshold: {_prebufferThresholdBytes} bytes.");
+            _logger.LogDebug($"QueueAudioPlaybackSource initialized. SamplesPerFrame: {_samplesPerFrame}, PrebufferThreshold: {_prebufferThresholdBytes} bytes.");
         }
 
         public Task StartAsync(CancellationToken ct) {
@@ -44,7 +43,7 @@ namespace AI.Caller.Core.Media.Sources {
                 _totalBufferedBytes = 0;
                 while (_queue.TryDequeue(out _)) { }
             }
-            Trace.WriteLine("QueueAudioPlaybackSource started. State: Buffering.");
+            _logger.LogDebug("QueueAudioPlaybackSource started. State: Buffering.");
             return Task.CompletedTask;
         }
 
@@ -57,36 +56,33 @@ namespace AI.Caller.Core.Media.Sources {
             if (_state == PlaybackState.Buffering) {
                 lock (_bufferLock) {
                     if (_state == PlaybackState.Buffering) {
-                        Trace.WriteLine("Buffering... returning silence.");
+                        _logger.LogDebug("Buffering... returning silence.");
                         return new byte[frameBytes];
                     }
                 }
             }
 
             byte[] outputFrame;
+            int bytesConsumed = 0;
             lock (_bufferLock) {
                 var workingBuffer = new List<byte>(_buffer);
                 while (workingBuffer.Count < frameBytes && _queue.TryDequeue(out var frame)) {
                     workingBuffer.AddRange(frame);
                 }
 
-                if (workingBuffer.Count == 0) {
-                    Trace.WriteLine("Buffer empty, switching back to Buffering state.");
+                if (workingBuffer.Count < frameBytes) {
+                    _buffer = workingBuffer.ToArray();
+                    if (workingBuffer.Count > 0) {
+                        _logger.LogDebug($"Partial frame data available ({workingBuffer.Count} bytes), but not enough for a full frame ({frameBytes} bytes). Returning silence and re-buffering.");
+                    } else {
+                        _logger.LogDebug("Buffer empty, switching back to Buffering state.");
+                    }
                     _state = PlaybackState.Buffering;
-                    return new byte[frameBytes];
-                }
-
-                int bytesConsumed;
-                if (workingBuffer.Count >= frameBytes) {
+                    outputFrame = new byte[frameBytes];
+                } else {
                     outputFrame = workingBuffer.Take(frameBytes).ToArray();
                     _buffer = workingBuffer.Skip(frameBytes).ToArray();
                     bytesConsumed = frameBytes;
-                } else {
-                    outputFrame = new byte[frameBytes];
-                    workingBuffer.CopyTo(0, outputFrame, 0, workingBuffer.Count);
-                    _buffer = Array.Empty<byte>();
-                    bytesConsumed = workingBuffer.Count;
-                    Trace.WriteLine($"Partial frame read ({bytesConsumed} bytes), padding with silence.");
                 }
                 _totalBufferedBytes -= bytesConsumed;
             }
@@ -103,13 +99,13 @@ namespace AI.Caller.Core.Media.Sources {
                 _totalBufferedBytes = 0;
                 while (_queue.TryDequeue(out _)) { }
             }
-            Trace.WriteLine("QueueAudioPlaybackSource stopped.");
+            _logger.LogDebug("QueueAudioPlaybackSource stopped.");
             return Task.CompletedTask;
         }
 
         public ValueTask DisposeAsync() {
             StopAsync();
-            Trace.WriteLine("QueueAudioPlaybackSource disposed.");
+            _logger.LogDebug("QueueAudioPlaybackSource disposed.");
             return ValueTask.CompletedTask;
         }
 
@@ -124,7 +120,7 @@ namespace AI.Caller.Core.Media.Sources {
                 _totalBufferedBytes += pcm.Length;
                 if (_state == PlaybackState.Buffering && _totalBufferedBytes >= _prebufferThresholdBytes) {
                     _state = PlaybackState.Playing;
-                    Trace.WriteLine($"Pre-buffering complete ({_totalBufferedBytes} bytes). State: Playing.");
+                    _logger.LogDebug($"Pre-buffering complete ({_totalBufferedBytes} bytes). State: Playing.");
                 }
             }
         }

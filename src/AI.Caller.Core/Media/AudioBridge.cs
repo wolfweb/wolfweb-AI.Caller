@@ -93,9 +93,9 @@ namespace AI.Caller.Core {
 
             var frameBytes = _profile.Codec == AudioCodec.PCMU || _profile.Codec == AudioCodec.PCMA ? _profile.SamplesPerFrame : _profile.SamplesPerFrame * 2;
             if (_outgoingQueue.TryDequeue(out var frame)) {
-                Trace.WriteLine($"Dequeued frame: {frame.Length} bytes, first 10 bytes: {string.Join(",", frame.Take(10))}");
+                _logger.LogDebug($"Dequeued frame: {frame.Length} bytes, first 10 bytes: {string.Join(",", frame.Take(10))}");
                 if (frame.Length != frameBytes) {
-                    Trace.WriteLine($"Dequeued frame size mismatch: got {frame.Length}, expected {frameBytes}");
+                    _logger.LogDebug($"Dequeued frame size mismatch: got {frame.Length}, expected {frameBytes}");
                     var tempFrame = new byte[frameBytes];
                     Array.Copy(frame, 0, tempFrame, 0, Math.Min(frame.Length, frameBytes));
                     frame = tempFrame;
