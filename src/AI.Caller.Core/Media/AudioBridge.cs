@@ -4,6 +4,7 @@ using AI.Caller.Core.Media;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace AI.Caller.Core {
     public sealed class AudioBridge : IAudioBridge {
@@ -90,11 +91,18 @@ namespace AI.Caller.Core {
                 return Array.Empty<byte>();
             }
 
+            var frameBytes = _profile.Codec == AudioCodec.PCMU || _profile.Codec == AudioCodec.PCMA ? _profile.SamplesPerFrame : _profile.SamplesPerFrame * 2;
             if (_outgoingQueue.TryDequeue(out var frame)) {
+                Trace.WriteLine($"Dequeued frame: {frame.Length} bytes, first 10 bytes: {string.Join(",", frame.Take(10))}");
+                if (frame.Length != frameBytes) {
+                    Trace.WriteLine($"Dequeued frame size mismatch: got {frame.Length}, expected {frameBytes}");
+                    var tempFrame = new byte[frameBytes];
+                    Array.Copy(frame, 0, tempFrame, 0, Math.Min(frame.Length, frameBytes));
+                    frame = tempFrame;
+                }
                 return frame;
             }
 
-            var frameBytes = _profile.SamplesPerFrame * 2;
             var requestedFrame = new byte[frameBytes];
             OutgoingAudioRequested?.Invoke(requestedFrame);
             

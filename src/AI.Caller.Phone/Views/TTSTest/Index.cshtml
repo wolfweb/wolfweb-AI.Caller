@@ -14,7 +14,7 @@
         </div>
 
         <div class="row">
-            <div class="col-md-4">
+            <div class="col-md-6">
                 <div class="card">
                     <div class="card-header">
                         <h6>🎵 原始音频 (22050Hz)</h6>
@@ -32,7 +32,7 @@
                 </div>
             </div>
 
-            <div class="col-md-4">
+            <div class="col-md-6">
                 <div class="card">
                     <div class="card-header">
                         <h6>🔄 重采样音频 (8000Hz)</h6>
@@ -50,7 +50,7 @@
                 </div>
             </div>
 
-            <div class="col-md-4">
+            <div class="col-md-6">
                 <div class="card">
                     <div class="card-header">
                         <h6>🔄 重采样音频 (8000Hz)</h6>
@@ -61,7 +61,25 @@
                             <source src="/TTSTest/AIProcessedAudio" type="audio/wav">
                             您的浏览器不支持音频播放
                         </audio>
-                        <a href="/TTSTest/ResampledAudio" class="btn btn-outline-success btn-sm" download>
+                        <a href="/TTSTest/AIProcessedAudio" class="btn btn-outline-success btn-sm" download>
+                            📥 下载重采样音频
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6>🔄 重采样音频 (8000Hz)</h6>
+                    </div>
+                    <div class="card-body">
+                        <p>经过AI客服G711编码处理流程的音频：</p>
+                        <audio controls class="w-100 mb-3">
+                            <source src="/TTSTest/G711ProcessedAudio" type="audio/wav">
+                            您的浏览器不支持音频播放
+                        </audio>
+                        <a href="/TTSTest/G711ProcessedAudio" class="btn btn-outline-success btn-sm" download>
                             📥 下载重采样音频
                         </a>
                     </div>

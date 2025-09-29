@@ -10,7 +10,7 @@ namespace AI.Caller.Core {
     public class AIAutoResponderFactory : IAIAutoResponderFactory {
         private readonly ILogger<AIAutoResponder> _logger;
         private readonly ITTSEngine _ttsEngine;
-        private readonly G711Codec _g711 = new ();
+        private readonly G711Codec _g711 = new();
         private readonly IServiceProvider _serviceProvider;
         private readonly ConcurrentDictionary<AIAutoResponder, CancellationTokenSource> _senderLoops = new();
 
@@ -25,13 +25,14 @@ namespace AI.Caller.Core {
 
         public AIAutoResponder CreateAutoResponder(IAudioBridge audioBridge, MediaProfile profile) {
             var playbackSource = new QueueAudioPlaybackSource();
+            playbackSource.Init(profile);
 
             var vad = new FfmpegEnhancedVad(
                 inputSampleRate: profile.SampleRate,    // 8000Hz
                 targetSampleRate: profile.SampleRate,   // 8000Hz  
                 hpCutoffHz: 80                          // 电话频带下限约300Hz，设80Hz高通
             );
-            
+
             vad.Configure(
                 energyThreshold: 0.005f,    // 作为初始噪声地板，会自适应调整
                 enterSpeakingMs: 150,       // 稍快进入Speaking
@@ -39,7 +40,7 @@ namespace AI.Caller.Core {
                 sampleRate: profile.SampleRate,
                 frameMs: profile.PtimeMs
             );
-            
+
             vad.SetAdaptive(
                 emaAlpha: 0.08f,           // 稍快的噪声地板适应
                 enterMarginDb: 8f,         // 进入Speaking需要8dB以上
@@ -57,7 +58,7 @@ namespace AI.Caller.Core {
             AIAutoResponder autoResponder,
             IAudioBridge audioBridge,
             QueueAudioPlaybackSource playbackSource,
-            IVoiceActivityDetector vad, 
+            IVoiceActivityDetector vad,
             MediaProfile profile) {
 
             audioBridge.IncomingAudioReceived += (audioFrame) => {
@@ -71,16 +72,38 @@ namespace AI.Caller.Core {
             audioBridge.OutgoingAudioRequested += (requestedFrame) => {
                 try {
                     if (autoResponder.ShouldSendAudio) {
-                        var playbackFrame = playbackSource.ReadNextPcmFrame();                    
+                        var playbackFrame = playbackSource.ReadNextPcmFrame();
                         if (playbackFrame != null && playbackFrame.Length > 0) {
                             byte[] payload;
                             if (profile.Codec == AudioCodec.PCMU) {
-                                payload = _g711.EncodeMuLaw(playbackFrame);
+                                payload = _g711.EncodeMuLaw(playbackFrame.AsSpan());
+                            } else if (profile.Codec == AudioCodec.PCMA) {
+                                payload = _g711.EncodeALaw(playbackFrame.AsSpan());
                             } else {
-                                payload = _g711.EncodeALaw(playbackFrame);
+                                payload = playbackFrame; // Not a G.711 codec, use PCM directly
                             }
-                            Array.Copy(payload, requestedFrame, Math.Min(payload.Length, requestedFrame.Length));
+
+                            if (payload.Length > 0) {
+                                if (payload.Length != requestedFrame.Length) {
+                                    _logger.LogWarning($"Payload size mismatch: got {payload.Length}, requested {requestedFrame.Length}. This may cause audio quality issues.");
+                                    int bytesToCopy = Math.Min(payload.Length, requestedFrame.Length);
+                                    Array.Copy(payload, 0, requestedFrame, 0, bytesToCopy);
+                                    if (bytesToCopy < requestedFrame.Length) {
+                                        Array.Clear(requestedFrame, bytesToCopy, requestedFrame.Length - bytesToCopy);
+                                    }
+                                } else {
+                                    Array.Copy(payload, requestedFrame, requestedFrame.Length);
+                                }
+                            } else {
+                                Array.Clear(requestedFrame, 0, requestedFrame.Length);
+                            }
+                        } else {
+                            _logger.LogDebug("No playback frame available, sending silence");
+                            Array.Clear(requestedFrame, 0, requestedFrame.Length);
                         }
+                    } else {
+                        _logger.LogDebug("ShouldSendAudio is false, sending silence");
+                        Array.Clear(requestedFrame, 0, requestedFrame.Length);
                     }
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Error providing outgoing audio from AutoResponder");

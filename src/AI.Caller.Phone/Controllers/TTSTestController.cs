@@ -1,5 +1,6 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Media;
+using AI.Caller.Core.Media.Encoders;
 using FFmpeg.AutoGen;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -7,12 +8,14 @@ using Microsoft.AspNetCore.Mvc;
 namespace AI.Caller.Phone.Controllers {
     [AllowAnonymous]
     public class TTSTestController : Controller {
-        private readonly ILogger<TTSTestController> _logger;
+        private readonly ILogger _logger;
         private readonly ITTSEngine _ttsEngine;
+        private readonly G711Codec _g711Codec;
 
         public TTSTestController(ILogger<TTSTestController> logger, ITTSEngine ttsEngine) {
             _logger = logger;
             _ttsEngine = ttsEngine;
+            _g711Codec = new G711Codec();
         }
 
         public IActionResult Index() {
@@ -193,6 +196,50 @@ namespace AI.Caller.Phone.Controllers {
             } catch (Exception ex) {
                 _logger.LogError(ex, "生成AI处理音频失败");
                 return BadRequest($"生成AI处理音频失败: {ex.Message}");
+            }
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> G711ProcessedAudio() {
+            var text = "您好，欢迎致电我们公司，我是AI客服小助手。";
+
+            try {
+                _logger.LogInformation("生成G.711处理流程音频流");
+                var aiProfile = new MediaProfile(AudioCodec.PCMU, 0, 8000, 20, 1);
+                var allProcessedData = new List<byte>();
+                int originalSampleRate = 22050;
+                int totalOriginalSamples = 0;
+
+                await foreach (var audioData in _ttsEngine.SynthesizeStreamAsync(text, 0, 1.0f)) {
+                    if (audioData.FloatData?.Length > 0) {
+                        originalSampleRate = audioData.SampleRate;
+                        totalOriginalSamples += audioData.FloatData.Length;
+
+                        var pcmChunk = SimulateAIEnqueueFloatPcm(audioData.FloatData, audioData.SampleRate, aiProfile);
+                        var g711Chunk = _g711Codec.EncodeMuLaw(pcmChunk.AsSpan());
+                        var decodedPcmChunk = _g711Codec.DecodeG711MuLaw(g711Chunk.AsSpan());
+                        allProcessedData.AddRange(decodedPcmChunk);
+                    }
+                }
+
+                var processedSamples = allProcessedData.Count / 2;
+                var expectedSamples = (int)(totalOriginalSamples * (double)aiProfile.SampleRate / originalSampleRate);
+
+                _logger.LogInformation($"G.711处理结果: {totalOriginalSamples}@{originalSampleRate}Hz -> {processedSamples}@{aiProfile.SampleRate}Hz (预期: {expectedSamples})");
+
+                if (allProcessedData.Count == 0) {
+                    _logger.LogError("G.711处理失败：没有输出数据");
+                    return BadRequest("❌ G.711处理失败：没有输出数据！");
+                }
+
+                var processedFloat = ConvertPcm16ToFloat(allProcessedData.ToArray());
+                var wavData = ConvertToWav(processedFloat, aiProfile.SampleRate);
+
+                Response.Headers.Add("Content-Disposition", $"inline; filename=\"g711_processed_{aiProfile.SampleRate}Hz.wav\"");
+                return File(wavData, "audio/wav");
+            } catch (Exception ex) {
+                _logger.LogError(ex, "生成G.711处理音频失败");
+                return BadRequest($"生成G.711处理音频失败: {ex.Message}");
             }
         }
 

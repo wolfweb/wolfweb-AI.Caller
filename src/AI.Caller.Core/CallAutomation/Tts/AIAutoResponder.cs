@@ -1,12 +1,7 @@
 using AI.Caller.Core.Media;
-using AI.Caller.Core.Media.Interfaces;
 using AI.Caller.Core.Media.Sources;
 using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.Logging;
-using System;
-using System.Threading;
-using System.Threading.Tasks;
-using static vpxmd.VpxCodecCxPkt;
 
 namespace AI.Caller.Core {
     public sealed class AIAutoResponder : IAsyncDisposable {
@@ -35,7 +30,6 @@ namespace AI.Caller.Core {
             }
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            _playback.Init(_profile);
             await _playback.StartAsync(_cts.Token);
             _isStarted = true;
 
