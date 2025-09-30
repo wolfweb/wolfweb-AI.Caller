@@ -3,6 +3,6 @@ using AI.Caller.Core.Media.Interfaces;
 
 namespace AI.Caller.Core.Interfaces {
     public interface IAIAutoResponderFactory {
-        AIAutoResponder CreateAutoResponder(IAudioBridge audioBridge, MediaProfile profile);
+        AIAutoResponder CreateAutoResponder(MediaProfile profile);
     }
 }

@@ -45,11 +45,27 @@ namespace AI.Caller.Phone.Services {
                 var audioBridge = _serviceProvider.GetRequiredService<IAudioBridge>();
                 audioBridge.Initialize(mediaProfile);
 
-                var autoResponder = _autoResponderFactory.CreateAutoResponder(audioBridge, mediaProfile);
-
-                if (sipClient.MediaSessionManager != null) {
-                    sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
+                if (sipClient.MediaSessionManager == null)
+                {
+                    _logger.LogError("MediaSessionManager is null, cannot start AI customer service for user {Username}", user.Username);
+                    return false;
                 }
+
+                var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
+
+                autoResponder.OutgoingAudioGenerated += (audioFrame) => {
+                    sipClient.MediaSessionManager?.EnqueueOutgoingAudio(audioFrame);
+                };
+
+                audioBridge.IncomingAudioReceived += (audioFrame) => {
+                    try {
+                        autoResponder.OnUplinkPcmFrame(audioFrame);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "Error processing incoming audio in AutoResponder");
+                    }
+                };
+
+                sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
 
                 var session = new AIAutoResponderSession {
                     User = user,

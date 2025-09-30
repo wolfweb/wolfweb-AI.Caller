@@ -27,7 +27,6 @@ namespace AI.Caller.Core.Tests.Media {
 
             // 1. Setup Dependencies
             var autoResponderLogger = new Mock<ILogger<AIAutoResponder>>().Object;
-            var bridgeLogger = new Mock<ILogger<AudioBridge>>().Object;
             var serviceProviderMock = new Mock<IServiceProvider>().Object; // Still needed for factory constructor
             var g711Codec = new G711Codec();
             var mediaProfile = new MediaProfile(AudioCodec.PCMU, 0, 8000, 20, 1);
@@ -52,15 +51,9 @@ namespace AI.Caller.Core.Tests.Media {
             var realTtsEngine = services.GetRequiredService<ITTSEngine>();
             _output.WriteLine("Real TTSEngineAdapter instance created.");
 
-            // 3. Instantiate REAL AudioBridge
-            var audioBridge = new AudioBridge(bridgeLogger);
-            audioBridge.Initialize(mediaProfile);
-            audioBridge.Start();
-            _output.WriteLine("Real AudioBridge instance created and started.");
-
-            // 4. Instantiate Real Factory and Create the System Under Test (SUT)
+            // 3. Instantiate Real Factory and Create the System Under Test (SUT)
             var factory = new AIAutoResponderFactory(autoResponderLogger, realTtsEngine, serviceProviderMock);
-            var autoResponder = factory.CreateAutoResponder(audioBridge, mediaProfile);
+            var autoResponder = factory.CreateAutoResponder(mediaProfile);
             _output.WriteLine("Real AIAutoResponderFactory and AIAutoResponder created.");
 
             // 5. Start the process
@@ -69,33 +62,25 @@ namespace AI.Caller.Core.Tests.Media {
             _ = autoResponder.PlayScriptAsync(textToSynthesize);
             _output.WriteLine($"Audio generation started for text: '{textToSynthesize}'");
 
-            // 6. Pull data from the real AudioBridge and process it
+            // 6. Collect data from the AutoResponder's event
             var finalPcmData = new List<byte>();
-            int silentFramesCount = 0;
-            const int maxSilentFrames = 50; // Stop after 1 second of silence
-            const double silenceThreshold = 0.001; // RMS energy threshold for silence
+            var speechEndedSignal = new AutoResetEvent(false);
 
-            while (silentFramesCount < maxSilentFrames) {
-                // This is the crucial change: we call the real method
-                var g711Frame = audioBridge.GetNextOutgoingFrame();
-
-                // To reliably detect silence, we must decode and check energy
+            autoResponder.OutgoingAudioGenerated += (g711Frame) => {
                 var decodedPcmFrame = g711Codec.DecodeG711MuLaw(g711Frame);
-                double rmsEnergy = CalculateRmsEnergy(decodedPcmFrame);
+                finalPcmData.AddRange(decodedPcmFrame);
+                speechEndedSignal.Set(); // Signal that a frame was received
+            };
 
-                if (rmsEnergy < silenceThreshold) {
-                    silentFramesCount++;
-                } else {
-                    silentFramesCount = 0; // Reset on non-silent frame
-                    finalPcmData.AddRange(decodedPcmFrame);
-                }
-
-                await Task.Delay(mediaProfile.PtimeMs); // Simulate the 20ms tick
+            // Wait for audio generation to finish. The loop will exit if no audio frame is received for 1 second.
+            const int silenceTimeoutMs = 1000;
+            while (speechEndedSignal.WaitOne(silenceTimeoutMs))
+            {
+                // Continue waiting for the next frame
             }
 
             _output.WriteLine($"Collected {finalPcmData.Count} bytes of final PCM data after detecting end of speech.");
             await autoResponder.StopAsync();
-            audioBridge.Dispose();
 
             // 7. Save to WAV file
             string outputFileName = "test_full_real_pipeline_output.wav";

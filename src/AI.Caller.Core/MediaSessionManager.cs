@@ -3,6 +3,7 @@ using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
 using System.Net;
+using System.Threading.Channels;
 
 namespace AI.Caller.Core {
     public class MediaSessionManager : IDisposable {
@@ -10,6 +11,8 @@ namespace AI.Caller.Core {
         private RTCPeerConnection? _peerConnection;
         private readonly object _lock = new object();
         private bool _disposed = false;
+        private readonly Channel<byte[]> _outgoingAudioChannel = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
+        private int _sendLoopStarted = 0;
 
         private readonly ILogger _logger;
         private IAudioBridge? _audioBridge;
@@ -35,10 +38,22 @@ namespace AI.Caller.Core {
 
         public void SetAudioBridge(IAudioBridge audioBridge) {
             _audioBridge = audioBridge;
-            StartAudioSendLoop();
             _logger.LogDebug("Audio bridge attached to MediaSessionManager");
         }
-        
+
+        public void EnqueueOutgoingAudio(byte[] audioFrame) {
+            if (audioFrame == null || audioFrame.Length == 0) return;
+            if (_sendLoopStarted == 0) {
+                if (Interlocked.CompareExchange(ref _sendLoopStarted, 1, 0) == 0) {
+                    StartAudioSendLoop();
+                }
+            }
+
+            if (!_outgoingAudioChannel.Writer.TryWrite(audioFrame)) {
+                _logger.LogWarning("Failed to write to outgoing audio channel, it may have been completed.");
+            }
+        }
+
         public async Task InitializeMediaSession() {
             ThrowIfDisposed();
 
@@ -362,6 +377,8 @@ namespace AI.Caller.Core {
                     AudioDataReceived = null;
                     ConnectionStateChanged = null;
 
+                    _outgoingAudioChannel.Writer.TryComplete();
+
                     if (_mediaSession != null) {
                         try {
                             _mediaSession.OnRtpPacketReceived -= OnRtpPacketReceived;
@@ -483,23 +500,28 @@ namespace AI.Caller.Core {
 
         private void StartAudioSendLoop() {
             _ = Task.Run(async () => {
-                const int frameIntervalMs = 20; // 20ms帧间隔
+                _logger.LogInformation("Audio send loop started, waiting for audio frames...");
+                try {
+                    await foreach (var audioFrame in _outgoingAudioChannel.Reader.ReadAllAsync()) {
+                        if (_disposed) break;
 
-                while (_mediaSession != null && !_mediaSession.IsClosed && _audioBridge != null) {
-                    try {
-                        var audioFrame = _audioBridge.GetNextOutgoingFrame();
-                        if (audioFrame != null && audioFrame.Length > 0) {
-                            _mediaSession.SendAudio((uint)audioFrame.Length, audioFrame);
+                        if (_mediaSession != null && !_mediaSession.IsClosed) {
+                            if (audioFrame != null && audioFrame.Length > 0) {
+                                _mediaSession.SendAudio((uint)audioFrame.Length, audioFrame);
+                            }
+                        } else {
+                            _logger.LogWarning("Media session not available or closed, skipping audio frame send.");
                         }
-
-                        await Task.Delay(frameIntervalMs);
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, "Error in audio send loop");
-                        await Task.Delay(100); // 短暂延迟后重试
                     }
+                } catch (OperationCanceledException) {
+                    _logger.LogInformation("Audio send loop cancelled.");
+                } catch (Exception ex) {
+                    if (!(ex is ChannelClosedException)) {
+                        _logger.LogError(ex, "Error in audio send loop");
+                    }
+                } finally {
+                    _logger.LogInformation("Audio send loop terminated.");
                 }
-
-                _logger.LogDebug("Audio send loop terminated");
             });
         }
 

@@ -23,7 +23,7 @@ namespace AI.Caller.Core {
             _serviceProvider = serviceProvider;
         }
 
-        public AIAutoResponder CreateAutoResponder(IAudioBridge audioBridge, MediaProfile profile) {
+        public AIAutoResponder CreateAutoResponder(MediaProfile profile) {
             var playbackSource = new QueueAudioPlaybackSource(_logger);
             playbackSource.Init(profile);
 
@@ -47,59 +47,15 @@ namespace AI.Caller.Core {
                 resumeMarginDb: 4f         // 恢复静音需要4dB以上
             );
 
-            var autoResponder = new AIAutoResponder(_logger, _ttsEngine, playbackSource, vad, profile);
-
-            ConnectAudioBridge(autoResponder, audioBridge, playbackSource, vad, profile);
+            var autoResponder = new AIAutoResponder(
+                _logger, 
+                _ttsEngine, 
+                playbackSource, 
+                vad, 
+                profile, 
+                _g711);
 
             return autoResponder;
-        }
-
-        private void ConnectAudioBridge(
-            AIAutoResponder autoResponder,
-            IAudioBridge audioBridge,
-            QueueAudioPlaybackSource playbackSource,
-            IVoiceActivityDetector vad,
-            MediaProfile profile) {
-
-            audioBridge.IncomingAudioReceived += (audioFrame) => {
-                try {
-                    autoResponder.OnUplinkPcmFrame(audioFrame);
-                } catch (Exception ex) {
-                    _logger.LogError(ex, "Error processing incoming audio in AutoResponder");
-                }
-            };
-
-            audioBridge.OutgoingAudioRequested += (requestedFrame) => {
-                try {
-                    if (autoResponder.ShouldSendAudio) {
-                        var playbackFrame = playbackSource.ReadNextPcmFrame();
-                        if (playbackFrame != null && playbackFrame.Length > 0) {
-                            byte[] payload;
-                            if (profile.Codec == AudioCodec.PCMU) {
-                                payload = _g711.EncodeMuLaw(playbackFrame.AsSpan());
-                            } else if (profile.Codec == AudioCodec.PCMA) {
-                                payload = _g711.EncodeALaw(playbackFrame.AsSpan());
-                            } else {
-                                payload = playbackFrame; // Not a G.711 codec, use PCM directly
-                            }
-
-                            if (payload.Length > 0) {                                
-                                Array.Copy(payload, requestedFrame, requestedFrame.Length);
-                            } else {
-                                Array.Clear(requestedFrame, 0, requestedFrame.Length);
-                            }
-                        } else {
-                            _logger.LogDebug("No playback frame available, sending silence");
-                            Array.Clear(requestedFrame, 0, requestedFrame.Length);
-                        }
-                    } else {
-                        _logger.LogDebug("ShouldSendAudio is false, sending silence");
-                        Array.Clear(requestedFrame, 0, requestedFrame.Length);
-                    }
-                } catch (Exception ex) {
-                    _logger.LogError(ex, "Error providing outgoing audio from AutoResponder");
-                }
-            };
         }
     }
 }

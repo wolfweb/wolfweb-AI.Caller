@@ -1,4 +1,5 @@
 using AI.Caller.Core.Media;
+using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Sources;
 using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.Logging;
@@ -10,17 +11,26 @@ namespace AI.Caller.Core {
         private readonly QueueAudioPlaybackSource _playback;
         private readonly IVoiceActivityDetector _vad;
         private readonly MediaProfile _profile;
+        private readonly G711Codec _g711Codec;
 
+        public event Action<byte[]>? OutgoingAudioGenerated;
         private CancellationTokenSource? _cts;
         private bool _isStarted;
         private volatile bool _shouldSendAudio = true; // 控制是否应该发送音频到RTP
 
-        public AIAutoResponder(ILogger logger, ITTSEngine tts, QueueAudioPlaybackSource playback, IVoiceActivityDetector vad, MediaProfile profile) {
+        public AIAutoResponder(
+            ILogger logger,
+            ITTSEngine tts,
+            QueueAudioPlaybackSource playback,
+            IVoiceActivityDetector vad,
+            MediaProfile profile,
+            G711Codec g711Codec) {
             _tts = tts;
             _vad = vad;
             _logger = logger;
             _profile = profile;
             _playback = playback;
+            _g711Codec = g711Codec;
         }
 
         public async Task StartAsync(CancellationToken ct = default) {
@@ -33,6 +43,8 @@ namespace AI.Caller.Core {
             await _playback.StartAsync(_cts.Token);
             _isStarted = true;
 
+            _ = AudioPushLoop(_cts.Token);
+
             _logger.LogInformation("AIAutoResponder started successfully");
         }
 
@@ -41,13 +53,13 @@ namespace AI.Caller.Core {
 
             try {
                 var result = _vad.Update(pcmBytes);
-                
+
                 if (result.State == VADState.Speaking) {
                     if (!_playback.IsPaused) {
                         _playback.Pause();
                         _logger.LogDebug($"Paused TTS playback - detected speaking (energy: {result.Energy:F4})");
                     }
-                    _shouldSendAudio = false; 
+                    _shouldSendAudio = false;
                 } else {
                     if (_playback.IsPaused) {
                         _playback.Resume();
@@ -79,8 +91,8 @@ namespace AI.Caller.Core {
             float[] processedFloat = src;
             if (src.Length > 0 && ttsSampleRate != _profile.SampleRate) {
                 using var resampler = new AudioResampler<float>(
-                    ttsSampleRate, 
-                    _profile.SampleRate, 
+                    ttsSampleRate,
+                    _profile.SampleRate,
                     _logger);
                 processedFloat = resampler.Resample(src);
                 _logger.LogDebug($"Resampled audio from {ttsSampleRate}Hz to {_profile.SampleRate}Hz");
@@ -94,7 +106,7 @@ namespace AI.Caller.Core {
                 } else {
                     sample = Math.Clamp(sample, -1f, 1f);
                 }
-                
+
                 int intSample = (int)MathF.Round(sample * 32767f);
                 shortSamples[i] = (short)Math.Clamp(intSample, short.MinValue, short.MaxValue);
             }
@@ -130,6 +142,45 @@ namespace AI.Caller.Core {
             try { await StopAsync(); } catch { }
             await _playback.DisposeAsync();
             _cts?.Dispose();
+            OutgoingAudioGenerated = null;
+        }
+
+        private async Task AudioPushLoop(CancellationToken ct) {
+            _logger.LogInformation("Audio push loop started.");
+            try {
+                while (!ct.IsCancellationRequested) {
+                    if (_shouldSendAudio) {
+                        var pcmFrame = _playback.ReadNextPcmFrame();
+
+                        bool isSilent = true;
+                        for (int i = 0; i < pcmFrame.Length; i++) {
+                            if (pcmFrame[i] != 0) {
+                                isSilent = false;
+                                break;
+                            }
+                        }
+
+                        if (!isSilent) {
+                            byte[] payload;
+                            if (_profile.Codec == AudioCodec.PCMU) {
+                                payload = _g711Codec.EncodeMuLaw(pcmFrame.AsSpan());
+                            } else if (_profile.Codec == AudioCodec.PCMA) {
+                                payload = _g711Codec.EncodeALaw(pcmFrame.AsSpan());
+                            } else {
+                                payload = pcmFrame;
+                            }
+                            OutgoingAudioGenerated?.Invoke(payload);
+                        }
+                    }
+                    await Task.Delay(_profile.PtimeMs, ct);
+                }
+            } catch (OperationCanceledException) {
+                _logger.LogInformation("Audio push loop cancelled.");
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error in audio push loop.");
+            } finally {
+                _logger.LogInformation("Audio push loop terminated.");
+            }
         }
     }
 }
