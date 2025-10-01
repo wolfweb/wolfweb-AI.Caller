@@ -13,9 +13,7 @@ public class AppDbContext : DbContext {
     public DbSet<SipSetting> SipSettings { get; set; }
     public DbSet<SipAccount> SipAccounts { get; set; }
     public DbSet<Models.Recording> Recordings { get; set; }
-    public DbSet<TtsCallDocument> TtsCallDocuments { get; set; }
-    public DbSet<TtsCallRecord> TtsCallRecords { get; set; }
-    public DbSet<InboundTemplate> InboundTemplates { get; set; }
+    public DbSet<TtsTemplate> TtsTemplates { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
         base.OnConfiguring(optionsBuilder);
@@ -95,49 +93,14 @@ public class AppDbContext : DbContext {
             entity.HasIndex(e => e.Status).HasDatabaseName("IX_Recordings_Status");
         });
 
-        // TTS外呼文档配置
-        modelBuilder.Entity<TtsCallDocument>(entity => {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.FileName).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.FilePath).IsRequired().HasMaxLength(500);
-            entity.Property(e => e.Status).HasConversion<int>();
-
-            entity.HasIndex(e => e.UserId).HasDatabaseName("IX_TtsCallDocuments_UserId");
-            entity.HasIndex(e => e.Status).HasDatabaseName("IX_TtsCallDocuments_Status");
-            entity.HasIndex(e => e.UploadTime).HasDatabaseName("IX_TtsCallDocuments_UploadTime");
-        });
-
-        // TTS外呼记录配置
-        modelBuilder.Entity<TtsCallRecord>(entity => {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.PhoneNumber).IsRequired().HasMaxLength(20);
-            entity.Property(e => e.Gender).HasMaxLength(10);
-            entity.Property(e => e.AddressTemplate).HasMaxLength(50);
-            entity.Property(e => e.TtsContent).IsRequired();
-            entity.Property(e => e.CallStatus).HasConversion<int>();
-            entity.Property(e => e.FailureReason).HasMaxLength(500);
-
-            entity.HasOne(e => e.Document)
-                  .WithMany(d => d.CallRecords)
-                  .HasForeignKey(e => e.DocumentId)
-                  .OnDelete(DeleteBehavior.Cascade);
-
-            entity.HasIndex(e => e.DocumentId).HasDatabaseName("IX_TtsCallRecords_DocumentId");
-            entity.HasIndex(e => e.PhoneNumber).HasDatabaseName("IX_TtsCallRecords_PhoneNumber");
-            entity.HasIndex(e => e.CallStatus).HasDatabaseName("IX_TtsCallRecords_CallStatus");
-        });
-
-        // 呼入模板配置
-        modelBuilder.Entity<InboundTemplate>(entity => {
+        modelBuilder.Entity<TtsTemplate>(entity => {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
-            entity.Property(e => e.Description).HasMaxLength(500);
-            entity.Property(e => e.WelcomeScript).IsRequired();
-            entity.Property(e => e.ResponseRules);
+            entity.Property(e => e.Content).IsRequired();
+            entity.Property(e => e.TargetPattern).HasMaxLength(100);
 
-            entity.HasIndex(e => e.UserId).HasDatabaseName("IX_InboundTemplates_UserId");
-            entity.HasIndex(e => e.IsDefault).HasDatabaseName("IX_InboundTemplates_IsDefault");
-            entity.HasIndex(e => e.IsActive).HasDatabaseName("IX_InboundTemplates_IsActive");
+            entity.HasIndex(e => e.IsActive).HasDatabaseName("IX_TtsTemplates_IsActive");
+            entity.HasIndex(e => e.Priority).HasDatabaseName("IX_TtsTemplates_Priority");
         });
     }
 }

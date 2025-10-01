@@ -1,18 +1,18 @@
+using AI.Caller.Core.Media.Encoders;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
+using System.Diagnostics;
 using System.Net;
-using System.Threading.Channels;
 
 namespace AI.Caller.Core {
     public class MediaSessionManager : IDisposable {
+        private const uint PCMA_SAMPLES_PER_20MS_FRAME = 160;
         private RTPSession? _mediaSession;
         private RTCPeerConnection? _peerConnection;
         private readonly object _lock = new object();
         private bool _disposed = false;
-        private readonly Channel<byte[]> _outgoingAudioChannel = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
-        private int _sendLoopStarted = 0;
 
         private readonly ILogger _logger;
         private IAudioBridge? _audioBridge;
@@ -41,16 +41,13 @@ namespace AI.Caller.Core {
             _logger.LogDebug("Audio bridge attached to MediaSessionManager");
         }
 
-        public void EnqueueOutgoingAudio(byte[] audioFrame) {
-            if (audioFrame == null || audioFrame.Length == 0) return;
-            if (_sendLoopStarted == 0) {
-                if (Interlocked.CompareExchange(ref _sendLoopStarted, 1, 0) == 0) {
-                    StartAudioSendLoop();
-                }
+        public void SendAudioFrame(byte[] audioFrame) {
+            if (_disposed || _mediaSession == null || _mediaSession.IsClosed) {
+                return;
             }
 
-            if (!_outgoingAudioChannel.Writer.TryWrite(audioFrame)) {
-                _logger.LogWarning("Failed to write to outgoing audio channel, it may have been completed.");
+            if (audioFrame != null && audioFrame.Length > 0) {
+                _mediaSession.SendAudio(PCMA_SAMPLES_PER_20MS_FRAME, audioFrame);
             }
         }
 
@@ -377,8 +374,6 @@ namespace AI.Caller.Core {
                     AudioDataReceived = null;
                     ConnectionStateChanged = null;
 
-                    _outgoingAudioChannel.Writer.TryComplete();
-
                     if (_mediaSession != null) {
                         try {
                             _mediaSession.OnRtpPacketReceived -= OnRtpPacketReceived;
@@ -498,32 +493,7 @@ namespace AI.Caller.Core {
             }
         }
 
-        private void StartAudioSendLoop() {
-            _ = Task.Run(async () => {
-                _logger.LogInformation("Audio send loop started, waiting for audio frames...");
-                try {
-                    await foreach (var audioFrame in _outgoingAudioChannel.Reader.ReadAllAsync()) {
-                        if (_disposed) break;
 
-                        if (_mediaSession != null && !_mediaSession.IsClosed) {
-                            if (audioFrame != null && audioFrame.Length > 0) {
-                                _mediaSession.SendAudio((uint)audioFrame.Length, audioFrame);
-                            }
-                        } else {
-                            _logger.LogWarning("Media session not available or closed, skipping audio frame send.");
-                        }
-                    }
-                } catch (OperationCanceledException) {
-                    _logger.LogInformation("Audio send loop cancelled.");
-                } catch (Exception ex) {
-                    if (!(ex is ChannelClosedException)) {
-                        _logger.LogError(ex, "Error in audio send loop");
-                    }
-                } finally {
-                    _logger.LogInformation("Audio send loop terminated.");
-                }
-            });
-        }
 
         private void SetupPeerConnectionEvents(RTCPeerConnection? peerConnection = null) {
             var pc = peerConnection ?? _peerConnection;

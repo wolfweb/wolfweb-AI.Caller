@@ -1,7 +1,6 @@
 using AI.Caller.Core.Interfaces;
 using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Encoders;
-using AI.Caller.Core.Media.Sources;
 using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
@@ -24,9 +23,6 @@ namespace AI.Caller.Core {
         }
 
         public AIAutoResponder CreateAutoResponder(MediaProfile profile) {
-            var playbackSource = new QueueAudioPlaybackSource(_logger);
-            playbackSource.Init(profile);
-
             var vad = new FfmpegEnhancedVad(
                 inputSampleRate: profile.SampleRate,    // 8000Hz
                 targetSampleRate: profile.SampleRate,   // 8000Hz  
@@ -50,7 +46,6 @@ namespace AI.Caller.Core {
             var autoResponder = new AIAutoResponder(
                 _logger, 
                 _ttsEngine, 
-                playbackSource, 
                 vad, 
                 profile, 
                 _g711);

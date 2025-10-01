@@ -7,7 +7,7 @@ namespace AI.Caller.Core {
     }
 
     public sealed class MediaProfile {
-        public AudioCodec Codec { get; init; } = AudioCodec.PCMU;
+        public AudioCodec Codec { get; init; } = AudioCodec.PCMA;
         public int PayloadType { get; init; } = 0; // default PT=0 for PCMU
         public int SampleRate { get; init; } = 8000; // Hz
         public int PtimeMs { get; init; } = 20; // packetization time

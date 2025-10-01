@@ -19,91 +19,109 @@ namespace AI.Caller.Core.Tests.Media {
 
         [Theory]
         [InlineData(@"E:/Document/AI-models/tts/sherpa-onnx-vits-zh-ll")]
-        public async Task FullPipeline_UsingRealClasses_Should_Produce_ClearWavFile(string modelDir) {
+        public async Task StreamingPipeline_ShouldSimulateRealtimeProcessing(string modelDir) {
             if (string.IsNullOrWhiteSpace(modelDir) || !Directory.Exists(modelDir)) {
                 _output.WriteLine($"Skipping test: TTS model directory not found at '{modelDir}'.");
                 return;
             }
 
-            // 1. Setup Dependencies
-            var autoResponderLogger = new Mock<ILogger<AIAutoResponder>>().Object;
-            var serviceProviderMock = new Mock<IServiceProvider>().Object; // Still needed for factory constructor
             var g711Codec = new G711Codec();
             var mediaProfile = new MediaProfile(AudioCodec.PCMU, 0, 8000, 20, 1);
+            var logger = new Mock<ILogger>().Object;
+            using var resampler = new AudioResampler<float>(16000, mediaProfile.SampleRate, logger);
+            string textToSynthesize = "您好，欢迎致电我们公司，我是AI客服小助手。";
 
-            // 2. Setup Real TTSEngine
             var services = new ServiceCollection()
                 .AddLogging()
                 .Configure<TTSSettings>(x => {
-                    x.Enabled = true;
-                    x.ModelFolder = modelDir;
-                    x.ModelFile = "model.onnx";
-                    x.LexiconFile = "lexicon.txt";
-                    x.TokensFile = "tokens.txt";
-                    x.DictDir = "dict";
-                    x.NumThreads = 1;
-                    x.Debug = 1;
-                    x.Provider = "cpu";
+                    x.Enabled = true; x.ModelFolder = modelDir; x.ModelFile = "model.onnx";
+                    x.LexiconFile = "lexicon.txt"; x.TokensFile = "tokens.txt"; x.DictDir = "dict";
+                    x.NumThreads = 1; x.Debug = 1; x.Provider = "cpu";
                     x.RuleFsts = "date.fst,new_heteronym.fst,number.fst,phone.fst";
                 })
                 .AddSingleton<ITTSEngine, TTSEngineAdapter>()
                 .BuildServiceProvider();
             var realTtsEngine = services.GetRequiredService<ITTSEngine>();
-            _output.WriteLine("Real TTSEngineAdapter instance created.");
 
-            // 3. Instantiate Real Factory and Create the System Under Test (SUT)
-            var factory = new AIAutoResponderFactory(autoResponderLogger, realTtsEngine, serviceProviderMock);
-            var autoResponder = factory.CreateAutoResponder(mediaProfile);
-            _output.WriteLine("Real AIAutoResponderFactory and AIAutoResponder created.");
+            var stage1_TtsFloat16k_Chunks = new List<float[]>();
+            var stage2_ResampledPcm8k_Stream = new List<byte>();
+            var stage3_FinalPcm8k_Frames = new List<byte>();
 
-            // 5. Start the process
-            await autoResponder.StartAsync(CancellationToken.None);
-            string textToSynthesize = "您好，欢迎致电我们公司，我是AI客服小助手。";
-            _ = autoResponder.PlayScriptAsync(textToSynthesize);
-            _output.WriteLine($"Audio generation started for text: '{textToSynthesize}'");
+            _output.WriteLine("Starting streaming simulation...");
+            byte[] audioBuffer = Array.Empty<byte>(); // Simulates AIAutoResponder's internal buffer
+            int frameSizeInBytes = mediaProfile.SamplesPerFrame * 2; // 320 bytes
 
-            // 6. Collect data from the AutoResponder's event
-            var finalPcmData = new List<byte>();
-            var speechEndedSignal = new AutoResetEvent(false);
+            await foreach (var ttsChunk in realTtsEngine.SynthesizeStreamAsync(textToSynthesize, 0, 1.0f)) {
+                if (ttsChunk.FloatData == null || ttsChunk.FloatData.Length == 0) continue;
 
-            autoResponder.OutgoingAudioGenerated += (g711Frame) => {
-                var decodedPcmFrame = g711Codec.DecodeG711MuLaw(g711Frame);
-                finalPcmData.AddRange(decodedPcmFrame);
-                speechEndedSignal.Set(); // Signal that a frame was received
-            };
+                stage1_TtsFloat16k_Chunks.Add(ttsChunk.FloatData);
+                _output.WriteLine($"Received TTS chunk with {ttsChunk.FloatData.Length} samples.");
 
-            // Wait for audio generation to finish. The loop will exit if no audio frame is received for 1 second.
-            const int silenceTimeoutMs = 1000;
-            while (speechEndedSignal.WaitOne(silenceTimeoutMs))
-            {
-                // Continue waiting for the next frame
+                var resampledFloat8k = resampler.Resample(ttsChunk.FloatData);
+                var pcmChunk8k = ConvertFloatTo16BitPcm(resampledFloat8k);
+                stage2_ResampledPcm8k_Stream.AddRange(pcmChunk8k);
+                _output.WriteLine($"Resampled to {resampledFloat8k.Length} samples ({pcmChunk8k.Length} bytes).");
+
+                var combinedBuffer = new byte[audioBuffer.Length + pcmChunk8k.Length];
+                Buffer.BlockCopy(audioBuffer, 0, combinedBuffer, 0, audioBuffer.Length);
+                Buffer.BlockCopy(pcmChunk8k, 0, combinedBuffer, audioBuffer.Length, pcmChunk8k.Length);
+
+                int offset = 0;
+                while (offset + frameSizeInBytes <= combinedBuffer.Length) {
+                    var pcmFrame = new Span<byte>(combinedBuffer, offset, frameSizeInBytes);
+                    var g711Frame = g711Codec.EncodeMuLaw(pcmFrame);
+                    var decodedPcmFrame = g711Codec.DecodeG711MuLaw(g711Frame);
+                    stage3_FinalPcm8k_Frames.AddRange(decodedPcmFrame);
+                    offset += frameSizeInBytes;
+                }
+
+                int remainingBytes = combinedBuffer.Length - offset;
+                audioBuffer = new byte[remainingBytes];
+                Buffer.BlockCopy(combinedBuffer, offset, audioBuffer, 0, remainingBytes);
+                _output.WriteLine($"Framed {offset / frameSizeInBytes} frames. Remaining buffer: {remainingBytes} bytes.");
             }
 
-            _output.WriteLine($"Collected {finalPcmData.Count} bytes of final PCM data after detecting end of speech.");
-            await autoResponder.StopAsync();
+            if (audioBuffer.Length > 0) {
+                var finalFrame = new byte[frameSizeInBytes];
+                Buffer.BlockCopy(audioBuffer, 0, finalFrame, 0, audioBuffer.Length);
+                var g711Frame = g711Codec.EncodeMuLaw(finalFrame);
+                var decodedPcmFrame = g711Codec.DecodeG711MuLaw(g711Frame);
+                stage3_FinalPcm8k_Frames.AddRange(decodedPcmFrame);
+                _output.WriteLine($"Flushed final {audioBuffer.Length} bytes into one frame.");
+            }
 
-            // 7. Save to WAV file
-            string outputFileName = "test_full_real_pipeline_output.wav";
-            SaveToWav(outputFileName, finalPcmData.ToArray(), mediaProfile.SampleRate);
-            _output.WriteLine($"Output saved to file: {Path.GetFullPath(outputFileName)}");
+            var fullTtsStream = stage1_TtsFloat16k_Chunks.SelectMany(x => x).ToArray();
+            var stage1FileName = "streaming_stage1_tts_16k.wav";
+            SaveFloatToWav(stage1FileName, fullTtsStream, 16000);
+            _output.WriteLine($"Saved Stage 1 to: {Path.GetFullPath(stage1FileName)}");
 
-            // 8. Assert
-            Assert.True(File.Exists(outputFileName));
-            var fileInfo = new FileInfo(outputFileName);
-            Assert.True(fileInfo.Length > 44, "File should be larger than WAV header.");
-            Assert.True(finalPcmData.Count > 0, "Should have collected some audio data.");
+            var stage2FileName = "streaming_stage2_resampled_8k.wav";
+            SaveToWav(stage2FileName, stage2_ResampledPcm8k_Stream.ToArray(), mediaProfile.SampleRate);
+            _output.WriteLine($"Saved Stage 2 to: {Path.GetFullPath(stage2FileName)}");
+
+            var stage3FileName = "streaming_stage3_final_8k.wav";
+            SaveToWav(stage3FileName, stage3_FinalPcm8k_Frames.ToArray(), mediaProfile.SampleRate);
+            _output.WriteLine($"Saved Stage 3 to: {Path.GetFullPath(stage3FileName)}");
+
+            Assert.True(File.Exists(stage1FileName) && new FileInfo(stage1FileName).Length > 44);
+            Assert.True(File.Exists(stage2FileName) && new FileInfo(stage2FileName).Length > 44);
+            Assert.True(File.Exists(stage3FileName) && new FileInfo(stage3FileName).Length > 44);
         }
 
-        private double CalculateRmsEnergy(byte[] pcmData) {
-            if (pcmData == null || pcmData.Length == 0) return 0;
-
-            double sumOfSquares = 0;
-            for (int i = 0; i < pcmData.Length; i += 2) {
-                short sample = (short)(pcmData[i] | (pcmData[i + 1] << 8));
-                double floatSample = sample / 32768.0;
-                sumOfSquares += floatSample * floatSample;
+        private byte[] ConvertFloatTo16BitPcm(float[] floatData) {
+            var pcmData = new byte[floatData.Length * 2];
+            for (int i = 0; i < floatData.Length; i++) {
+                float sample = Math.Clamp(floatData[i], -1f, 1f);
+                short shortSample = (short)(sample * 32767f);
+                pcmData[i * 2] = (byte)(shortSample & 0xFF);
+                pcmData[i * 2 + 1] = (byte)(shortSample >> 8);
             }
-            return Math.Sqrt(sumOfSquares / (pcmData.Length / 2.0));
+            return pcmData;
+        }
+
+        private void SaveFloatToWav(string filename, float[] floatData, int sampleRate) {
+            var pcmData = ConvertFloatTo16BitPcm(floatData);
+            SaveToWav(filename, pcmData, sampleRate);
         }
 
         private void SaveToWav(string filename, byte[] pcmData, int sampleRate) {

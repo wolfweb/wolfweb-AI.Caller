@@ -632,14 +632,9 @@ namespace AI.Caller.Phone.Services {
                         var success = await _aiManager.StartAICustomerServiceAsync(
                             callContext.Callee.User,
                             callContext.Callee.Client.Client,
-                            "您好，欢迎致电我们公司，我是AI客服小助手。请问有什么可以帮助您的吗？"
+                            "您好，欢迎致电我们公司，我是AI客服小助手。请问有什么可以帮助您的吗？您好，欢迎致电我们公司，我是AI客服小助手。请问有什么可以帮助您的吗？"
                         );
-                        var session = _aiManager.GetActiveSession(callContext.Callee.User.Id);
-                        await Task.Delay(3000);
-                        for(var i = 0; i < 3; i++) {
-                            await session.AutoResponder.PlayScriptAsync("您好，欢迎致电我们公司，我是AI客服小助手。请问有什么可以帮助您的吗？");
-                            await Task.Delay(1000);
-                        }
+                        var session = _aiManager.GetActiveSession(callContext.Callee.User.Id);                        
 
                         if (success) {
                             _logger.LogInformation($"AI TTS started for WebToServer call: {callContext.CallId}");

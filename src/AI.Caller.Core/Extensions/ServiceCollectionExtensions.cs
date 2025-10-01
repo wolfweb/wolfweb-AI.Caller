@@ -1,9 +1,6 @@
 using AI.Caller.Core.Interfaces;
 using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Adapters;
-using AI.Caller.Core.Media.Interfaces;
-using AI.Caller.Core.Media.Sources;
-using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -14,7 +11,6 @@ namespace AI.Caller.Core.Extensions {
             services.TryAddSingleton<IAIAutoResponderFactory, AIAutoResponderFactory>();
 
             services.TryAddTransient<IAudioBridge, AudioBridge>();
-            services.TryAddTransient<QueueAudioPlaybackSource>();
             return services;
         }
 

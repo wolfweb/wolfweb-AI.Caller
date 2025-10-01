@@ -11,7 +11,7 @@ namespace AI.Caller.Phone.Services {
         private readonly ILogger _logger;
         private readonly IServiceProvider _serviceProvider;
         private readonly IAIAutoResponderFactory _autoResponderFactory;
-        
+
         private readonly ConcurrentDictionary<int, AIAutoResponderSession> _activeSessions = new();
 
         public AICustomerServiceManager(
@@ -35,7 +35,7 @@ namespace AI.Caller.Phone.Services {
                 }
 
                 var mediaProfile = new MediaProfile(
-                    codec: AI.Caller.Core.AudioCodec.PCMU,
+                    codec: AudioCodec.PCMA,
                     payloadType: 0,
                     sampleRate: 8000,
                     ptimeMs: 20,
@@ -45,17 +45,16 @@ namespace AI.Caller.Phone.Services {
                 var audioBridge = _serviceProvider.GetRequiredService<IAudioBridge>();
                 audioBridge.Initialize(mediaProfile);
 
-                if (sipClient.MediaSessionManager == null)
-                {
+                if (sipClient.MediaSessionManager == null) {
                     _logger.LogError("MediaSessionManager is null, cannot start AI customer service for user {Username}", user.Username);
                     return false;
                 }
 
                 var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
-
-                autoResponder.OutgoingAudioGenerated += (audioFrame) => {
-                    sipClient.MediaSessionManager?.EnqueueOutgoingAudio(audioFrame);
+                Action<byte[]> audioGeneratedHandler = (audioFrame) => {
+                    sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
                 };
+                autoResponder.OutgoingAudioGenerated += audioGeneratedHandler;
 
                 audioBridge.IncomingAudioReceived += (audioFrame) => {
                     try {
@@ -72,7 +71,8 @@ namespace AI.Caller.Phone.Services {
                     AutoResponder = autoResponder,
                     AudioBridge = audioBridge,
                     ScriptText = scriptText,
-                    StartTime = DateTime.UtcNow
+                    StartTime = DateTime.UtcNow,
+                    AudioGeneratedHandler = audioGeneratedHandler
                 };
 
                 await autoResponder.StartAsync();
@@ -89,7 +89,7 @@ namespace AI.Caller.Phone.Services {
 
                 _activeSessions[user.Id] = session;
                 _logger.LogInformation($"AI customer service started for user {user.Username}");
-                
+
                 return true;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"Failed to start AI customer service for user {user.Username}");
@@ -107,9 +107,13 @@ namespace AI.Caller.Phone.Services {
                     return false;
                 }
 
+                if (session.AudioGeneratedHandler != null) {
+                    session.AutoResponder.OutgoingAudioGenerated -= session.AudioGeneratedHandler;
+                }
+
                 await session.AutoResponder.StopAsync();
                 session.AudioBridge.Stop();
-                
+
                 await session.AutoResponder.DisposeAsync();
                 session.AudioBridge.Dispose();
 
@@ -169,5 +173,6 @@ namespace AI.Caller.Phone.Services {
         public IAudioBridge AudioBridge { get; set; } = null!;
         public string ScriptText { get; set; } = string.Empty;
         public DateTime StartTime { get; set; }
+        public Action<byte[]>? AudioGeneratedHandler { get; set; }
     }
 }

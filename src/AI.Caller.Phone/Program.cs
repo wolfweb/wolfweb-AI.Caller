@@ -71,10 +71,7 @@ namespace AI.Caller.Phone {
             builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();
             builder.Services.AddSingleton<HangupMonitoringService>();
 
-            // TTS外呼和呼入模板服务
-            builder.Services.AddScoped<ITtsCallDocumentService, TtsCallDocumentService>();
-            builder.Services.AddScoped<ITtsCallTaskService, TtsCallTaskService>();
-            builder.Services.AddScoped<IInboundTemplateService, InboundTemplateService>();
+            // TTS Template Integration Service
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<ITtsTemplateIntegrationService, TtsTemplateIntegrationService>();
 

@@ -1,40 +1,27 @@
-using AI.Caller.Phone.Models;
+using AI.Caller.Phone.Entities;
+using System.Threading.Tasks;
 
-namespace AI.Caller.Phone.Services {
+namespace AI.Caller.Phone.Services;
+
+/// <summary>
+/// Provides a centralized service for integrating TTS templates and AI enablement logic.
+/// </summary>
+public interface ITtsTemplateIntegrationService
+{
     /// <summary>
-    /// TTS模板集成服务接口
+    /// Determines whether the AI service should be enabled for a call associated with a specific user.
+    /// This decision is based on both global application settings and the user's individual preferences.
     /// </summary>
-    public interface ITtsTemplateIntegrationService {
-        /// <summary>
-        /// 根据TTS记录生成个性化脚本
-        /// </summary>
-        Task<string> GeneratePersonalizedScriptAsync(TtsCallRecord record);
-        
-        /// <summary>
-        /// 获取外呼使用的呼入模板
-        /// </summary>
-        Task<InboundTemplate?> GetOutboundTemplateAsync(int userId);
-        
-        /// <summary>
-        /// 为外呼任务准备AI客服脚本
-        /// </summary>
-        Task<OutboundCallScript> PrepareOutboundScriptAsync(TtsCallRecord record, int userId);
-        
-        /// <summary>
-        /// 检测是否应该启用AI客服模式
-        /// </summary>
-        bool ShouldEnableAICustomerService(TtsCallRecord record);
-    }
-    
+    /// <param name="user">The user associated with the call.</param>
+    /// <returns>True if AI should be enabled for the call; otherwise, false.</returns>
+    Task<bool> ShouldEnableAIForCall(User user);
+
     /// <summary>
-    /// 外呼脚本信息
+    /// Gets the appropriate TTS script for a given call destination.
+    /// It first tries to find a matching, active template in the database based on the destination and priority.
+    /// If no specific template is found, it falls back to a default script.
     /// </summary>
-    public class OutboundCallScript {
-        public string WelcomeScript { get; set; } = string.Empty;
-        public string PersonalizedContent { get; set; } = string.Empty;
-        public string CombinedScript { get; set; } = string.Empty;
-        public InboundTemplate? Template { get; set; }
-        public TtsCallRecord Record { get; set; } = null!;
-        public Dictionary<string, string> Variables { get; set; } = new();
-    }
+    /// <param name="destination">The destination number of the call, used for template matching.</param>
+    /// <returns>The content of the TTS script to be used for the call.</returns>
+    Task<string> GetTtsScriptForCall(string destination);
 }
