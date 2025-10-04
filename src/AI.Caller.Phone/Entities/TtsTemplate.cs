@@ -37,5 +37,9 @@ public class TtsTemplate {
     [Comment("循环播放结束后，最终播报一次的内容。")]
     public string? EndingSpeech { get; set; }
 
+    [Display(Name = "播放语速")]
+    [DefaultValue(1.0)]
+    public double SpeechRate { get; set; } = 1.0;
+
     public virtual ICollection<TtsVariable> Variables { get; set; } = new List<TtsVariable>();
 }

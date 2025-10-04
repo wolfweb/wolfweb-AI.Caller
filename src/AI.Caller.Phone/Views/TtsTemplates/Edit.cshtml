@@ -29,18 +29,25 @@
                             <span asp-validation-for="Content" class="text-danger"></span>
                         </div>
                         <div class="row">
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <div class="mb-3">
                                     <label asp-for="PlayCount" class="form-label"></label>
                                     <input asp-for="PlayCount" class="form-control" />
                                     <span asp-validation-for="PlayCount" class="text-danger"></span>
                                 </div>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-md-4">
                                 <div class="mb-3">
                                     <label asp-for="PauseBetweenPlaysInSeconds" class="form-label"></label>
                                     <input asp-for="PauseBetweenPlaysInSeconds" class="form-control" />
                                     <span asp-validation-for="PauseBetweenPlaysInSeconds" class="text-danger"></span>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label asp-for="SpeechRate" class="form-label"></label>
+                                    <input asp-for="SpeechRate" class="form-control" type="number" step="0.1" min="0.5" max="2.0" />
+                                    <span asp-validation-for="SpeechRate" class="text-danger"></span>
                                 </div>
                             </div>
                         </div>
@@ -84,6 +91,7 @@
         </div>
         <div class="form-group mt-3">
             <input type="submit" value="保存" class="btn btn-primary" />
+            <button type="button" id="testTtsBtn" class="btn btn-info">播放测试</button>
             <a asp-action="Index" class="btn btn-secondary">返回列表</a>
         </div>
     </form>
@@ -91,4 +99,59 @@
 
 @section Scripts {
     @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+    <script>
+        $(document).ready(function() {
+            $('#testTtsBtn').on('click', function() {
+                var text = $('#Content').val();
+                var speechRate = $('#SpeechRate').val();
+
+                if (!text) {
+                    alert('请输入模板内容进行测试。');
+                    return;
+                }
+
+                // Replace placeholders with sample data for testing
+                var sampleText = text.replace(/{[^{}]+}/g, '示例内容');
+
+                var audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                var button = $(this);
+                button.prop('disabled', true).text('正在生成...');
+
+                fetch('@Url.Action("TestTts", "TtsTemplates")', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // ASP.NET Core Anti-Forgery Token
+                        'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                    },
+                    body: JSON.stringify({ text: sampleText, speechRate: parseFloat(speechRate) })
+                })
+                .then(response => {
+                    if (!response.ok || response.headers.get("Content-Length") === "0") {
+                        throw new Error('音频生成失败或返回为空。');
+                    }
+                    return response.arrayBuffer();
+                })
+                .then(arrayBuffer => {
+                    return audioContext.decodeAudioData(arrayBuffer);
+                })
+                .then(audioBuffer => {
+                    var source = audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioContext.destination);
+                    source.start(0);
+                    
+                    source.onended = function() {
+                        button.prop('disabled', false).text('播放测试');
+                    }
+                })
+                .catch(error => {
+                    console.error('播放测试时出错:', error);
+                    alert('播放测试失败，请检查控制台获取更多信息。');
+                    button.prop('disabled', false).text('播放测试');
+                });
+            });
+        });
+    </script>
 }

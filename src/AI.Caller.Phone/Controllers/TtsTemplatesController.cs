@@ -6,14 +6,21 @@ using System.Threading.Tasks;
 using System.Linq;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using System.Collections.Generic;
+using AI.Caller.Core.Media;
+using System.IO;
+using AI.Caller.Core.Media;
+using System.Text;
+using AI.Caller.Core.Models;
 
 namespace AI.Caller.Phone.Controllers {
     [Authorize]
     public class TtsTemplatesController : Controller {
         private readonly AppDbContext _context;
+        private readonly ITTSEngine _ttsEngine;
 
-        public TtsTemplatesController(AppDbContext context) {
+        public TtsTemplatesController(AppDbContext context, ITTSEngine ttsEngine) {
             _context = context;
+            _ttsEngine = ttsEngine;
         }
 
         public async Task<IActionResult> Index() {
@@ -43,7 +50,7 @@ namespace AI.Caller.Phone.Controllers {
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create([Bind("Name,Content,IsActive,PlayCount,HangupAfterPlay,PauseBetweenPlaysInSeconds,EndingSpeech")] TtsTemplate ttsTemplate, int[] selectedVariables) {
+        public async Task<IActionResult> Create([Bind("Name,Content,IsActive,PlayCount,HangupAfterPlay,PauseBetweenPlaysInSeconds,EndingSpeech,SpeechRate")] TtsTemplate ttsTemplate, int[] selectedVariables) {
             if (ModelState.IsValid) {
                 if (selectedVariables != null) {
                     foreach (var variableId in selectedVariables) {
@@ -82,7 +89,7 @@ namespace AI.Caller.Phone.Controllers {
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Content,IsActive,PlayCount,HangupAfterPlay,PauseBetweenPlaysInSeconds,EndingSpeech")] TtsTemplate ttsTemplate, int[] selectedVariables) {
+        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Content,IsActive,PlayCount,HangupAfterPlay,PauseBetweenPlaysInSeconds,EndingSpeech,SpeechRate")] TtsTemplate ttsTemplate, int[] selectedVariables) {
             if (id != ttsTemplate.Id) {
                 return NotFound();
             }
@@ -104,6 +111,7 @@ namespace AI.Caller.Phone.Controllers {
                     templateToUpdate.HangupAfterPlay = ttsTemplate.HangupAfterPlay;
                     templateToUpdate.PauseBetweenPlaysInSeconds = ttsTemplate.PauseBetweenPlaysInSeconds;
                     templateToUpdate.EndingSpeech = ttsTemplate.EndingSpeech;
+                    templateToUpdate.SpeechRate = ttsTemplate.SpeechRate;
 
                     templateToUpdate.Variables.Clear();
                     if (selectedVariables != null) {
@@ -157,5 +165,61 @@ namespace AI.Caller.Phone.Controllers {
         private bool TtsTemplateExists(int id) {
             return _context.TtsTemplates.Any(e => e.Id == id);
         }
+
+        [HttpPost]
+        public async Task<IActionResult> TestTts([FromBody] TtsTestRequest request) {
+            if (string.IsNullOrWhiteSpace(request.Text)) {
+                return BadRequest("Text cannot be empty.");
+            }
+
+            var audioStream = new MemoryStream();
+            await foreach (var audioData in _ttsEngine.SynthesizeStreamAsync(request.Text, 0, (float)request.SpeechRate)) {
+                if (audioData.Format == AudioDataFormat.PCM_Float) {
+                    // Convert float to 16-bit PCM
+                    var pcm16 = new short[audioData.FloatData.Length];
+                    for (int i = 0; i < audioData.FloatData.Length; i++) {
+                        pcm16[i] = (short)(audioData.FloatData[i] * 32767);
+                    }
+                    var byteData = new byte[pcm16.Length * 2];
+                    Buffer.BlockCopy(pcm16, 0, byteData, 0, byteData.Length);
+                    await audioStream.WriteAsync(byteData, 0, byteData.Length);
+                }
+            }
+
+            if (audioStream.Length == 0) {
+                return new EmptyResult();
+            }
+
+            var wavStream = new MemoryStream();
+            WriteWavHeader(wavStream, (int)audioStream.Length, 1, 16000, 16);
+            audioStream.Position = 0;
+            await audioStream.CopyToAsync(wavStream);
+
+            wavStream.Position = 0;
+            return new FileContentResult(wavStream.ToArray(), "audio/wav");
+        }
+
+        private void WriteWavHeader(Stream stream, int dataLength, int numChannels, int sampleRate, int bitsPerSample) {
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8, true)) {
+                writer.Write(Encoding.UTF8.GetBytes("RIFF"));
+                writer.Write(36 + dataLength);
+                writer.Write(Encoding.UTF8.GetBytes("WAVE"));
+                writer.Write(Encoding.UTF8.GetBytes("fmt "));
+                writer.Write(16);
+                writer.Write((short)1); // Audio format 1=PCM
+                writer.Write((short)numChannels);
+                writer.Write(sampleRate);
+                writer.Write(sampleRate * numChannels * (bitsPerSample / 8));
+                writer.Write((short)(numChannels * (bitsPerSample / 8)));
+                writer.Write((short)bitsPerSample);
+                writer.Write(Encoding.UTF8.GetBytes("data"));
+                writer.Write(dataLength);
+            }
+        }
+    }
+
+    public class TtsTestRequest {
+        public string Text { get; set; }
+        public double SpeechRate { get; set; }
     }
 }
