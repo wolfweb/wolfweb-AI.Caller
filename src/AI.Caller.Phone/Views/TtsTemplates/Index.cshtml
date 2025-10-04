@@ -1,0 +1,50 @@
+@model IEnumerable<AI.Caller.Phone.Entities.TtsTemplate>
+
+@{
+    ViewData["Title"] = "TTS模板列表";
+}
+<div class="container mt-5">
+    <h1>@ViewData["Title"]</h1>
+
+    <p>
+        <a asp-action="Create" class="btn btn-primary">创建新模板</a>
+    </p>
+
+    <div class="card shadow-sm">
+        <div class="card-header">
+            <h4 class="mb-0">模板列表</h4>
+        </div>
+        <div class="card-body">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>@Html.DisplayNameFor(model => model.Name)</th>
+                        <th>@Html.DisplayNameFor(model => model.IsActive)</th>
+                        <th>@Html.DisplayNameFor(model => model.PlayCount)</th>
+                        <th>@Html.DisplayNameFor(model => model.HangupAfterPlay)</th>
+                        <th>变量</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+            @foreach (var item in Model) {
+                    <tr>
+                        <td>@Html.DisplayFor(modelItem => item.Name)</td>
+                        <td>@Html.DisplayFor(modelItem => item.IsActive)</td>
+                        <td>@Html.DisplayFor(modelItem => item.PlayCount)</td>
+                        <td>@Html.DisplayFor(modelItem => item.HangupAfterPlay)</td>
+                        <td>
+                            @(item.Variables.Any() ? string.Join(", ", item.Variables.Select(v => v.Name)) : "无")
+                        </td>
+                        <td>
+                            <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary">编辑</a>
+                            <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-info">详情</a>
+                            <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger">删除</a>
+                        </td>
+                    </tr>
+            }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

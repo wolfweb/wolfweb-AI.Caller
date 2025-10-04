@@ -9,10 +9,10 @@
             <i class="bi bi-person-circle"></i> @User.Identity.Name
         </a>
         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
-            <li><a class="dropdown-item" asp-area="" asp-controller="Account" asp-action="UserProfile"><i class="bi bi-person"></i> 个人资料</a></li>
+            <li><a class="dropdown-item"  asp-controller="Account" asp-action="UserProfile"><i class="bi bi-person"></i> 个人资料</a></li>
             <li><hr class="dropdown-divider"></li>
             <li>
-                <form asp-area="" asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
+                <form asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
                     <button type="submit" class="dropdown-item"><i class="bi bi-box-arrow-right"></i> 退出登录</button>
                 </form>
             </li>
@@ -22,7 +22,7 @@
 else
 {
     <li class="nav-item">
-        <a class="nav-link" asp-area="" asp-controller="Account" asp-action="Login">登录</a>
+        <a class="nav-link" asp-controller="Account" asp-action="Login">登录</a>
     </li>
 }
 </ul>

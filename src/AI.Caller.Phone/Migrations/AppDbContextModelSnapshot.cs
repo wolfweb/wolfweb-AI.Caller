@@ -95,23 +95,6 @@ namespace AI.Caller.Phone.Migrations
                     b.ToTable("SipAccounts");
                 });
 
-            modelBuilder.Entity("AI.Caller.Phone.Entities.SipSetting", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("CreateAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SipServer")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("SipSettings");
-                });
-
             modelBuilder.Entity("AI.Caller.Phone.Entities.TtsTemplate", b =>
                 {
                     b.Property<int>("Id")
@@ -120,32 +103,47 @@ namespace AI.Caller.Phone.Migrations
 
                     b.Property<string>("Content")
                         .IsRequired()
-                        .HasColumnType("TEXT");
+                        .HasColumnType("TEXT")
+                        .HasComment("包含占位符的内容模板, e.g., '您好{CustomerName}，欢迎使用我们的服务。'");
+
+                    b.Property<bool>("HangupAfterPlay")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("Priority")
+                    b.Property<int>("PlayCount")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("TargetPattern")
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsActive")
-                        .HasDatabaseName("IX_TtsTemplates_IsActive");
-
-                    b.HasIndex("Priority")
-                        .HasDatabaseName("IX_TtsTemplates_Priority");
-
                     b.ToTable("TtsTemplates");
+                });
+
+            modelBuilder.Entity("AI.Caller.Phone.Entities.TtsVariable", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasComment("在模板中使用的占位符，不含大括号, e.g., 'CustomerName'");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("TtsVariables");
                 });
 
             modelBuilder.Entity("AI.Caller.Phone.Entities.User", b =>
@@ -270,6 +268,21 @@ namespace AI.Caller.Phone.Migrations
                     b.ToTable("Recordings");
                 });
 
+            modelBuilder.Entity("TtsTemplateVariable", b =>
+                {
+                    b.Property<int>("TtsTemplatesId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("VariablesId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("TtsTemplatesId", "VariablesId");
+
+                    b.HasIndex("VariablesId");
+
+                    b.ToTable("TtsTemplateVariable");
+                });
+
             modelBuilder.Entity("AI.Caller.Phone.Entities.Contact", b =>
                 {
                     b.HasOne("AI.Caller.Phone.Entities.User", null)
@@ -292,6 +305,21 @@ namespace AI.Caller.Phone.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("SipAccount");
+                });
+
+            modelBuilder.Entity("TtsTemplateVariable", b =>
+                {
+                    b.HasOne("AI.Caller.Phone.Entities.TtsTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("TtsTemplatesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AI.Caller.Phone.Entities.TtsVariable", null)
+                        .WithMany()
+                        .HasForeignKey("VariablesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("AI.Caller.Phone.Entities.SipAccount", b =>

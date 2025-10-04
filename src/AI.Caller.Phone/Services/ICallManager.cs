@@ -1,4 +1,4 @@
-﻿using AI.Caller.Core;
+﻿﻿using AI.Caller.Core;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
+using System.Collections.Concurrent;
 
 namespace AI.Caller.Phone.Services {
     public interface ICallManager {
@@ -23,19 +24,21 @@ namespace AI.Caller.Phone.Services {
     public class CallManager : ICallManager, IDisposable {
         private readonly ILogger _logger;
         private readonly Timer _monitoringTimer;
-        private readonly HashSet<CallContext> _contexts;
+        private readonly ConcurrentDictionary<string, CallContext> _contexts;
         private readonly RecordingManager _recordingManager;
         private readonly HangupRetryPolicy _hangupRetryPolicy;
         private readonly IHubContext<WebRtcHub> _hubContext;
         private readonly AICustomerServiceSettings _aiSettings;
         private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly AICustomerServiceManager _aiManager;
 
         public CallManager(
             ILogger<ICallManager> logger,
             RecordingManager recordingManager,
             IHubContext<WebRtcHub> hubContext,
             IServiceScopeFactory serviceScopeFactory,
-            IOptions<AICustomerServiceSettings> aiSettings
+            IOptions<AICustomerServiceSettings> aiSettings,
+            AICustomerServiceManager aiManager
             ) {
             _logger              = logger;
             _contexts            = new();
@@ -44,12 +47,15 @@ namespace AI.Caller.Phone.Services {
             _recordingManager    = recordingManager;
             _hangupRetryPolicy   = new();
             _serviceScopeFactory = serviceScopeFactory;
+            _aiManager           = aiManager;
 
             _monitoringTimer = new Timer(OnCleanupContext, null, Timeout.Infinite, Timeout.Infinite);
         }
 
         public void AddIceCandidate(string callId, int userId, RTCIceCandidateInit candidate) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"无效的呼叫标识:{callId}");
+            if (!_contexts.TryGetValue(callId, out var ctx)) {
+                throw new Exception($"无效的呼叫标识:{callId}");
+            }
             if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.User.Id == userId) {
                 if (ctx.Caller.Client == null) throw new Exception($"呼叫上下文呼叫未初始化:{callId}");
                 ctx.Caller.Client.Client.AddIceCandidate(candidate);
@@ -62,14 +68,16 @@ namespace AI.Caller.Phone.Services {
         }
 
         public IEnumerable<User> GetActiviteUsers() {
-            foreach (var it in _contexts) {
-                if (it.Caller != null && it.Caller.User != null && it.Caller.Client!=null && it.Caller.Client.Client.IsCallActive) yield return it.Caller.User;
+            foreach (var it in _contexts.Values) {
+                if (it.Caller != null && it.Caller.User != null && it.Caller.Client != null && it.Caller.Client.Client.IsCallActive) yield return it.Caller.User;
                 if (it.Callee != null && it.Callee.User != null && it.Callee.Client != null && it.Callee.Client.Client.IsCallActive) yield return it.Callee.User;
             }
         }
 
         public async Task AnswerAsync(string callId, RTCSessionDescriptionInit? answer) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"无效的呼叫标识:{callId}");
+            if (!_contexts.TryGetValue(callId, out var ctx)) {
+                throw new Exception($"无效的呼叫标识:{callId}");
+            }
 
             if (ctx.Callee == null) throw new Exception($"呼叫上下文被叫不能是空:{callId}");
             if (ctx.Callee.Client == null) throw new Exception($"呼叫上下文被叫未初始化:{callId}");
@@ -81,7 +89,7 @@ namespace AI.Caller.Phone.Services {
                 while (!ctx.Callee.Client.Client.IsSecureContextReady()) {
                     if (DateTime.UtcNow - start > timeout) {
                         _logger.LogError($"*** SECURE CONTEXT TIMEOUT *** User: {ctx.Callee.User!.Username}, waited {timeout.TotalSeconds}s");
-                        return ;
+                        return;
                     }
                     await Task.Delay(100);
                 }
@@ -92,7 +100,9 @@ namespace AI.Caller.Phone.Services {
         }
 
         public bool GetSecureContextState(string callId, int userId) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"无效的呼叫标识:{callId}");
+            if (!_contexts.TryGetValue(callId, out var ctx)) {
+                throw new Exception($"无效的呼叫标识:{callId}");
+            }
             if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.User.Id == userId) {
                 if (ctx.Caller.Client == null) throw new Exception($"呼叫上下文呼叫未初始化:{callId}");
                 return ctx.Caller.Client.Client.IsSecureContextReady();
@@ -107,7 +117,10 @@ namespace AI.Caller.Phone.Services {
         }
 
         public async Task HangupCallAsync(string callId, int hangupUser) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"无效的呼叫标识:{callId}");
+            if (!_contexts.TryGetValue(callId, out var ctx)) {
+                _logger.LogWarning("HangupCallAsync failed, call context with ID {CallId} not found.", callId);
+                return;
+            }
 
             if (ctx.Callee != null && ctx.Callee.Client != null) {
                 if (ctx.Callee.User!.Id == hangupUser) {
@@ -141,7 +154,9 @@ namespace AI.Caller.Phone.Services {
 
             CallContext? ctx = null;
             if (!string.IsNullOrEmpty(id)) {
-                ctx = _contexts.FirstOrDefault(x => x.CallId == id) ?? throw new Exception($"无效的呼入id: {id}");
+                if (!_contexts.TryGetValue(id, out ctx)) {
+                    throw new Exception($"无效的呼入id: {id}");
+                }
             } else {
                 ctx = new CallContext {
                     Caller = new Models.Caller {
@@ -149,6 +164,7 @@ namespace AI.Caller.Phone.Services {
                         Number = routingResult.CallerNumber
                     }
                 };
+                _contexts.TryAdd(ctx.CallId, ctx);
             }
 
             if (_aiSettings.Enabled) {
@@ -165,13 +181,25 @@ namespace AI.Caller.Phone.Services {
                 }
             }
 
-            if(callScenario == null) {
+            if (callScenario == null) {
                 _logger.LogWarning($"新呼入{sipRequest.Header.From.FromURI.User} : {sipRequest.Header.To.ToURI.User} 路由策略: {routingResult.Strategy} 未找到可以处理通话的场景");
                 return false;
             }
 
-            
-            return await callScenario.HandleInboundCallAsync(sipRequest, routingResult, ctx);
+            var result = await callScenario.HandleInboundCallAsync(sipRequest, routingResult, ctx);
+            if (result && _aiSettings.Enabled && (routingResult.Strategy == CallHandlingStrategy.NonWebToWeb || routingResult.Strategy == CallHandlingStrategy.WebToWeb)) {
+                var destination = routingResult.TargetUser?.SipAccount?.SipUsername;
+                if (!string.IsNullOrEmpty(destination)) {
+                    _logger.LogInformation("AI is enabled for inbound call, starting TTS playback for call {CallId}.", ctx.CallId);
+                    var hangupUserId = ctx.Callee?.User?.Id;
+                    if (hangupUserId.HasValue) {
+                        _ = PlayTtsAndHangupIfNeeded(ctx, destination, hangupUserId.Value);
+                    } else {
+                        _logger.LogWarning("Could not start TTS playback for call {CallId} because Callee user ID was not found.", ctx.CallId);
+                    }
+                }
+            }
+            return result;
         }
 
         public async Task<CallContext> MakeCallAsync(string destination, User caller, RTCSessionDescriptionInit? offer, CallScenario scenario) {
@@ -190,10 +218,20 @@ namespace AI.Caller.Phone.Services {
                     User = caller
                 }
             };
-            _contexts.Add(ctx);
+            _contexts.TryAdd(ctx.CallId, ctx);
 
             var result = await callScenario.HandleOutboundCallAsync(destination, caller, offer, ctx);
             if (!result) throw new Exception($"呼叫失败");
+
+            if (result && _aiSettings.Enabled && (scenario == CallScenario.WebToServer || scenario == CallScenario.ServerToMobile)) {
+                _logger.LogInformation("AI is enabled for outbound call, starting TTS playback for call {CallId}.", ctx.CallId);
+                var hangupUserId = ctx.Caller?.User?.Id;
+                if (hangupUserId.HasValue) {
+                    _ = PlayTtsAndHangupIfNeeded(ctx, destination, hangupUserId.Value);
+                } else {
+                    _logger.LogWarning("Could not start TTS playback for call {CallId} because Caller user ID was not found.", ctx.CallId);
+                }
+            }
 
             OnMakeCalled(ctx);
 
@@ -201,8 +239,10 @@ namespace AI.Caller.Phone.Services {
         }
 
         public async Task SendDtmfAsync(byte tone, int sendUser, string callId) {
-            var ctx = _contexts.FirstOrDefault(x => x.CallId == callId) ?? throw new Exception($"无效的呼叫标识:{callId}");
-            if (ctx.Caller != null && ctx.Caller.Client != null && ctx.Caller.User !=null && ctx.Caller.User.Id == sendUser) {
+            if (!_contexts.TryGetValue(callId, out var ctx)) {
+                throw new Exception($"无效的呼叫标识:{callId}");
+            }
+            if (ctx.Caller != null && ctx.Caller.Client != null && ctx.Caller.User != null && ctx.Caller.User.Id == sendUser) {
                 await ctx.Caller.Client!.Client.SendDTMFAsync(tone);
             } else if (ctx.Callee != null && ctx.Callee.Client != null && ctx.Callee.User != null && ctx.Callee.User.Id == sendUser) {
                 await ctx.Callee.Client!.Client.SendDTMFAsync(tone);
@@ -210,21 +250,29 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void OnHangupCall(CallContext ctx) {
-            if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.Client != null) {
-                _recordingManager.OnSipHanguped(ctx.Caller.User.Id, ctx.Caller.Client.Client);
-                ctx.Caller.Client.Dispose();
+            if (ctx.Caller != null && ctx.Caller.User != null) {
+                if (ctx.Caller.Client != null) {
+                    _recordingManager.OnSipHanguped(ctx.Caller.User.Id, ctx.Caller.Client.Client);
+                    ctx.Caller.Client.Dispose();
+                }
+                _logger.LogInformation("Hangup detected. Stopping AI service for Caller User ID: {UserId}", ctx.Caller.User.Id);
+                _ = _aiManager.StopAICustomerServiceAsync(ctx.Caller.User.Id);
             }
 
-            if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.Client != null) {
-                _recordingManager.OnSipHanguped(ctx.Callee.User.Id, ctx.Callee.Client.Client);
-                ctx.Callee.Client.Dispose();
+            if (ctx.Callee != null && ctx.Callee.User != null) {
+                if (ctx.Callee.Client != null) {
+                    _recordingManager.OnSipHanguped(ctx.Callee.User.Id, ctx.Callee.Client.Client);
+                    ctx.Callee.Client.Dispose();
+                }
+                _logger.LogInformation("Hangup detected. Stopping AI service for Callee User ID: {UserId}", ctx.Callee.User.Id);
+                _ = _aiManager.StopAICustomerServiceAsync(ctx.Callee.User.Id);
             }
 
-            _contexts.Remove(ctx);
+            _contexts.TryRemove(ctx.CallId, out _);
         }
 
         private void OnMakeCalled(CallContext ctx) {
-            if(ctx.Caller !=null && ctx.Caller.User != null && ctx.Caller.Client != null) {
+            if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.Client != null) {
                 _recordingManager.OnSipCalled(ctx.Caller.User.Id, ctx.Caller.Client.Client);
             }
 
@@ -234,10 +282,17 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void OnCleanupContext(object? state) {
-            foreach(var ctx in _contexts) {
-                if(ctx.Caller!=null && ctx.Callee!=null && ctx.Caller.Client!=null && ctx.Callee.Client !=null && !ctx.Caller.Client.Client.IsCallActive && !ctx.Callee.Client.Client.IsCallActive && ctx.Duration> TimeSpan.FromMinutes(1)) {
-                    _contexts.Remove(ctx);
-                }
+            var inactiveContexts = _contexts.Values.Where(ctx =>
+                ctx.Caller != null &&
+                ctx.Callee != null &&
+                ctx.Caller.Client != null &&
+                ctx.Callee.Client != null &&
+                !ctx.Caller.Client.Client.IsCallActive &&
+                !ctx.Callee.Client.Client.IsCallActive &&
+                ctx.Duration > TimeSpan.FromMinutes(1)).ToList();
+
+            foreach (var ctx in inactiveContexts) {
+                _contexts.TryRemove(ctx.CallId, out _);
             }
         }
 
@@ -269,13 +324,27 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
+        private async Task PlayTtsAndHangupIfNeeded(CallContext ctx, string destination, int hangupUserId) {
+            try {
+                using var scope = _serviceScopeFactory.CreateScope();
+                ITtsPlayerService _ttsPlayer = scope.ServiceProvider.GetRequiredService<ITtsPlayerService>();
+                var (template, success) = await _ttsPlayer.PlayAsync(ctx, destination);
+                if (success && template != null && template.HangupAfterPlay) {
+                    _logger.LogInformation("TTS playback completed for call {CallId}, and HangupAfterPlay is true. Initiating hangup.", ctx.CallId);
+                    await HangupCallAsync(ctx.CallId, hangupUserId);
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, "TTS playback or hangup task failed for call {CallId}.", ctx.CallId);
+            }
+        }
+
         public void Dispose() {
             _monitoringTimer.Dispose();
         }
     }
 
     public interface ICallScenario {
-        Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext); 
+        Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext);
         Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext);
     }
 
@@ -284,13 +353,13 @@ namespace AI.Caller.Phone.Services {
         protected CallScenarioBase(ILogger logger) {
             _logger = logger;
         }
-        public virtual Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) { 
+        public virtual Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
             return Task.FromResult(true);
         }
         public virtual Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             return Task.FromResult(true);
         }
-        
+
         protected async Task<bool> CheckSecureContextReady(User user, SIPClient client) {
             var timeout = TimeSpan.FromSeconds(10);
             var start = DateTime.UtcNow;
@@ -315,7 +384,7 @@ namespace AI.Caller.Phone.Services {
         private readonly IHubContext<WebRtcHub> _hubContext;
 
         public WebToWebScenario(
-            ILogger<WebToWebScenario> logger,             
+            ILogger<WebToWebScenario> logger,
             IHubContext<WebRtcHub> hubContext,
             SIPClientPoolManager poolManager
         ) : base(logger) {
@@ -367,7 +436,7 @@ namespace AI.Caller.Phone.Services {
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             if (sdpOffer == null) throw new ArgumentNullException(nameof(sdpOffer));
-            if(callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
+            if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true);
             if (handle == null) return false;
@@ -419,7 +488,7 @@ namespace AI.Caller.Phone.Services {
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true);
             if (handle == null) return false;
 
-            callContext.Type = CallScenario.WebToMobile; 
+            callContext.Type = CallScenario.WebToMobile;
             callContext.Caller!.Client = handle;
 
             var answer = await handle.Client.OfferAsync(sdpOffer) ?? throw new Exception("无法配置RTPPeerContext");
@@ -471,10 +540,10 @@ namespace AI.Caller.Phone.Services {
 
             callContext.Type = CallScenario.MobileToWeb;
 
-            callContext.Caller = new Models.Caller { 
-                Number = routingResult.CallerNumber 
+            callContext.Caller = new Models.Caller {
+                Number = routingResult.CallerNumber
             };
-            callContext.Callee = new Models.Callee { 
+            callContext.Callee = new Models.Callee {
                 User = user,
                 Client = handle,
             };
@@ -595,17 +664,14 @@ namespace AI.Caller.Phone.Services {
     public class WebToServerScenario : CallScenarioBase {
         private readonly ILogger _logger;
         private readonly SIPClientPoolManager _poolManager;
-        private readonly AICustomerServiceManager _aiManager;
         private readonly IHubContext<WebRtcHub> _hubContext;
 
         public WebToServerScenario(
-            ILogger<ServerToWebScenario> logger,
+            ILogger<WebToServerScenario> logger,
             IHubContext<WebRtcHub> hubContext,
-            SIPClientPoolManager poolManager,
-            AICustomerServiceManager aiManager
+            SIPClientPoolManager poolManager
             ) : base(logger) {
             _logger = logger;
-            _aiManager  = aiManager;
             _hubContext = hubContext;
             _poolManager = poolManager;
         }
@@ -624,32 +690,6 @@ namespace AI.Caller.Phone.Services {
             };
 
             await handle.Client.AnswerAsync();
-
-            try {
-                _ = Task.Run(() => {
-                    _ = Task.Run(async () => {
-                        await Task.Delay(3000);                        
-                        var success = await _aiManager.StartAICustomerServiceAsync(
-                            callContext.Callee.User,
-                            callContext.Callee.Client.Client,
-                            "您好，欢迎致电我们公司，我是AI客服小助手。请问有什么可以帮助您的吗？您好，欢迎致电我们公司，我是AI客服小助手。请问有什么可以帮助您的吗？"
-                        );
-                        var session = _aiManager.GetActiveSession(callContext.Callee.User.Id);                        
-
-                        if (success) {
-                            _logger.LogInformation($"AI TTS started for WebToServer call: {callContext.CallId}");
-                        } else {
-                            _logger.LogWarning($"Failed to start AI TTS for call: {callContext.CallId}");
-                        }
-                    });
-                });
-
-                await Task.Delay(30 * 1000);
-                handle.Client.Hangup();
-                await _aiManager.StopAICustomerServiceAsync(callContext.Callee.User.Id);
-            } catch (Exception ex) {
-                _logger.LogError(ex, $"Error starting AI TTS for call: {callContext.CallId}");
-            }
 
             return true;
         }

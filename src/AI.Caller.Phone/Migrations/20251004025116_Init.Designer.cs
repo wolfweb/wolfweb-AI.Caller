@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AI.Caller.Phone.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20250917083519_AddTtsAndInboundFeatures")]
-    partial class AddTtsAndInboundFeatures
+    [Migration("20251004025116_Init")]
+    partial class Init
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -98,21 +98,55 @@ namespace AI.Caller.Phone.Migrations
                     b.ToTable("SipAccounts");
                 });
 
-            modelBuilder.Entity("AI.Caller.Phone.Entities.SipSetting", b =>
+            modelBuilder.Entity("AI.Caller.Phone.Entities.TtsTemplate", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime>("CreateAt")
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasComment("支持模板语言（如Liquid）的字符串, e.g., '您好{% if gender == 'Male' %}先生{% else %}女士{% endif %}。'");
+
+                    b.Property<bool>("HangupAfterPlay")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("SipServer")
-                        .HasColumnType("TEXT");
+                    b.Property<int>("PlayCount")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
-                    b.ToTable("SipSettings");
+                    b.ToTable("TtsTemplates");
+                });
+
+            modelBuilder.Entity("AI.Caller.Phone.Entities.TtsVariable", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasComment("在模板中使用的占位符，不含大括号, e.g., 'CustomerName'");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("TtsVariables");
                 });
 
             modelBuilder.Entity("AI.Caller.Phone.Entities.User", b =>
@@ -134,6 +168,9 @@ namespace AI.Caller.Phone.Migrations
 
                     b.Property<string>("Email")
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("EnableAI")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsAdmin")
                         .HasColumnType("INTEGER");
@@ -178,63 +215,12 @@ namespace AI.Caller.Phone.Migrations
                         {
                             Id = 1,
                             AutoRecording = false,
+                            EnableAI = false,
                             IsAdmin = false,
                             Password = "password123",
                             SipRegistered = false,
                             Username = "admin"
                         });
-                });
-
-            modelBuilder.Entity("AI.Caller.Phone.Models.InboundTemplate", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ResponseRules")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("UpdatedTime")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("WelcomeScript")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IsActive")
-                        .HasDatabaseName("IX_InboundTemplates_IsActive");
-
-                    b.HasIndex("IsDefault")
-                        .HasDatabaseName("IX_InboundTemplates_IsDefault");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("IX_InboundTemplates_UserId");
-
-                    b.ToTable("InboundTemplates");
                 });
 
             modelBuilder.Entity("AI.Caller.Phone.Models.Recording", b =>
@@ -285,113 +271,19 @@ namespace AI.Caller.Phone.Migrations
                     b.ToTable("Recordings");
                 });
 
-            modelBuilder.Entity("AI.Caller.Phone.Models.TtsCallDocument", b =>
+            modelBuilder.Entity("TtsTemplateVariable", b =>
                 {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
+                    b.Property<int>("TtsTemplatesId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("CompletedCalls")
+                    b.Property<int>("VariablesId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime?>("EndTime")
-                        .HasColumnType("TEXT");
+                    b.HasKey("TtsTemplatesId", "VariablesId");
 
-                    b.Property<int>("FailedCalls")
-                        .HasColumnType("INTEGER");
+                    b.HasIndex("VariablesId");
 
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("FilePath")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("StartTime")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("TotalRecords")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("UploadTime")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("IX_TtsCallDocuments_Status");
-
-                    b.HasIndex("UploadTime")
-                        .HasDatabaseName("IX_TtsCallDocuments_UploadTime");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("IX_TtsCallDocuments_UserId");
-
-                    b.ToTable("TtsCallDocuments");
-                });
-
-            modelBuilder.Entity("AI.Caller.Phone.Models.TtsCallRecord", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("AddressTemplate")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("CallStatus")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("CallTime")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("DocumentId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("FailureReason")
-                        .HasMaxLength(500)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Gender")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PhoneNumber")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("RetryCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("TtsContent")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CallStatus")
-                        .HasDatabaseName("IX_TtsCallRecords_CallStatus");
-
-                    b.HasIndex("DocumentId")
-                        .HasDatabaseName("IX_TtsCallRecords_DocumentId");
-
-                    b.HasIndex("PhoneNumber")
-                        .HasDatabaseName("IX_TtsCallRecords_PhoneNumber");
-
-                    b.ToTable("TtsCallRecords");
+                    b.ToTable("TtsTemplateVariable");
                 });
 
             modelBuilder.Entity("AI.Caller.Phone.Entities.Contact", b =>
@@ -418,15 +310,19 @@ namespace AI.Caller.Phone.Migrations
                     b.Navigation("SipAccount");
                 });
 
-            modelBuilder.Entity("AI.Caller.Phone.Models.TtsCallRecord", b =>
+            modelBuilder.Entity("TtsTemplateVariable", b =>
                 {
-                    b.HasOne("AI.Caller.Phone.Models.TtsCallDocument", "Document")
-                        .WithMany("CallRecords")
-                        .HasForeignKey("DocumentId")
+                    b.HasOne("AI.Caller.Phone.Entities.TtsTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("TtsTemplatesId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Document");
+                    b.HasOne("AI.Caller.Phone.Entities.TtsVariable", null)
+                        .WithMany()
+                        .HasForeignKey("VariablesId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("AI.Caller.Phone.Entities.SipAccount", b =>
@@ -437,11 +333,6 @@ namespace AI.Caller.Phone.Migrations
             modelBuilder.Entity("AI.Caller.Phone.Entities.User", b =>
                 {
                     b.Navigation("Contacts");
-                });
-
-            modelBuilder.Entity("AI.Caller.Phone.Models.TtsCallDocument", b =>
-                {
-                    b.Navigation("CallRecords");
                 });
 #pragma warning restore 612, 618
         }

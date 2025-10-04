@@ -71,13 +71,12 @@ namespace AI.Caller.Phone {
             builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();
             builder.Services.AddSingleton<HangupMonitoringService>();
 
-            // TTS Template Integration Service
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<ITtsTemplateIntegrationService, TtsTemplateIntegrationService>();
+            builder.Services.AddScoped<ITtsPlayerService, TtsPlayerService>();
 
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
 
-            // 注册AI自动应答相关服务
             builder.Services.AddAIAutoResponder();
             builder.Services.AddMediaProcessing();
             builder.Services.AddSingleton<AICustomerServiceManager>();

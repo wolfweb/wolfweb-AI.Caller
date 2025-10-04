@@ -10,10 +10,10 @@ public class AppDbContext : DbContext {
 
     public DbSet<User> Users { get; set; }
     public DbSet<Contact> Contacts { get; set; }
-    public DbSet<SipSetting> SipSettings { get; set; }
     public DbSet<SipAccount> SipAccounts { get; set; }
     public DbSet<Models.Recording> Recordings { get; set; }
     public DbSet<TtsTemplate> TtsTemplates { get; set; }
+    public DbSet<TtsVariable> TtsVariables { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
         base.OnConfiguring(optionsBuilder);
@@ -95,12 +95,18 @@ public class AppDbContext : DbContext {
 
         modelBuilder.Entity<TtsTemplate>(entity => {
             entity.HasKey(e => e.Id);
-            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Name).IsRequired();
             entity.Property(e => e.Content).IsRequired();
-            entity.Property(e => e.TargetPattern).HasMaxLength(100);
 
-            entity.HasIndex(e => e.IsActive).HasDatabaseName("IX_TtsTemplates_IsActive");
-            entity.HasIndex(e => e.Priority).HasDatabaseName("IX_TtsTemplates_Priority");
+            entity.HasMany(p => p.Variables)
+                  .WithMany(p => p.TtsTemplates)
+                  .UsingEntity("TtsTemplateVariable");
+        });
+
+        modelBuilder.Entity<TtsVariable>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired();
+            entity.HasIndex(e => e.Name).IsUnique();
         });
     }
 }

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace AI.Caller.Phone.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class Init : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -49,17 +49,34 @@ namespace AI.Caller.Phone.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "SipSettings",
+                name: "TtsTemplates",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
-                    SipServer = table.Column<string>(type: "TEXT", nullable: true),
-                    CreateAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Name = table.Column<string>(type: "TEXT", nullable: false),
+                    Content = table.Column<string>(type: "TEXT", nullable: false, comment: "支持模板语言（如Liquid）的字符串, e.g., '您好{% if gender == 'Male' %}先生{% else %}女士{% endif %}。'"),
+                    IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
+                    PlayCount = table.Column<int>(type: "INTEGER", nullable: false),
+                    HangupAfterPlay = table.Column<bool>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_SipSettings", x => x.Id);
+                    table.PrimaryKey("PK_TtsTemplates", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TtsVariables",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    Name = table.Column<string>(type: "TEXT", nullable: false, comment: "在模板中使用的占位符，不含大括号, e.g., 'CustomerName'"),
+                    Description = table.Column<string>(type: "TEXT", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TtsVariables", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -76,6 +93,8 @@ namespace AI.Caller.Phone.Migrations
                     Bio = table.Column<string>(type: "TEXT", nullable: true),
                     AutoRecording = table.Column<bool>(type: "INTEGER", nullable: false, defaultValue: false),
                     RegisteredAt = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    IsAdmin = table.Column<bool>(type: "INTEGER", nullable: false),
+                    EnableAI = table.Column<bool>(type: "INTEGER", nullable: false),
                     SipAccountId = table.Column<int>(type: "INTEGER", nullable: true),
                     SipRegistered = table.Column<bool>(type: "INTEGER", nullable: false)
                 },
@@ -88,6 +107,30 @@ namespace AI.Caller.Phone.Migrations
                         principalTable: "SipAccounts",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.SetNull);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TtsTemplateVariable",
+                columns: table => new
+                {
+                    TtsTemplatesId = table.Column<int>(type: "INTEGER", nullable: false),
+                    VariablesId = table.Column<int>(type: "INTEGER", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TtsTemplateVariable", x => new { x.TtsTemplatesId, x.VariablesId });
+                    table.ForeignKey(
+                        name: "FK_TtsTemplateVariable_TtsTemplates_TtsTemplatesId",
+                        column: x => x.TtsTemplatesId,
+                        principalTable: "TtsTemplates",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_TtsTemplateVariable_TtsVariables_VariablesId",
+                        column: x => x.VariablesId,
+                        principalTable: "TtsVariables",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -119,8 +162,8 @@ namespace AI.Caller.Phone.Migrations
 
             migrationBuilder.InsertData(
                 table: "Users",
-                columns: new[] { "Id", "Bio", "DisplayName", "Email", "Password", "PhoneNumber", "RegisteredAt", "SipAccountId", "SipRegistered", "Username" },
-                values: new object[] { 1, null, null, null, "password123", null, null, null, false, "admin" });
+                columns: new[] { "Id", "Bio", "DisplayName", "Email", "EnableAI", "IsAdmin", "Password", "PhoneNumber", "RegisteredAt", "SipAccountId", "SipRegistered", "Username" },
+                values: new object[] { 1, null, null, null, false, false, "password123", null, null, null, false, "admin" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Contacts_PhoneNumber",
@@ -164,6 +207,17 @@ namespace AI.Caller.Phone.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_TtsTemplateVariable_VariablesId",
+                table: "TtsTemplateVariable",
+                column: "VariablesId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_TtsVariables_Name",
+                table: "TtsVariables",
+                column: "Name",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Users_SipAccountId",
                 table: "Users",
                 column: "SipAccountId");
@@ -189,10 +243,16 @@ namespace AI.Caller.Phone.Migrations
                 name: "Recordings");
 
             migrationBuilder.DropTable(
-                name: "SipSettings");
+                name: "TtsTemplateVariable");
 
             migrationBuilder.DropTable(
                 name: "Users");
+
+            migrationBuilder.DropTable(
+                name: "TtsTemplates");
+
+            migrationBuilder.DropTable(
+                name: "TtsVariables");
 
             migrationBuilder.DropTable(
                 name: "SipAccounts");
