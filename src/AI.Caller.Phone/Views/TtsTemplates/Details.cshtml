@@ -67,7 +67,66 @@
         </dl>
     </div>
     <div>
-        <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary">编辑</a> |
+        <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary">编辑</a>
+        <button type="button" id="testTtsBtn" class="btn btn-info">播放测试</button>
         <a asp-action="Index" class="btn btn-secondary">返回列表</a>
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            $('#testTtsBtn').on('click', function() {
+                var text = @Html.Raw(Json.Serialize(Model.Content));
+                var speechRate = @Model.SpeechRate;
+
+                if (!text) {
+                    alert('模板内容为空，无法测试。');
+                    return;
+                }
+
+                // Replace placeholders with sample data for testing
+                var sampleText = text.replace(/{[^{}]+}/g, '示例内容');
+                
+                var button = $(this);
+                var originalText = button.text();
+                button.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> 正在生成...');
+
+                var audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                fetch('@Url.Action("TestTts", "TtsTemplates")', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ text: sampleText, speechRate: speechRate })
+                })
+                .then(response => {
+                    if (!response.ok || response.headers.get("Content-Length") === "0") {
+                        throw new Error('音频生成失败或返回为空。');
+                    }
+                    return response.arrayBuffer();
+                })
+                .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+                .then(audioBuffer => {
+                    var source = audioContext.createBufferSource();
+                    source.buffer = audioBuffer;
+                    source.connect(audioContext.destination);
+                    source.start(0);
+                    
+                    button.html('<i class="bi bi-play-circle"></i> 正在播放...');
+
+                    source.onended = function() {
+                        button.prop('disabled', false).text(originalText);
+                        audioContext.close();
+                    }
+                })
+                .catch(error => {
+                    console.error('播放测试时出错:', error);
+                    alert('播放测试失败，请检查浏览器控制台获取更多信息。');
+                    button.prop('disabled', false).text(originalText);
+                });
+            });
+        });
+    </script>
+}

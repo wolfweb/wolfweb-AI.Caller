@@ -41,9 +41,15 @@
                             @(item.Variables.Any() ? string.Join(", ", item.Variables.Select(v => v.Name)) : "无")
                         </td>
                         <td>
-                            <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary">编辑</a>
-                            <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-info">详情</a>
-                            <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger">删除</a>
+                            <button type="button" class="btn btn-sm btn-outline-success test-tts-btn" 
+                                    data-text="@item.Content" 
+                                    data-rate="@item.SpeechRate.ToString("F1")"
+                                    title="播放测试">
+                                <i class="bi bi-play-circle"></i>
+                            </button>
+                            <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary" title="编辑"><i class="bi bi-pencil-square"></i></a>
+                            <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-info" title="详情"><i class="bi bi-info-lg"></i></a>
+                            <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger" title="删除"><i class="bi bi-trash"></i></a>
                         </td>
                     </tr>
             }
@@ -52,3 +58,78 @@
         </div>
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            var audioContext;
+            var currentSource;
+
+            $('.test-tts-btn').on('click', function(e) {
+                e.preventDefault();
+                var button = $(this);
+
+                // If an audio is already playing, stop it.
+                if (currentSource) {
+                    currentSource.stop();
+                }
+                if (audioContext && audioContext.state !== 'closed') {
+                    audioContext.close();
+                }
+
+                // Reset all other buttons
+                $('.test-tts-btn').prop('disabled', false).html('<i class="bi bi-play-circle"></i>');
+
+
+                var text = button.data('text');
+                var speechRate = parseFloat(button.data('rate'));
+
+                if (!text) {
+                    alert('模板内容为空，无法测试。');
+                    return;
+                }
+                
+                var sampleText = text.replace(/{[^{}]+}/g, '示例内容');
+                
+                button.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i>');
+
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                fetch('@Url.Action("TestTts", "TtsTemplates")', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ text: sampleText, speechRate: speechRate })
+                })
+                .then(response => {
+                    if (!response.ok || response.headers.get("Content-Length") === "0") {
+                        throw new Error('音频生成失败或返回为空。');
+                    }
+                    return response.arrayBuffer();
+                })
+                .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+                .then(audioBuffer => {
+                    currentSource = audioContext.createBufferSource();
+                    currentSource.buffer = audioBuffer;
+                    currentSource.connect(audioContext.destination);
+                    currentSource.start(0);
+                    
+                    button.html('<i class="bi bi-stop-circle"></i>');
+
+                    currentSource.onended = function() {
+                        button.prop('disabled', false).html('<i class="bi bi-play-circle"></i>');
+                        if (audioContext.state !== 'closed') {
+                           audioContext.close();
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('播放测试时出错:', error);
+                    alert('播放测试失败: ' + error.message);
+                    button.prop('disabled', false).html('<i class="bi bi-play-circle"></i>');
+                });
+            });
+        });
+    </script>
+}
