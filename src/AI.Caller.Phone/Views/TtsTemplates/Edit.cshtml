@@ -28,10 +28,26 @@
                             <textarea asp-for="Content" class="form-control" rows="5"></textarea>
                             <span asp-validation-for="Content" class="text-danger"></span>
                         </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label asp-for="PlayCount" class="form-label"></label>
+                                    <input asp-for="PlayCount" class="form-control" />
+                                    <span asp-validation-for="PlayCount" class="text-danger"></span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label asp-for="PauseBetweenPlaysInSeconds" class="form-label"></label>
+                                    <input asp-for="PauseBetweenPlaysInSeconds" class="form-control" />
+                                    <span asp-validation-for="PauseBetweenPlaysInSeconds" class="text-danger"></span>
+                                </div>
+                            </div>
+                        </div>
                         <div class="mb-3">
-                            <label asp-for="PlayCount" class="form-label"></label>
-                            <input asp-for="PlayCount" class="form-control" />
-                            <span asp-validation-for="PlayCount" class="text-danger"></span>
+                            <label asp-for="EndingSpeech" class="form-label"></label>
+                            <textarea asp-for="EndingSpeech" class="form-control" rows="3"></textarea>
+                            <span asp-validation-for="EndingSpeech" class="text-danger"></span>
                         </div>
                         <div class="form-check form-switch mb-3">
                             <input class="form-check-input" asp-for="IsActive" />

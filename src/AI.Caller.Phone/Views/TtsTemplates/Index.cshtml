@@ -21,6 +21,7 @@
                         <th>@Html.DisplayNameFor(model => model.Name)</th>
                         <th>@Html.DisplayNameFor(model => model.IsActive)</th>
                         <th>@Html.DisplayNameFor(model => model.PlayCount)</th>
+                        <th>正文循环间隔</th>
                         <th>@Html.DisplayNameFor(model => model.HangupAfterPlay)</th>
                         <th>变量</th>
                         <th></th>
@@ -32,6 +33,7 @@
                         <td>@Html.DisplayFor(modelItem => item.Name)</td>
                         <td>@Html.DisplayFor(modelItem => item.IsActive)</td>
                         <td>@Html.DisplayFor(modelItem => item.PlayCount)</td>
+                        <td>@Html.DisplayFor(modelItem => item.PauseBetweenPlaysInSeconds)</td>
                         <td>@Html.DisplayFor(modelItem => item.HangupAfterPlay)</td>
                         <td>
                             @(item.Variables.Any() ? string.Join(", ", item.Variables.Select(v => v.Name)) : "无")

@@ -43,7 +43,7 @@ namespace AI.Caller.Phone.Controllers {
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Create([Bind("Name,Content,IsActive,PlayCount,HangupAfterPlay")] TtsTemplate ttsTemplate, int[] selectedVariables) {
+        public async Task<IActionResult> Create([Bind("Name,Content,IsActive,PlayCount,HangupAfterPlay,PauseBetweenPlaysInSeconds,EndingSpeech")] TtsTemplate ttsTemplate, int[] selectedVariables) {
             if (ModelState.IsValid) {
                 if (selectedVariables != null) {
                     foreach (var variableId in selectedVariables) {
@@ -82,7 +82,7 @@ namespace AI.Caller.Phone.Controllers {
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Content,IsActive,PlayCount,HangupAfterPlay")] TtsTemplate ttsTemplate, int[] selectedVariables) {
+        public async Task<IActionResult> Edit(int id, [Bind("Id,Name,Content,IsActive,PlayCount,HangupAfterPlay,PauseBetweenPlaysInSeconds,EndingSpeech")] TtsTemplate ttsTemplate, int[] selectedVariables) {
             if (id != ttsTemplate.Id) {
                 return NotFound();
             }
@@ -102,6 +102,8 @@ namespace AI.Caller.Phone.Controllers {
                     templateToUpdate.IsActive = ttsTemplate.IsActive;
                     templateToUpdate.PlayCount = ttsTemplate.PlayCount;
                     templateToUpdate.HangupAfterPlay = ttsTemplate.HangupAfterPlay;
+                    templateToUpdate.PauseBetweenPlaysInSeconds = ttsTemplate.PauseBetweenPlaysInSeconds;
+                    templateToUpdate.EndingSpeech = ttsTemplate.EndingSpeech;
 
                     templateToUpdate.Variables.Clear();
                     if (selectedVariables != null) {
