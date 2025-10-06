@@ -39,7 +39,7 @@ public class TtsTemplate {
 
     [Display(Name = "播放语速")]
     [DefaultValue(1.0)]
-    public double SpeechRate { get; set; } = 1.0;
+    public float SpeechRate { get; set; } = 1.0f;
 
     public virtual ICollection<TtsVariable> Variables { get; set; } = new List<TtsVariable>();
 }

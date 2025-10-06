@@ -73,9 +73,12 @@ namespace AI.Caller.Phone {
 
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<ITtsTemplateIntegrationService, TtsTemplateIntegrationService>();
-            builder.Services.AddScoped<ITtsPlayerService, TtsPlayerService>();
 
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
+
+            builder.Services.AddScoped<ICallFlowOrchestrator, CallFlowOrchestrator>();
+            builder.Services.AddScoped<IVariableResolverService, VariableResolverService>();
+            builder.Services.AddScoped<ITtsPlayerService, TtsPlayerService>();
 
             builder.Services.AddAIAutoResponder();
             builder.Services.AddMediaProcessing();

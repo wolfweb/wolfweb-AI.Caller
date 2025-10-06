@@ -1,9 +1,8 @@
-using AI.Caller.Phone.Models;
+using AI.Caller.Core;
+using AI.Caller.Phone.Entities;
 
 namespace AI.Caller.Phone.Services;
 
-using AI.Caller.Phone.Entities;
-
 public interface ITtsPlayerService {
-    Task<(TtsTemplate? template, bool success)> PlayAsync(CallContext callContext, string destination);
+    Task PlayTtsAsync(string text, User user, SIPClient sipClient, float? speed = 1.0f, int speakerId = 0);
 }

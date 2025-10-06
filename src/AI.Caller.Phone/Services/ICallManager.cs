@@ -187,18 +187,6 @@ namespace AI.Caller.Phone.Services {
             }
 
             var result = await callScenario.HandleInboundCallAsync(sipRequest, routingResult, ctx);
-            if (result && _aiSettings.Enabled && (routingResult.Strategy == CallHandlingStrategy.NonWebToWeb || routingResult.Strategy == CallHandlingStrategy.WebToWeb)) {
-                var destination = routingResult.TargetUser?.SipAccount?.SipUsername;
-                if (!string.IsNullOrEmpty(destination)) {
-                    _logger.LogInformation("AI is enabled for inbound call, starting TTS playback for call {CallId}.", ctx.CallId);
-                    var hangupUserId = ctx.Callee?.User?.Id;
-                    if (hangupUserId.HasValue) {
-                        _ = PlayTtsAndHangupIfNeeded(ctx, destination, hangupUserId.Value);
-                    } else {
-                        _logger.LogWarning("Could not start TTS playback for call {CallId} because Callee user ID was not found.", ctx.CallId);
-                    }
-                }
-            }
             return result;
         }
 
@@ -222,16 +210,6 @@ namespace AI.Caller.Phone.Services {
 
             var result = await callScenario.HandleOutboundCallAsync(destination, caller, offer, ctx);
             if (!result) throw new Exception($"呼叫失败");
-
-            if (result && _aiSettings.Enabled && (scenario == CallScenario.WebToServer || scenario == CallScenario.ServerToMobile)) {
-                _logger.LogInformation("AI is enabled for outbound call, starting TTS playback for call {CallId}.", ctx.CallId);
-                var hangupUserId = ctx.Caller?.User?.Id;
-                if (hangupUserId.HasValue) {
-                    _ = PlayTtsAndHangupIfNeeded(ctx, destination, hangupUserId.Value);
-                } else {
-                    _logger.LogWarning("Could not start TTS playback for call {CallId} because Caller user ID was not found.", ctx.CallId);
-                }
-            }
 
             OnMakeCalled(ctx);
 
@@ -321,20 +299,6 @@ namespace AI.Caller.Phone.Services {
                 _logger.LogWarning($"向用户 {userId} 发送状态通知被取消或超时: {status}");
             } catch (Exception ex) {
                 _logger.LogError(ex, $"发送挂断状态通知失败 - 用户: {userId}, 状态: {status}");
-            }
-        }
-
-        private async Task PlayTtsAndHangupIfNeeded(CallContext ctx, string destination, int hangupUserId) {
-            try {
-                using var scope = _serviceScopeFactory.CreateScope();
-                ITtsPlayerService _ttsPlayer = scope.ServiceProvider.GetRequiredService<ITtsPlayerService>();
-                var (template, success) = await _ttsPlayer.PlayAsync(ctx, destination);
-                if (success && template != null && template.HangupAfterPlay) {
-                    _logger.LogInformation("TTS playback completed for call {CallId}, and HangupAfterPlay is true. Initiating hangup.", ctx.CallId);
-                    await HangupCallAsync(ctx.CallId, hangupUserId);
-                }
-            } catch (Exception ex) {
-                _logger.LogError(ex, "TTS playback or hangup task failed for call {CallId}.", ctx.CallId);
             }
         }
 
@@ -665,15 +629,18 @@ namespace AI.Caller.Phone.Services {
         private readonly ILogger _logger;
         private readonly SIPClientPoolManager _poolManager;
         private readonly IHubContext<WebRtcHub> _hubContext;
+        private readonly ICallFlowOrchestrator _orchestrator;
 
         public WebToServerScenario(
             ILogger<WebToServerScenario> logger,
             IHubContext<WebRtcHub> hubContext,
-            SIPClientPoolManager poolManager
+            SIPClientPoolManager poolManager,
+            ICallFlowOrchestrator orchestrator
             ) : base(logger) {
             _logger = logger;
             _hubContext = hubContext;
             _poolManager = poolManager;
+            _orchestrator = orchestrator;
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
@@ -690,6 +657,8 @@ namespace AI.Caller.Phone.Services {
             };
 
             await handle.Client.AnswerAsync();
+
+            _ = _orchestrator.HandleInboundCallAsync(callContext);
 
             return true;
         }
@@ -766,15 +735,18 @@ namespace AI.Caller.Phone.Services {
         private readonly ILogger _logger;
         private readonly SIPClientPoolManager _poolManager;
         private readonly IHubContext<WebRtcHub> _hubContext;
+        private readonly ICallFlowOrchestrator _orchestrator;
 
         public MobileToServerScenario(
             ILogger<MobileToServerScenario> logger,
             IHubContext<WebRtcHub> hubContext,
-            SIPClientPoolManager poolManager
+            SIPClientPoolManager poolManager,
+            ICallFlowOrchestrator orchestrator
             ) : base(logger) {
             _logger = logger;
             _hubContext = hubContext;
             _poolManager = poolManager;
+            _orchestrator = orchestrator;
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
@@ -802,6 +774,8 @@ namespace AI.Caller.Phone.Services {
             });
 
             await handle.Client.AnswerAsync();
+
+            _ = _orchestrator.HandleInboundCallAsync(callContext);
 
             return true;
         }
