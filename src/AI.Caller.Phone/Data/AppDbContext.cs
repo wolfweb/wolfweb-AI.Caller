@@ -14,6 +14,7 @@ public class AppDbContext : DbContext {
     public DbSet<Models.Recording> Recordings { get; set; }
     public DbSet<TtsTemplate> TtsTemplates { get; set; }
     public DbSet<TtsVariable> TtsVariables { get; set; }
+    public DbSet<AICustomerServiceSettings> AICustomerServiceSettings { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
         base.OnConfiguring(optionsBuilder);

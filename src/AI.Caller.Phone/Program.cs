@@ -40,7 +40,8 @@ namespace AI.Caller.Phone {
 
             builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
             builder.Services.Configure<TTSSettings>(builder.Configuration.GetSection("TTSSettings"));
-            builder.Services.Configure<AICustomerServiceSettings>(builder.Configuration.GetSection("AICustomerServiceSettings"));
+
+            builder.Services.AddScoped<IAICustomerServiceSettingsProvider, AICustomerServiceSettingsProvider>();
 
             builder.Services.AddSingleton<ApplicationContext>(_ => {
                 var ctx = new ApplicationContext();
@@ -72,7 +73,6 @@ namespace AI.Caller.Phone {
             builder.Services.AddSingleton<HangupMonitoringService>();
 
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
-            builder.Services.AddScoped<ITtsTemplateIntegrationService, TtsTemplateIntegrationService>();
 
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
 
@@ -118,6 +118,7 @@ namespace AI.Caller.Phone {
 #if DEBUG
                 dbContext.Database.Migrate();
 #endif
+                EnsureDefaultSettings(scope.ServiceProvider);
                 EnsureDefaultUser(builder.Configuration, dbContext);
 
                 var migrationService = scope.ServiceProvider.GetRequiredService<DataMigrationService>();
@@ -135,6 +136,12 @@ namespace AI.Caller.Phone {
             }
 
             app.Run();
+        }
+
+        private static void EnsureDefaultSettings(IServiceProvider serviceProvider)
+        {
+            var settingsProvider = serviceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
+            settingsProvider.GetSettingsAsync().Wait();
         }
 
         private static void EnsureDefaultUser(IConfiguration configuration, AppDbContext dbContext) {

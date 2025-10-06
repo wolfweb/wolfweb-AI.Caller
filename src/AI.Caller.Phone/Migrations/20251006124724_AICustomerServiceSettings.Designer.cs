@@ -3,6 +3,7 @@ using System;
 using AI.Caller.Phone;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AI.Caller.Phone.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251006124724_AICustomerServiceSettings")]
+    partial class AICustomerServiceSettings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.9");
@@ -31,9 +34,6 @@ namespace AI.Caller.Phone.Migrations
 
                     b.Property<float>("DefaultSpeed")
                         .HasColumnType("REAL");
-
-                    b.Property<int?>("DefaultTtsTemplateId")
-                        .HasColumnType("INTEGER");
 
                     b.Property<string>("DefaultWelcomeScript")
                         .IsRequired()

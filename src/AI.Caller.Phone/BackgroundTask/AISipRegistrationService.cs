@@ -1,6 +1,7 @@
 using AI.Caller.Core;
+using AI.Caller.Core.Network;
+using AI.Caller.Phone.Services;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using SIPSorcery.SIP.App;
 
 namespace AI.Caller.Phone.BackgroundTask {
@@ -8,30 +9,30 @@ namespace AI.Caller.Phone.BackgroundTask {
         private readonly ILogger _logger;
         private readonly SIPTransportManager _sipTransportManager;
         private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly AICustomerServiceSettings _aiCustomerServiceSettings;
         private readonly List<SIPRegistrationUserAgent> _registrationAgents = new();
 
         public AISipRegistrationService(
             ILogger<AISipRegistrationService> logger,
             IServiceScopeFactory serviceScopeFactory,
-            SIPTransportManager sipTransportManager,
-            IOptions<AICustomerServiceSettings> aiCustomerServiceSettings
+            SIPTransportManager sipTransportManager
             ) {
             _logger                    = logger;
             _serviceScopeFactory       = serviceScopeFactory;
             _sipTransportManager       = sipTransportManager;
-            _aiCustomerServiceSettings = aiCustomerServiceSettings.Value;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken) {
-            if (!_aiCustomerServiceSettings.Enabled) {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var aiSettingsProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
+            var aiCustomerServiceSettings = await aiSettingsProvider.GetSettingsAsync();
+
+            if (!aiCustomerServiceSettings.Enabled) {
                 _logger.LogInformation("AI Customer Service is disabled. Skipping AI SIP account registrations.");
                 return;
             }
 
             _logger.LogInformation("Starting AI SIP account registration service.");
 
-            using var scope = _serviceScopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
             var accounts = await dbContext.SipAccounts.ToListAsync(cancellationToken);

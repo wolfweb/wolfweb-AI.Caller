@@ -1,0 +1,62 @@
+@model AI.Caller.Phone.Entities.AICustomerServiceSettings
+
+@{
+    ViewData["Title"] = "AI 客服设置";
+}
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h4>@ViewData["Title"]</h4>
+                </div>
+                <div class="card-body">
+                    <form asp-action="Index">
+                        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                        <input type="hidden" asp-for="Id" />
+                        <div class="form-group form-check mb-3">
+                            <label class="form-check-label">
+                                <input class="form-check-input" asp-for="Enabled" /> @Html.DisplayNameFor(model => model.Enabled)
+                            </label>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label asp-for="DefaultWelcomeScript" class="control-label"></label>
+                            <textarea asp-for="DefaultWelcomeScript" class="form-control" rows="3"></textarea>
+                            <span asp-validation-for="DefaultWelcomeScript" class="text-danger"></span>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label asp-for="AutoAnswerDelayMs" class="control-label"></label>
+                            <input asp-for="AutoAnswerDelayMs" class="form-control" />
+                            <span asp-validation-for="AutoAnswerDelayMs" class="text-danger"></span>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label asp-for="DefaultSpeakerId" class="control-label"></label>
+                            <input asp-for="DefaultSpeakerId" class="form-control" />
+                            <span asp-validation-for="DefaultSpeakerId" class="text-danger"></span>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label asp-for="DefaultSpeed" class="control-label"></label>
+                            <input asp-for="DefaultSpeed" class="form-control" step="0.01" max="2.0" />
+                            <span asp-validation-for="DefaultSpeed" class="text-danger"></span>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label asp-for="DefaultTtsTemplateId" class="control-label"></label>
+                            <select asp-for="DefaultTtsTemplateId" class="form-control" asp-items="@ViewBag.TtsTemplates">
+                                <option value="">-- 无 --</option>
+                            </select>
+                            <span asp-validation-for="DefaultTtsTemplateId" class="text-danger"></span>
+                        </div>
+                        <div class="form-group">
+                            <input type="submit" value="保存" class="btn btn-primary" />
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}

@@ -28,7 +28,6 @@ namespace AI.Caller.Phone.Services {
         private readonly RecordingManager _recordingManager;
         private readonly HangupRetryPolicy _hangupRetryPolicy;
         private readonly IHubContext<WebRtcHub> _hubContext;
-        private readonly AICustomerServiceSettings _aiSettings;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly AICustomerServiceManager _aiManager;
 
@@ -37,12 +36,10 @@ namespace AI.Caller.Phone.Services {
             RecordingManager recordingManager,
             IHubContext<WebRtcHub> hubContext,
             IServiceScopeFactory serviceScopeFactory,
-            IOptions<AICustomerServiceSettings> aiSettings,
             AICustomerServiceManager aiManager
             ) {
             _logger              = logger;
             _contexts            = new();
-            _aiSettings          = aiSettings.Value;
             _hubContext          = hubContext;
             _recordingManager    = recordingManager;
             _hangupRetryPolicy   = new();
@@ -149,6 +146,9 @@ namespace AI.Caller.Phone.Services {
 
         public async Task<bool> IncomingCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult) {
             using var scope = _serviceScopeFactory.CreateScope();
+            var aiSettingsProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
+            var aiSettings = await aiSettingsProvider.GetSettingsAsync();
+
             ICallScenario? callScenario = null;
             var id = sipRequest.Header.From.FromURI.Parameters.Get("id");
 
@@ -167,7 +167,7 @@ namespace AI.Caller.Phone.Services {
                 _contexts.TryAdd(ctx.CallId, ctx);
             }
 
-            if (_aiSettings.Enabled) {
+            if (aiSettings.Enabled) {
                 if (routingResult.Strategy == CallHandlingStrategy.WebToWeb) {
                     callScenario = scope.ServiceProvider.GetRequiredService<WebToServerScenario>();
                 } else if (routingResult.Strategy == CallHandlingStrategy.NonWebToWeb) {
