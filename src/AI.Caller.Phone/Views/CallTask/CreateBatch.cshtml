@@ -1,0 +1,63 @@
+@{
+    ViewData["Title"] = "创建批量呼叫任务";
+}
+
+<div class="container mt-4">
+    <h1>@ViewData["Title"]</h1>
+
+    <hr />
+    <div class="row">
+        <div class="col-md-6">
+            <form asp-action="CreateBatch" enctype="multipart/form-data" method="post">
+                <div class="form-group mb-3">
+                    <label for="jobName" class="control-label">任务名称</label>
+                    <input id="jobName" name="jobName" class="form-control" />
+                </div>
+                <div class="form-group mb-3">
+                    <label for="ttsTemplateId" class="control-label">TTS模板</label>
+                    <select id="ttsTemplateId" name="ttsTemplateId" class="form-control" asp-items="ViewBag.TtsTemplateId">
+                        <option value="">-- 请选择模板 --</option>
+                    </select>
+                </div>
+            
+                <div class="form-group mb-3">
+                    <a id="downloadTemplateBtn" class="btn btn-info disabled" href="#">下载数据模板</a>
+                    <small class="form-text text-muted">请先选择一个TTS模板，然后下载对应的数据模板文件。</small>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label for="file" class="control-label">上传数据文件</label>
+                    <input type="file" id="file" name="file" class="form-control" />
+                </div>
+
+                <div class="form-group">
+                    <input type="submit" value="创建任务" class="btn btn-primary" />
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div>
+        <a asp-action="Index">返回列表</a>
+    </div>
+</div>
+
+
+@section Scripts {
+    <script>
+        $(document).ready(function () {
+            $('#ttsTemplateId').change(function () {
+                var templateId = $(this).val();
+                var downloadBtn = $('#downloadTemplateBtn');
+
+                if (templateId) {
+                    downloadBtn.removeClass('disabled');
+                    downloadBtn.attr('href', '/api/templates/' + templateId + '/excel-template');
+                } else {
+                    downloadBtn.addClass('disabled');
+                    downloadBtn.attr('href', '#');
+                }
+            });
+        });
+    </script>
+}

@@ -15,6 +15,8 @@ public class AppDbContext : DbContext {
     public DbSet<TtsTemplate> TtsTemplates { get; set; }
     public DbSet<TtsVariable> TtsVariables { get; set; }
     public DbSet<AICustomerServiceSettings> AICustomerServiceSettings { get; set; }
+    public DbSet<CallLog> CallLogs { get; set; }
+    public DbSet<BatchCallJob> BatchCallJobs { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
         base.OnConfiguring(optionsBuilder);
@@ -108,6 +110,27 @@ public class AppDbContext : DbContext {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Name).IsRequired();
             entity.HasIndex(e => e.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<BatchCallJob>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.JobName).IsRequired();
+            entity.Property(e => e.OriginalFileName).IsRequired();
+            entity.Property(e => e.StoredFilePath).IsRequired();
+
+            entity.HasOne(e => e.CreatedByUser)
+                  .WithMany()
+                  .HasForeignKey(e => e.CreatedByUserId);
+        });
+
+        modelBuilder.Entity<CallLog>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.PhoneNumber).IsRequired();
+
+            entity.HasOne(e => e.BatchCallJob)
+                  .WithMany(j => j.CallLogs)
+                  .HasForeignKey(e => e.BatchCallJobId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

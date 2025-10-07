@@ -6,17 +6,14 @@ namespace AI.Caller.Phone.Services;
 public class CallFlowOrchestrator : ICallFlowOrchestrator {
     private readonly ILogger<CallFlowOrchestrator> _logger;
     private readonly ITtsPlayerService _ttsPlayer;
-    private readonly IVariableResolverService _variableResolver;
     private readonly IServiceScopeFactory _scopeFactory;
 
     public CallFlowOrchestrator(
         ILogger<CallFlowOrchestrator> logger,
         ITtsPlayerService ttsPlayer,
-        IVariableResolverService variableResolver,
         IServiceScopeFactory scopeFactory) {
         _logger = logger;
         _ttsPlayer = ttsPlayer;
-        _variableResolver = variableResolver;
         _scopeFactory = scopeFactory;
     }
 
@@ -32,13 +29,11 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
             return;
         }
 
-        if (callContext.Callee == null || callContext.Callee.User == null || callContext.Callee.Client == null) throw new Exception($"∫ÙΩ–…œœ¬Œƒ±ªΩ–Œ¥≥ı ºªØ");
+        if (callContext.Callee == null || callContext.Callee.User == null || callContext.Callee.Client == null) throw new Exception($"ÂëºÂè´‰∏ä‰∏ãÊñáË¢´Âè´Êú™ÂàùÂßãÂåñ");
 
         _logger.LogInformation("Found TTS template '{TemplateName}' for call {CallId}", template.Name, callContext.CallId);
 
-        var resolvedText = await _variableResolver.ResolveVariablesAsync(template.Content, callContext);
-
-        await _ttsPlayer.PlayTtsAsync(resolvedText, callContext.Callee.User,  callContext.Callee.Client.Client, template.SpeechRate);
+        await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User,  callContext.Callee.Client.Client, template.SpeechRate);
 
         _logger.LogInformation("Finished playing initial TTS for call {CallId}", callContext.CallId);
     }

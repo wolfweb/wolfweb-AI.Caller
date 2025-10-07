@@ -1,0 +1,48 @@
+@model IEnumerable<AI.Caller.Phone.Entities.CallLog>
+
+@{
+    ViewData["Title"] = "呼叫任务历史";
+}
+<div class="container mt-4">
+    <h1>@ViewData["Title"]</h1>
+
+    <p>
+        <a asp-action="CreateBatch" class="btn btn-secondary">创建批量呼叫任务</a>
+    </p>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>@Html.DisplayNameFor(model => model.PhoneNumber)</th>
+                <th>@Html.DisplayNameFor(model => model.Status)</th>
+                <th>@Html.DisplayNameFor(model => model.InitiationType)</th>
+                <th>@Html.DisplayNameFor(model => model.CreatedAt)</th>
+                <th>@Html.DisplayNameFor(model => model.CompletedAt)</th>
+                <th>@Html.DisplayNameFor(model => model.FailureReason)</th>
+                <th>所属批量任务</th>
+            </tr>
+        </thead>
+        <tbody>
+    @foreach (var item in Model) {
+            <tr>
+                <td>@Html.DisplayFor(modelItem => item.PhoneNumber)</td>
+                <td>@Html.DisplayFor(modelItem => item.Status)</td>
+                <td>@Html.DisplayFor(modelItem => item.InitiationType)</td>
+                <td>@Html.DisplayFor(modelItem => item.CreatedAt)</td>
+                <td>@Html.DisplayFor(modelItem => item.CompletedAt)</td>
+                <td>@Html.DisplayFor(modelItem => item.FailureReason)</td>
+                <td>
+                    @if (item.BatchCallJobId.HasValue)
+                    {
+                        @item.BatchCallJob.JobName
+                    }
+                    else
+                    {
+                        <text>N/A</text>
+                    }
+                </td>
+            </tr>
+    }
+        </tbody>
+    </table>
+</div>

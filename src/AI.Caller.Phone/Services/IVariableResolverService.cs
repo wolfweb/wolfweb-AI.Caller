@@ -1,8 +1,7 @@
-using AI.Caller.Phone.Models;
-using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace AI.Caller.Phone.Services;
 
 public interface IVariableResolverService {
-    Task<string> ResolveVariablesAsync(string text, CallContext context);
+    string Resolve(string templateContent, Dictionary<string, string> variables);
 }

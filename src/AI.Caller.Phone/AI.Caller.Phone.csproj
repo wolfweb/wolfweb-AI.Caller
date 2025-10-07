@@ -23,6 +23,7 @@
     <PackageReference Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="9.0.0" />
     <PackageReference Include="NLog.Web.AspNetCore" Version="6.0.4" />
     <PackageReference Include="ClosedXML" Version="0.104.1" />
+    <PackageReference Include="NPOI" Version="2.7.5" />
   </ItemGroup>
 
   <ItemGroup>

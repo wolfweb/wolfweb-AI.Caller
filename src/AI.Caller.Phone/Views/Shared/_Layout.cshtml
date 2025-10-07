@@ -32,6 +32,11 @@
                                     <i class="bi bi-person-lines-fill"></i> 通讯录
                                 </a>
                             </li>
+                            <li>
+                                <a class="nav-link" asp-controller="CallTask" asp-action="Index">
+                                    <i class="bi bi-card-checklist"></i> 呼叫任务
+                                </a>
+                            </li>
                             @if (User.HasClaim("isAdmin", "True")) {
                                 <li class="nav-item dropdown">
                                     <a class="nav-link dropdown-toggle" href="#" id="recordDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -65,7 +70,7 @@
                                         <li><a class="dropdown-item" asp-controller="Account" asp-action="UserManagement"><i class="bi bi-people"></i> 用户管理</a></li>
                                         <li><a class="dropdown-item" asp-controller="Account" asp-action="SipAccountManagement"><i class="bi bi-telephone"></i> SIP账户管理</a></li>
                                         <li><a class="dropdown-item" asp-controller="Account" asp-action="ContactManagement"><i class="bi bi-person-lines-fill"></i> 通讯录管理</a></li>
-                                        <li><a class="dropdown-item" asp-controller="AICustomerService" asp-action="Index"><i class="bi bi-robot"></i> AI客服设置</a></li>
+                                        <li><a class="dropdown-item" asp-controller="AICustomerService" asp-action="Index"><i class="bi bi-robot"></i> AI客服设置</a></li>                                        
                                     </ul>
                                 </li>
                             }

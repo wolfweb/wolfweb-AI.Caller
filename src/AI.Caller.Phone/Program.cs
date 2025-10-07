@@ -78,7 +78,13 @@ namespace AI.Caller.Phone {
 
             builder.Services.AddScoped<ICallFlowOrchestrator, CallFlowOrchestrator>();
             builder.Services.AddScoped<IVariableResolverService, VariableResolverService>();
+            builder.Services.AddScoped<ICallTaskService, CallTaskService>();
             builder.Services.AddScoped<ITtsPlayerService, TtsPlayerService>();
+
+            builder.Services.AddSingleton<IBackgroundTaskQueue>(sp => new BackgroundTaskQueue(100));
+            builder.Services.AddHostedService<QueuedHostedService>();
+            builder.Services.AddTransient<ICallProcessor, CallProcessor>();
+            builder.Services.AddScoped<IBatchProcessor, BatchProcessor>();
 
             builder.Services.AddAIAutoResponder();
             builder.Services.AddMediaProcessing();
