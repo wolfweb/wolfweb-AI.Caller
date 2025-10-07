@@ -7,7 +7,7 @@ namespace AI.Caller.Core {
         
         void Initialize(MediaProfile profile);
         
-        void ProcessIncomingAudio(byte[] audioData, int sampleRate);
+        void ProcessIncomingAudio(byte[] audioData, int sampleRate, int payloadType);
         
         void Start();
         

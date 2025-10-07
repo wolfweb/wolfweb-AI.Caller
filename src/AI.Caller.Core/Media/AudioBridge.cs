@@ -1,17 +1,15 @@
-using AI.Caller.Core.Media.Interfaces;
-using AI.Caller.Core.Models;
 using AI.Caller.Core.Media;
+using AI.Caller.Core.Media.Encoders;
 using Microsoft.Extensions.Logging;
-using System;
-using System.Collections.Concurrent;
-using System.Diagnostics;
 
 namespace AI.Caller.Core {
     public sealed class AudioBridge : IAudioBridge {
         private readonly ILogger _logger;
+        private readonly object _lock = new();
+        private readonly G711Codec _g711Codec = new();
+        
         private MediaProfile? _profile;
         private bool _isStarted;
-        private readonly object _lock = new();
 
         public event Action<byte[]>? IncomingAudioReceived;
 
@@ -49,11 +47,11 @@ namespace AI.Caller.Core {
             }
         }
 
-        public void ProcessIncomingAudio(byte[] audioData, int sampleRate) {
+        public void ProcessIncomingAudio(byte[] audioData, int sampleRate, int payloadType) {
             if (!_isStarted || _profile == null) return;
 
             try {
-                byte[] processedData = audioData;
+                byte[] processedData = payloadType == 0 ? _g711Codec.DecodeG711MuLaw(audioData) : _g711Codec.DecodeG711ALaw(audioData);
                 if (sampleRate != _profile.SampleRate) {
                     _logger.LogWarning($"Sample rate mismatch: input={sampleRate}, expected={_profile.SampleRate}. Using AudioResampler.");
                     using var resampler = new AudioResampler<byte>(sampleRate, _profile.SampleRate, _logger);

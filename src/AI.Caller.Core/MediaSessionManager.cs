@@ -440,7 +440,7 @@ namespace AI.Caller.Core {
 
                 if (_audioBridge != null) {
                     try {
-                        _audioBridge.ProcessIncomingAudio(rtpPacket.Payload, 8000);
+                        _audioBridge.ProcessIncomingAudio(rtpPacket.Payload, 8000, rtpPacket.Header.PayloadType);
                     } catch (Exception ex) {
                         _logger.LogError(ex, "Error processing audio through audio bridge");
                     }

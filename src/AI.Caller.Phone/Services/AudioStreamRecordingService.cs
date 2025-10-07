@@ -307,7 +307,7 @@ namespace AI.Caller.Phone.Services {
                 if (_isPaused || _audioRecorder.IsDisposed) return;
 
                 if (mediaType == SDPMediaTypesEnum.audio && rtpPacket?.Payload != null && rtpPacket.Payload.Length > 0) {
-                    _audioRecorder.WriteAudioDataAsync(rtpPacket.Payload, AudioDirection.Received, rtpPacket.Header.Timestamp, rtpPacket.Header.PayloadType);
+                    _= _audioRecorder.WriteAudioDataAsync(rtpPacket.Payload, AudioDirection.Received, rtpPacket.Header.Timestamp, rtpPacket.Header.PayloadType);
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "录音写入接收音频数据失败");
@@ -319,7 +319,7 @@ namespace AI.Caller.Phone.Services {
                 if (_isPaused || _audioRecorder.IsDisposed) return;
 
                 if (mediaType == SDPMediaTypesEnum.audio && rtpPacket?.Payload != null && rtpPacket.Payload.Length > 0) {
-                    _audioRecorder.WriteAudioDataAsync(rtpPacket.Payload, AudioDirection.Sent, rtpPacket.Header.Timestamp, rtpPacket.Header.PayloadType);
+                    _ = _audioRecorder.WriteAudioDataAsync(rtpPacket.Payload, AudioDirection.Sent, rtpPacket.Header.Timestamp, rtpPacket.Header.PayloadType);
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "录音写入发送音频数据失败");

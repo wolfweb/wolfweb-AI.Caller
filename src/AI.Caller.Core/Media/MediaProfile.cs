@@ -15,8 +15,6 @@ namespace AI.Caller.Core {
 
         public int SamplesPerFrame => (SampleRate * PtimeMs) / 1000;
 
-        public MediaProfile() { }
-
         public MediaProfile(AudioCodec codec, int payloadType, int sampleRate = 8000, int ptimeMs = 20, int channels = 1) {
             Codec = codec;
             PayloadType = payloadType;
