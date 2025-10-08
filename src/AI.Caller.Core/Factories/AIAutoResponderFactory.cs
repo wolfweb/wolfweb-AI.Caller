@@ -32,7 +32,7 @@ namespace AI.Caller.Core {
             vad.Configure(
                 energyThreshold: 0.005f,    // 作为初始噪声地板，会自适应调整
                 enterSpeakingMs: 150,       // 稍快进入Speaking
-                resumeSilenceMs: 400,       // 减少恢复静音时间
+                resumeSilenceMs: 2500,       // 减少恢复静音时间
                 sampleRate: profile.SampleRate,
                 frameMs: profile.PtimeMs
             );

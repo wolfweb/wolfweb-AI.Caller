@@ -22,7 +22,7 @@ namespace AI.Caller.Core {
         private readonly byte[] _g711SilenceFrame;
         private const int JitterBufferWaterline = 200;
         private const int LowWatermark = 20;
-        private const int MaxConsecutiveSilenceFrames = 10;
+        private const int MaxConsecutiveSilenceFrames = 150;
         private int _consecutiveSilenceFrames = 0;
 
         public event Action<byte[]>? OutgoingAudioGenerated;
