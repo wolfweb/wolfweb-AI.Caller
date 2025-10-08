@@ -1,4 +1,6 @@
-namespace AI.Caller.Phone.Services;
+using AI.Caller.Phone.Services;
+
+namespace AI.Caller.Phone.BackgroundTask;
 
 public class QueuedHostedService : BackgroundService {
     private readonly ILogger<QueuedHostedService> _logger;

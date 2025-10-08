@@ -32,8 +32,17 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
         if (callContext.Callee == null || callContext.Callee.User == null || callContext.Callee.Client == null) throw new Exception($"呼叫上下文被叫未初始化");
 
         _logger.LogInformation("Found TTS template '{TemplateName}' for call {CallId}", template.Name, callContext.CallId);
-
         await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User,  callContext.Callee.Client.Client, template.SpeechRate);
+        if (template.PlayCount > 1) {
+            for(var i=0;i<template.PlayCount - 1; i++) {
+                await Task.Delay(template.PauseBetweenPlaysInSeconds);
+                await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate);
+            }
+        }
+        if(!string.IsNullOrEmpty(template.EndingSpeech)) {
+            await Task.Delay(template.PauseBetweenPlaysInSeconds);
+            await _ttsPlayer.PlayTtsAsync(template.EndingSpeech, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate);
+        }
 
         _logger.LogInformation("Finished playing initial TTS for call {CallId}", callContext.CallId);
     }

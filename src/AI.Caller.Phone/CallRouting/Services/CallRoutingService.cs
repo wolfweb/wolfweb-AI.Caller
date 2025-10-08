@@ -10,43 +10,69 @@ namespace AI.Caller.Phone.CallRouting.Services {
         private readonly AppDbContext _dbContext;
         private readonly ICallManager _callManager;
         private readonly ApplicationContext _applicationContext;
+        private readonly IAICustomerServiceSettingsProvider _aiCustomerServiceSettingsProvider;
 
         public CallRoutingService(
             AppDbContext dbContext,
             ICallManager callManager,
             ILogger<CallRoutingService> logger,
-            ApplicationContext applicationContext
+            ApplicationContext applicationContext,
+            IAICustomerServiceSettingsProvider aiCustomerServiceSettingsProvider
             ) {
-            _logger             = logger;
-            _dbContext          = dbContext;
-            _callManager        = callManager;
-            _applicationContext = applicationContext;
+            _logger                            = logger;
+            _dbContext                         = dbContext;
+            _callManager                       = callManager;
+            _applicationContext                = applicationContext;
+            _aiCustomerServiceSettingsProvider = aiCustomerServiceSettingsProvider;
         }
 
         public async Task<CallRoutingResult> RouteInboundCallAsync(string toUser, SIPRequest sipRequest) {
             try {
-                var targetUsers = await _dbContext.Users.Include(u => u.SipAccount).Where(u => u.SipAccount != null && u.SipAccount.SipUsername == toUser).ToArrayAsync();
-                User? targetUser;
+                var setting = await _aiCustomerServiceSettingsProvider.GetSettingsAsync();
                 var callingUsers = _callManager.GetActiviteUsers().Select(x => x.Id).ToArray();
-                var inactiveUsers = _applicationContext.GetInactiveUsers();
-                if (targetUsers == null || targetUsers.Length ==0) {
-                    var validUsers = inactiveUsers.Where(x => callingUsers.All(y => y != x));
-                    targetUser = _dbContext.Users.Include(u => u.SipAccount).FirstOrDefault(x=> validUsers.Contains(x.Id));
-                    if (targetUser != null) {
-                        _logger.LogInformation($"未找到用户信息，使用默认坐席 - Id: {targetUser.Id}");
+                User? targetUser;
+
+                if (setting.Enabled) {
+                    var targetUsers = await _dbContext.Users.Include(u => u.SipAccount).Where(u => u.SipAccount != null && u.SipAccount.SipUsername == toUser && u.EnableAI).ToArrayAsync();
+                    if (targetUsers == null || targetUsers.Length == 0) {
+                        targetUser = await _dbContext.Users.Include(u => u.SipAccount).Where(u => u.SipAccount != null && u.EnableAI).FirstOrDefaultAsync();
+                        if (targetUser != null) {
+                            _logger.LogInformation($"未找到用户信息，使用默认坐席 - Id: {targetUser.Id}");
+                        } else {
+                            _logger.LogWarning($"未找到用户信息且没有可用客户端 : {toUser}");
+                            return CallRoutingResult.CreateFailure($"未找到用户: {toUser}", CallHandlingStrategy.Reject);
+                        }
                     } else {
-                        _logger.LogWarning($"未找到用户信息且没有可用客户端 : {toUser}");
-                        return CallRoutingResult.CreateFailure($"未找到用户: {toUser}", CallHandlingStrategy.Reject);
+                        var targetUserIds = targetUsers.Where(x => callingUsers.All(m => m != x.Id)).Select(x => x.Id).ToArray();
+                        if (targetUserIds.Any()) {
+                            targetUser = targetUsers.First();
+                        } else {
+                            _logger.LogInformation($"用户客户端无可用坐席 - SipUsername: {toUser}, target user=>{string.Join(",", targetUserIds)}");
+                            return CallRoutingResult.CreateFailure($"用户客户端无可用坐席: {toUser}", CallHandlingStrategy.Fallback);
+                        }
                     }
                 } else {
-                    var targetUserIds = targetUsers.Where(x => callingUsers.All(m => m != x.Id)).Select(x=>x.Id).ToArray();
-                    var finded = inactiveUsers.FirstOrDefault(x => targetUserIds.Contains(x));
-                    if (finded == 0) {
-                        _logger.LogInformation($"用户客户端无可用坐席 - SipUsername: {toUser}, target user=>{string.Join(",", targetUserIds)}, inactive users=>{string.Join(",", inactiveUsers)}");
-                        return CallRoutingResult.CreateFailure($"用户客户端无可用坐席: {toUser}", CallHandlingStrategy.Fallback);
-                    }
+                    var targetUsers = await _dbContext.Users.Include(u => u.SipAccount).Where(u => u.SipAccount != null && u.SipAccount.SipUsername == toUser).ToArrayAsync();
+                    var inactiveUsers = _applicationContext.GetInactiveUsers();
+                    if (targetUsers == null || targetUsers.Length == 0) {
+                        var validUsers = inactiveUsers.Where(x => callingUsers.All(y => y != x));
+                        targetUser = _dbContext.Users.Include(u => u.SipAccount).FirstOrDefault(x => validUsers.Contains(x.Id));
+                        if (targetUser != null) {
+                            _logger.LogInformation($"未找到用户信息，使用默认坐席 - Id: {targetUser.Id}");
+                        } else {
+                            _logger.LogWarning($"未找到用户信息且没有可用客户端 : {toUser}");
+                            return CallRoutingResult.CreateFailure($"未找到用户: {toUser}", CallHandlingStrategy.Reject);
+                        }
+                    } else {
+                        var targetUserIds = targetUsers.Where(x => callingUsers.All(m => m != x.Id)).Select(x => x.Id).ToArray();
+                        var finded = inactiveUsers.FirstOrDefault(x => targetUserIds.Contains(x));
+                        if (finded == 0) {
+                            _logger.LogInformation($"用户客户端无可用坐席 - SipUsername: {toUser}, target user=>{string.Join(",", targetUserIds)}, inactive users=>{string.Join(",", inactiveUsers)}");
+                            return CallRoutingResult.CreateFailure($"用户客户端无可用坐席: {toUser}", CallHandlingStrategy.Fallback);
+                        }
 
-                    targetUser = targetUsers.First(u => u.Id == finded);
+                        targetUser = targetUsers.First(u => u.Id == finded);
+                    }
                 }
 
                 var (strategy, caller, callee) = DetermineCallHandlingStrategy(sipRequest, targetUser);
