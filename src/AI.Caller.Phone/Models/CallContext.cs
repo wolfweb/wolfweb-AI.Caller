@@ -4,7 +4,7 @@ using AI.Caller.Phone.Services;
 
 namespace AI.Caller.Phone.Models {
     public class CallContext {
-        public string        CallId { get; } = UniqueShortStringProvider.Create();        
+        public string        CallId { get; } = $"AI_Caller_{UniqueShortStringProvider.Create()}"; 
         public CallScenario  Type   { get; set; }
         public Caller?       Caller { get; set; }
         public Callee?       Callee { get; set; }

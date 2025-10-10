@@ -1,7 +1,8 @@
-using AI.Caller.Core.Media;
+﻿using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.Logging;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Threading.Channels;
 
@@ -9,28 +10,31 @@ namespace AI.Caller.Core {
     public sealed class AIAutoResponder : IAsyncDisposable {
         private readonly ILogger _logger;
         private readonly ITTSEngine _tts;
-        private readonly IVoiceActivityDetector _vad;
         private readonly MediaProfile _profile;
         private readonly G711Codec _g711Codec;
-
-        private AudioResampler<float>? _resampler;
-        private int _currentTtsSampleRate;
-        private byte[] _audioBuffer = Array.Empty<byte>();
-
-        private readonly Channel<byte[]> _jitterBuffer;
-        private Task? _playoutTask;
         private readonly byte[] _g711SilenceFrame;
-        private const int JitterBufferWaterline = 200;
-        private const int LowWatermark = 20;
-        private const int MaxConsecutiveSilenceFrames = 150;
-        private int _consecutiveSilenceFrames = 0;
+        private readonly IVoiceActivityDetector _vad;
+        private readonly Channel<byte[]> _jitterBuffer;
 
-        public event Action<byte[]>? OutgoingAudioGenerated;
-        private CancellationTokenSource? _cts;
         private bool _isStarted;
-        private volatile bool _shouldSendAudio = true;
+        private Task? _playoutTask;
+        private long _totalBytesSent;
+        private int _currentTtsSampleRate;
+        private long _totalBytesGenerated;
+        private CancellationTokenSource? _cts;
+        private AudioResampler<float>? _resampler;
+        private byte[] _audioBuffer = Array.Empty<byte>();
         private DateTime _lastVadStateChange = DateTime.MinValue;
+        private TaskCompletionSource? _playbackCompletionSource;
+        public event Action<byte[]>? OutgoingAudioGenerated;
+        private byte[]? _lastSentFrame;
+
+        private const int JitterBufferWaterline = 300;
+        private const int LowWatermark = 100;
         private const int VadDebounceMs = 100;
+
+        private volatile bool _shouldSendAudio = true;
+        private volatile bool _isTtsStreamFinished;
 
         public AIAutoResponder(
             ILogger logger,
@@ -64,7 +68,6 @@ namespace AI.Caller.Core {
             _isStarted = true;
             _audioBuffer = Array.Empty<byte>();
             _shouldSendAudio = true;
-            _consecutiveSilenceFrames = 0;
 
             _playoutTask = Task.Run(() => PlayoutLoop(_cts.Token));
 
@@ -96,25 +99,58 @@ namespace AI.Caller.Core {
 
         public bool ShouldSendAudio => _shouldSendAudio;
 
+        public Task WaitForPlaybackToCompleteAsync() {
+            return _playbackCompletionSource?.Task ?? Task.CompletedTask;
+        }
+
         public async Task PlayScriptAsync(string text, int speakerId = 0, float speed = 1.0f, CancellationToken ct = default) {
+            Interlocked.Exchange(ref _totalBytesGenerated, 0);
+            Interlocked.Exchange(ref _totalBytesSent, 0);
+            _playbackCompletionSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _isTtsStreamFinished = false;
+
+            if (_playoutTask?.IsCompleted == true) {
+                Trace.WriteLine($"重启语音服务,播报内容=>{text}");
+                _playoutTask = Task.Run(() => PlayoutLoop(_cts?.Token ?? ct));
+            }
+
             var token = _cts?.Token ?? ct;
             var stopwatch = Stopwatch.StartNew();
             int chunkCount = 0;
+            int preBufferChunks = 3;
+            var preBuffer = new List<float[]>();
+            var preBufferSampleRates = new List<int>();
             await foreach (var data in _tts.SynthesizeStreamAsync(text, speakerId, speed).WithCancellation(token)) {
                 if (token.IsCancellationRequested) break;
 
                 if (data.FloatData != null && data.FloatData.Length > 0) {
                     chunkCount++;
-                    ProcessTtsAudioChunk(data.FloatData, data.SampleRate);
+                    if (chunkCount <= preBufferChunks) {
+                        preBuffer.Add(data.FloatData);
+                        preBufferSampleRates.Add(data.SampleRate);
+                    } else {
+                        foreach (var (floatData, sampleRate) in preBuffer.Zip(preBufferSampleRates)) {
+                            ProcessTtsAudioChunk(floatData, sampleRate);
+                        }
+                        preBuffer.Clear();
+                        preBufferSampleRates.Clear();
+                        ProcessTtsAudioChunk(data.FloatData, data.SampleRate);
+                    }
+
                     _logger.LogTrace($"Processed TTS chunk {chunkCount} in {stopwatch.ElapsedMilliseconds} ms.");
                     stopwatch.Restart();
                 }
+            }
+
+            foreach (var (floatData, sampleRate) in preBuffer.Zip(preBufferSampleRates)) {
+                ProcessTtsAudioChunk(floatData, sampleRate);
             }
 
             if (!token.IsCancellationRequested) {
                 Flush();
                 _logger.LogInformation($"Finished processing TTS script with {chunkCount} chunks.");
             }
+            _isTtsStreamFinished = true;
         }
 
         private void Flush() {
@@ -130,6 +166,7 @@ namespace AI.Caller.Core {
                     payload = _g711Codec.EncodeALaw(finalFrame.AsSpan());
                 }
 
+                Interlocked.Add(ref _totalBytesGenerated, payload.Length);
                 if (!_jitterBuffer.Writer.TryWrite(payload)) {
                     _logger.LogWarning("Failed to write flushed frame to jitter buffer.");
                 }
@@ -165,29 +202,51 @@ namespace AI.Caller.Core {
             Buffer.BlockCopy(pcmBytes, 0, combinedBuffer, _audioBuffer.Length, pcmBytes.Length);
 
             int frameSizeInBytes = _profile.SamplesPerFrame * 2;
-            int offset = 0;
-            while (offset + frameSizeInBytes <= combinedBuffer.Length) {
-                var pcmFrame = new Span<byte>(combinedBuffer, offset, frameSizeInBytes);
+            int frameCount = combinedBuffer.Length / frameSizeInBytes;
+            var encodedFrames = new SortedDictionary<int, byte[]>();
 
-                byte[] payload;
-                if (_profile.Codec == AudioCodec.PCMU) {
-                    payload = _g711Codec.EncodeMuLaw(pcmFrame);
-                } else {
-                    payload = _g711Codec.EncodeALaw(pcmFrame);
+            Parallel.For(0, frameCount, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount / 2 }, i => {
+                int offset = i * frameSizeInBytes;
+                var pcmFrame = new Span<byte>(combinedBuffer, offset, frameSizeInBytes).ToArray();
+                byte[] payload = _profile.Codec == AudioCodec.PCMU
+                    ? _g711Codec.EncodeMuLaw(pcmFrame)
+                    : _g711Codec.EncodeALaw(pcmFrame);
+
+                lock (encodedFrames) {
+                    encodedFrames.Add(i, payload);
                 }
+            });
 
+            foreach (var frame in encodedFrames) {
+                var payload = frame.Value;
+                Interlocked.Add(ref _totalBytesGenerated, payload.Length);
                 if (!_jitterBuffer.Writer.TryWrite(payload)) {
                     _logger.LogWarning("Failed to write frame to jitter buffer. Channel may be closed.");
                     break;
                 }
-
-                offset += frameSizeInBytes;
             }
 
-            int remainingBytes = combinedBuffer.Length - offset;
+            //int offset = 0;
+            //while (offset + frameSizeInBytes <= combinedBuffer.Length) {
+            //    var pcmFrame = new Span<byte>(combinedBuffer, offset, frameSizeInBytes);
+            //    byte[] payload;
+            //    if (_profile.Codec == AudioCodec.PCMU) {
+            //        payload = _g711Codec.EncodeMuLaw(pcmFrame);
+            //    } else {
+            //        payload = _g711Codec.EncodeALaw(pcmFrame);
+            //    }
+            //    Interlocked.Add(ref _totalBytesGenerated, payload.Length);
+            //    if (!_jitterBuffer.Writer.TryWrite(payload)) {
+            //        _logger.LogWarning("Failed to write frame to jitter buffer. Channel may be closed.");
+            //        break;
+            //    }
+            //    offset += frameSizeInBytes;
+            //}
+
+            int remainingBytes = combinedBuffer.Length - (frameCount * frameSizeInBytes);
             if (remainingBytes > 0) {
                 _audioBuffer = new byte[remainingBytes];
-                Buffer.BlockCopy(combinedBuffer, offset, _audioBuffer, 0, remainingBytes);
+                Buffer.BlockCopy(combinedBuffer, frameCount * frameSizeInBytes, _audioBuffer, 0, remainingBytes);
             } else {
                 _audioBuffer = Array.Empty<byte>();
             }
@@ -200,73 +259,84 @@ namespace AI.Caller.Core {
 
             try {
                 while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested) {
-                    await _jitterBuffer.Reader.WaitToReadAsync(ct);
+                    int initialCount = _jitterBuffer.Reader.Count;
+                    await Task.Delay(500, ct);
+                    if (_jitterBuffer.Reader.Count == initialCount && _jitterBuffer.Reader.Count > 0) {
+                        await Task.Delay(500, ct);
+                    }
+                    if (_jitterBuffer.Reader.Count >= JitterBufferWaterline || _isTtsStreamFinished) {
+                        break;
+                    }
                 }
 
                 _logger.LogInformation("Jitter buffer waterline reached. Starting high-precision playout.");
-
                 var stopwatch = Stopwatch.StartNew();
+                double smoothedDelayMs = _profile.PtimeMs;
 
                 while (!ct.IsCancellationRequested) {
                     long loopStartTime = stopwatch.ElapsedMilliseconds;
 
-                    if (_jitterBuffer.Reader.Count < LowWatermark) {
-                        _logger.LogWarning("Jitter buffer low ({Count} frames), pausing playout...", _jitterBuffer.Reader.Count);
-                        while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested) {
-                            await _jitterBuffer.Reader.WaitToReadAsync(ct);
+                    if (_jitterBuffer.Reader.Count < LowWatermark && !_isTtsStreamFinished) {
+                        int pos = _jitterBuffer.Reader.Count;
+                        int retryCount = 0;
+                        while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested && retryCount++ < 5) {
+                            int delay = 50 + retryCount * 50;
+                            await Task.Delay(delay, ct);
+                            _logger.LogWarning("Jitter buffer low ({Count} frames), pausing {Delay}ms to re-buffer...", _jitterBuffer.Reader.Count, delay);
                         }
-                        _logger.LogInformation("Jitter buffer recovered to {Count} frames, resuming playout.", _jitterBuffer.Reader.Count);
-                        _consecutiveSilenceFrames = 0; 
+                        if (_jitterBuffer.Reader.Count >= JitterBufferWaterline) {
+                            _logger.LogInformation("Jitter buffer recovered to {Count} frames, resuming playout.", _jitterBuffer.Reader.Count);
+                        } else {
+                            _logger.LogWarning("Jitter buffer still low ({Count} frames), continuing with caution.", _jitterBuffer.Reader.Count);
+                        }
                     }
 
                     byte[] frameToSend;
                     if (_shouldSendAudio) {
                         if (_jitterBuffer.Reader.TryRead(out var audioFrame)) {
                             frameToSend = audioFrame;
-                            _consecutiveSilenceFrames = 0;
+                            _lastSentFrame = audioFrame;
+                            Interlocked.Add(ref _totalBytesSent, audioFrame.Length);
                         } else {
-                            _consecutiveSilenceFrames++;
-                            if (_consecutiveSilenceFrames > MaxConsecutiveSilenceFrames) {
-                                _logger.LogWarning("Too many consecutive silence frames ({Count}), pausing playout...", _consecutiveSilenceFrames);
-                                while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested) {
-                                    await _jitterBuffer.Reader.WaitToReadAsync(ct);
-                                }
-                                _consecutiveSilenceFrames = 0;
-                                _logger.LogInformation("Jitter buffer recovered to {Count} frames, resuming playout.", _jitterBuffer.Reader.Count);
+                            if (_isTtsStreamFinished && _jitterBuffer.Reader.Count == 0 && Interlocked.Read(ref _totalBytesSent) >= Interlocked.Read(ref _totalBytesGenerated)) {
+                                _logger.LogInformation("Playback complete: Sent {Sent} >= Generated {Generated} bytes.", Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));
+                                break; 
                             }
-                            frameToSend = _g711SilenceFrame;
+                            frameToSend = _lastSentFrame ?? _g711SilenceFrame;
                             _logger.LogTrace("Jitter buffer empty, sending silent frame to maintain continuity.");
                         }
                     } else {
                         frameToSend = _g711SilenceFrame;
-                        _consecutiveSilenceFrames = 0;
                     }
 
                     OutgoingAudioGenerated?.Invoke(frameToSend);
+                    int bufferCount = _jitterBuffer.Reader.Count;
+                    double targetDelayMs = _profile.PtimeMs;
+
+                    if (bufferCount < LowWatermark) {
+                        targetDelayMs = _profile.PtimeMs * 1.1;
+                    } else if (bufferCount > JitterBufferWaterline) {
+                        targetDelayMs = _profile.PtimeMs * 0.9;
+                    }
+
+                    const double alpha = 0.3;
+                    smoothedDelayMs = alpha * targetDelayMs + (1 - alpha) * smoothedDelayMs;
+                    smoothedDelayMs = Math.Clamp(smoothedDelayMs, _profile.PtimeMs * 0.9, _profile.PtimeMs * 1.1);
 
                     long elapsedInLoop = stopwatch.ElapsedMilliseconds - loopStartTime;
-                    long delayMs = _profile.PtimeMs - elapsedInLoop;
-
-                    if (_jitterBuffer.Reader.Count < LowWatermark * 2) {
-                        delayMs = (long)(delayMs * 1.2);
-                        _logger.LogDebug($"Low buffer ({_jitterBuffer.Reader.Count} frames), increasing delay to {delayMs} ms.");
+                    long adjustedDelay = (long)(smoothedDelayMs - elapsedInLoop);
+                    if (adjustedDelay > 0) {
+                        await Task.Delay((int)adjustedDelay, ct);
                     }
-
-                    if (delayMs > 0) {
-                        await Task.Delay((int)delayMs, ct);
-                    }
-
-                    if (stopwatch.ElapsedMilliseconds % 1000 < 10)
-                    {
-                        _logger.LogDebug($"Jitter buffer status: {_jitterBuffer.Reader.Count} frames, consecutive silence frames: {_consecutiveSilenceFrames}");
-                    }
+                    _logger.LogTrace($"Sending frame, buffer status: {_jitterBuffer.Reader.Count} frames, delay: {smoothedDelayMs:F2}ms");
                 }
             } catch (OperationCanceledException) {
                 _logger.LogInformation("Playout loop was cancelled.");
             } catch (Exception ex) {
                 _logger.LogError(ex, "Critical error in playout loop.");
             } finally {
-                _logger.LogInformation("Playout loop terminated.");
+                _logger.LogInformation("Playout loop terminated. Signaling completion.");
+                _playbackCompletionSource?.TrySetResult();
             }
         }
 

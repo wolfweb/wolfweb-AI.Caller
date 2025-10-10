@@ -20,9 +20,11 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
     public async Task HandleInboundCallAsync(CallContext callContext) {
         await Task.Delay(1000);
         using var scope = _scopeFactory.CreateScope();
+        var settingProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var settings = await settingProvider.GetSettingsAsync();
 
-        var template = await dbContext.TtsTemplates.FirstOrDefaultAsync(t => t.IsActive);
+        var template = await dbContext.TtsTemplates.FirstOrDefaultAsync(t => t.Id == settings.DefaultTtsTemplateId);
 
         if (template == null) {
             _logger.LogWarning("No active TTS template found for call {CallId}. Hanging up.", callContext.CallId);

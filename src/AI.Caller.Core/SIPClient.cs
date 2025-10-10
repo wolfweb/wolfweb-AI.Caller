@@ -20,8 +20,8 @@ namespace AI.Caller.Core {
         private readonly WebRTCSettings? _webRTCSettings;
 
         private readonly string _clientId;
-        private readonly INetworkMonitoringService? _networkMonitoringService;
         private readonly bool _enableWebRtcBridging;
+        private readonly INetworkMonitoringService? _networkMonitoringService;
 
         public event Action<SIPClient>? CallAnswered;
         public event Action<SIPClient>? CallEnded;
@@ -161,8 +161,10 @@ namespace AI.Caller.Core {
 
         public void AddIceCandidate(RTCIceCandidateInit candidate) {
             EnsureMediaSessionInitialized();
-            _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
-            _mediaManager.AddIceCandidate(candidate);
+            if (_mediaManager != null) {
+                _mediaManager?.InitializePeerConnection(GetRTCConfiguration());
+                _mediaManager?.AddIceCandidate(candidate);
+            }
         }
 
         public void SetRemoteDescription(RTCSessionDescriptionInit description) {

@@ -46,7 +46,7 @@ namespace AI.Caller.Phone.Services {
             _serviceScopeFactory = serviceScopeFactory;
             _aiManager           = aiManager;
 
-            _monitoringTimer = new Timer(OnCleanupContext, null, Timeout.Infinite, Timeout.Infinite);
+            _monitoringTimer = new Timer(OnCleanupContext, null, TimeSpan.FromSeconds(0), TimeSpan.FromSeconds(5));
         }
 
         public void AddIceCandidate(string callId, int userId, RTCIceCandidateInit candidate) {
@@ -153,7 +153,7 @@ namespace AI.Caller.Phone.Services {
             var id = sipRequest.Header.From.FromURI.Parameters.Get("id");
 
             CallContext? ctx = null;
-            if (!string.IsNullOrEmpty(id)) {
+            if (!string.IsNullOrEmpty(id) && id.StartsWith("AI_Caller_")) {
                 if (!_contexts.TryGetValue(id, out ctx)) {
                     throw new Exception($"无效的呼入id: {id}");
                 }
@@ -267,7 +267,7 @@ namespace AI.Caller.Phone.Services {
                 ctx.Callee.Client != null &&
                 !ctx.Caller.Client.Client.IsCallActive &&
                 !ctx.Callee.Client.Client.IsCallActive &&
-                ctx.Duration > TimeSpan.FromMinutes(1)).ToList();
+                ctx.Duration > TimeSpan.FromSeconds(30)).ToList();
 
             foreach (var ctx in inactiveContexts) {
                 _contexts.TryRemove(ctx.CallId, out _);
