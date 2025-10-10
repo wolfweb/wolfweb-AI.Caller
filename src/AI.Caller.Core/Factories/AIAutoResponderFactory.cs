@@ -10,16 +10,12 @@ namespace AI.Caller.Core {
         private readonly ILogger _logger;
         private readonly ITTSEngine _ttsEngine;
         private readonly G711Codec _g711 = new();
-        private readonly IServiceProvider _serviceProvider;
-        private readonly ConcurrentDictionary<AIAutoResponder, CancellationTokenSource> _senderLoops = new();
 
         public AIAutoResponderFactory(
             ILogger<AIAutoResponder> logger,
-            ITTSEngine ttsEngine,
-            IServiceProvider serviceProvider) {
+            ITTSEngine ttsEngine) {
             _logger = logger;
             _ttsEngine = ttsEngine;
-            _serviceProvider = serviceProvider;
         }
 
         public AIAutoResponder CreateAutoResponder(MediaProfile profile) {

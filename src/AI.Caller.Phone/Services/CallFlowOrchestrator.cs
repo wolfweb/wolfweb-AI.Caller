@@ -47,8 +47,8 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
         }
 
         _logger.LogInformation("Finished playing initial TTS for call {CallId}", callContext.CallId);
-        callContext.Caller!.Client!.Client.Hangup();
+        callContext.Caller!.Client!.Client.Shutdown();
 
-        callContext.Callee!.Client!.Client.Hangup();
+        callContext.Callee!.Client!.Client.Shutdown();
     }
 }
