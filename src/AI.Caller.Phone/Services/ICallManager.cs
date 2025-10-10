@@ -542,7 +542,7 @@ namespace AI.Caller.Phone.Services {
                     sipUsername = user.SipAccount?.SipUsername
                 },
                 offerSdp = offer.toJSON(),
-                callId = sipRequest.Header.CallId,
+                callId = callContext.CallId,
                 isExternal = true,
                 timestamp = DateTime.UtcNow
             });
@@ -601,7 +601,7 @@ namespace AI.Caller.Phone.Services {
                     sipUsername = routingResult.TargetUser.SipAccount?.SipUsername
                 },
                 offerSdp = offer.toJSON(),
-                callId = sipRequest.Header.CallId,
+                callId = callContext.CallId,
                 timestamp = DateTime.UtcNow
             });
             return true;
