@@ -80,7 +80,7 @@ public class CallProcessor : ICallProcessor {
             };
 
             var webUser = await context.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.SipAccount != null && x.SipAccount.SipUsername == callLog.PhoneNumber);
-            var callContext = await callManager.MakeCallAsync(callLog.PhoneNumber, agent, null, webUser != null ? CallScenario.ServerToWeb : CallScenario.ServerToMobile);
+            var callContext = await callManager.MakeCallAsync($"sip:{callLog.PhoneNumber}@{agent.SipAccount!.SipServer}", agent, null, webUser != null ? CallScenario.ServerToWeb : CallScenario.ServerToMobile);
 
             if (callContext?.Caller?.Client?.Client == null) {
                 throw new InvalidOperationException("Failed to create a valid call context or SIP client from CallManager.");

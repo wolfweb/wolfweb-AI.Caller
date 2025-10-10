@@ -131,7 +131,11 @@ namespace AI.Caller.Core {
             _logger.LogDebug($"*** ANSWERING CALL *** CallId: {sipRequest.Header.CallId}");
             _logger.LogDebug($"Original INVITE From: {sipRequest.Header.From}");
             _logger.LogDebug($"Original INVITE To: {sipRequest.Header.To}");
-            
+
+            _logger.LogDebug($"INVITE Via: {sipRequest.Header.Vias.ToString()}");
+            _logger.LogDebug($"INVITE Contact: {string.Join(",", sipRequest.Header.Contact.Select(x=>x.ToString()))}");
+            _logger.LogDebug($"INVITE ReceivedFrom: {sipRequest.RemoteSIPEndPoint}");
+
             EnsureMediaSessionInitialized();
             
             _mediaManager!.InitializePeerConnection(GetRTCConfiguration());

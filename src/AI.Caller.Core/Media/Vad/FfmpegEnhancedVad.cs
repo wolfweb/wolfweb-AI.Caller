@@ -69,14 +69,17 @@ namespace AI.Caller.Core.Media.Vad {
             }
             float rms = (float)Math.Sqrt(sumSq / proc.Length);
 
-            if (_state == VADState.Silence || rms < _noiseFloor * DbToLin(3f)) {
-                _noiseFloor = (1 - _emaAlpha) * _noiseFloor + _emaAlpha * Math.Max(rms, 1e-6f);
-            }
-
             float enterThresh = _noiseFloor * DbToLin(_enterMarginDb);
             float resumeThresh = _noiseFloor * DbToLin(_resumeMarginDb);
 
             bool speakingNow = _state == VADState.Silence ? rms >= enterThresh : rms >= resumeThresh;
+
+            if (!speakingNow) {
+                _noiseFloor = (1 - _emaAlpha) * _noiseFloor + _emaAlpha * rms;
+                const float minSensibleNoise = 1e-3f;
+                const float maxSensibleNoise = 1e-2f;
+                _noiseFloor = Math.Clamp(_noiseFloor, minSensibleNoise, maxSensibleNoise);
+            }
 
             if (speakingNow) {
                 _consecSpeaking++;

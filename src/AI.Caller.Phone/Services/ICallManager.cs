@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
 using System.Collections.Concurrent;
+using System.Linq;
 
 namespace AI.Caller.Phone.Services {
     public interface ICallManager {
@@ -270,6 +271,14 @@ namespace AI.Caller.Phone.Services {
                 !ctx.Caller.Client.Client.IsCallActive &&
                 !ctx.Callee.Client.Client.IsCallActive &&
                 ctx.Duration > TimeSpan.FromSeconds(30)).ToList();
+
+            foreach (var ctx in inactiveContexts) {
+                _contexts.TryRemove(ctx.CallId, out _);
+            }
+
+            inactiveContexts = _contexts.Values.Where(ctx=>
+                (ctx.Callee ==null || ctx.Callee.Client == null ) && ctx.Duration > TimeSpan.FromSeconds(30)
+            ).ToList();
 
             foreach (var ctx in inactiveContexts) {
                 _contexts.TryRemove(ctx.CallId, out _);

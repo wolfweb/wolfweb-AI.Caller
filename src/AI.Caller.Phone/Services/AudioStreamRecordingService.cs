@@ -15,7 +15,8 @@ using System.Threading.Channels;
 
 namespace AI.Caller.Phone.Services {
     public class AudioStreamRecordingService : ISimpleRecordingService {
-        private readonly ILogger _logger;
+        private static Random _rdn = new();
+        private readonly ILogger _logger;        
         private readonly string _recordingsPath;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ConcurrentDictionary<int, RecordingSession> _activeSessions;
@@ -85,7 +86,7 @@ namespace AI.Caller.Phone.Services {
                 AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 var user = await _dbContext.Users.Include(u => u.SipAccount).FirstAsync(u => u.Id == userId);
 
-                var fileName = $"recording_{userId}_{user.SipAccount!.SipUsername}_{sipClient.Dialogue.RemoteUserField.URI.User}_{DateTime.Now:yyyyMMdd_HHmmss}.wav";
+                var fileName = $"recording_{userId}_{user.SipAccount!.SipUsername}_{sipClient.Dialogue.RemoteUserField.URI.User}_{DateTime.Now:yyyyMMdd_HHmmss}_{_rdn.Next(1000, 9999)}.wav";
                 var filePath = Path.Combine(_recordingsPath, fileName);
 
                 var recording = new Recording {
