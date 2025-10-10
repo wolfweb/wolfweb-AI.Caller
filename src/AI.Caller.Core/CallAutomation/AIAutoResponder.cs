@@ -2,7 +2,6 @@
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.Logging;
-using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Threading.Channels;
 

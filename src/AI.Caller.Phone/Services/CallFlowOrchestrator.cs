@@ -6,14 +6,17 @@ namespace AI.Caller.Phone.Services;
 public class CallFlowOrchestrator : ICallFlowOrchestrator {
     private readonly ILogger<CallFlowOrchestrator> _logger;
     private readonly ITtsPlayerService _ttsPlayer;
+    private readonly ICallManager _callManager;
     private readonly IServiceScopeFactory _scopeFactory;
 
     public CallFlowOrchestrator(
         ILogger<CallFlowOrchestrator> logger,
         ITtsPlayerService ttsPlayer,
+        ICallManager callManager,
         IServiceScopeFactory scopeFactory) {
         _logger = logger;
         _ttsPlayer = ttsPlayer;
+        _callManager = callManager;
         _scopeFactory = scopeFactory;
     }
 
@@ -47,8 +50,6 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
         }
 
         _logger.LogInformation("Finished playing initial TTS for call {CallId}", callContext.CallId);
-        callContext.Caller!.Client!.Client.Shutdown();
-
-        callContext.Callee!.Client!.Client.Shutdown();
+        await _callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
     }
 }
