@@ -93,7 +93,9 @@ namespace AI.Caller.Phone.Services {
             }
             await ctx.Callee.Client.Client.AnswerAsync();
 
-            await _hubContext.Clients.User(ctx.Caller!.User!.Id.ToString()).SendAsync("answered");
+            if (ctx.Caller != null && ctx.Caller.User!=null) {
+                await _hubContext.Clients.User(ctx.Caller.User.Id.ToString()).SendAsync("answered");
+            }
         }
 
         public bool GetSecureContextState(string callId, int userId) {
