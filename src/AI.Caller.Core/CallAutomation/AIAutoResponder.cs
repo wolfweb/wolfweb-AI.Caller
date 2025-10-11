@@ -4,6 +4,8 @@ using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Threading.Channels;
+using System.Buffers;
+using System.Collections.Concurrent;
 
 namespace AI.Caller.Core {
     public sealed class AIAutoResponder : IAsyncDisposable {
@@ -14,23 +16,27 @@ namespace AI.Caller.Core {
         private readonly byte[] _g711SilenceFrame;
         private readonly IVoiceActivityDetector _vad;
         private readonly Channel<byte[]> _jitterBuffer;
-
+        private readonly ArrayPool<byte> _bytePool = ArrayPool<byte>.Shared;        
+        private readonly ConcurrentDictionary<int, AudioResamplerCrossType<float, byte>> _resamplerCache = new();
+        private readonly Stopwatch _performanceStopwatch = new();
+        private readonly object _audioBufferLock = new object();
+        
         private bool _isStarted;
         private Task? _playoutTask;
         private long _totalBytesSent;
-        private int _currentTtsSampleRate;
+        private byte[]? _lastSentFrame;
+        private int _emptyFrameCount = 0;
         private long _totalBytesGenerated;
         private CancellationTokenSource? _cts;
-        private AudioResampler<float>? _resampler;
         private byte[] _audioBuffer = Array.Empty<byte>();
         private DateTime _lastVadStateChange = DateTime.MinValue;
         private TaskCompletionSource? _playbackCompletionSource;
-        public event Action<byte[]>? OutgoingAudioGenerated;
-        private byte[]? _lastSentFrame;
 
         private const int JitterBufferWaterline = 300;
         private const int LowWatermark = 100;
         private const int VadDebounceMs = 100;
+
+        public event Action<byte[]>? OutgoingAudioGenerated;
 
         private volatile bool _shouldSendAudio = true;
         private volatile bool _isTtsStreamFinished;
@@ -176,81 +182,105 @@ namespace AI.Caller.Core {
         }
 
         private void ProcessTtsAudioChunk(float[] src, int ttsSampleRate) {
-            float[] processedFloat = src;
-            if (src.Length > 0 && ttsSampleRate != _profile.SampleRate) {
-                if (_resampler == null || _currentTtsSampleRate != ttsSampleRate) {
-                    _resampler?.Dispose();
-                    _resampler = new AudioResampler<float>(ttsSampleRate, _profile.SampleRate, _logger);
-                    _currentTtsSampleRate = ttsSampleRate;
-                    _logger.LogInformation("Initialized AudioResampler for {InputRate} -> {OutputRate} Hz.", ttsSampleRate, _profile.SampleRate);
-                }
-                processedFloat = _resampler.Resample(src);
-            }
-
-            var shortSamples = new short[processedFloat.Length];
-            for (int i = 0; i < processedFloat.Length; i++) {
-                float sample = Math.Clamp(processedFloat[i], -1f, 1f);
-                shortSamples[i] = (short)(sample * 32767f);
-            }
-
-            var pcmBytes = new byte[shortSamples.Length * 2];
-            Buffer.BlockCopy(shortSamples, 0, pcmBytes, 0, pcmBytes.Length);
-
-            var combinedBuffer = new byte[_audioBuffer.Length + pcmBytes.Length];
-            Buffer.BlockCopy(_audioBuffer, 0, combinedBuffer, 0, _audioBuffer.Length);
-            Buffer.BlockCopy(pcmBytes, 0, combinedBuffer, _audioBuffer.Length, pcmBytes.Length);
-
-            int frameSizeInBytes = _profile.SamplesPerFrame * 2;
-            int frameCount = combinedBuffer.Length / frameSizeInBytes;
-            var encodedFrames = new SortedDictionary<int, byte[]>();
-
-            Parallel.For(0, frameCount, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount / 2 }, i => {
-                int offset = i * frameSizeInBytes;
-                var pcmFrame = new Span<byte>(combinedBuffer, offset, frameSizeInBytes).ToArray();
-                byte[] payload = _profile.Codec == AudioCodec.PCMU
-                    ? _g711Codec.EncodeMuLaw(pcmFrame)
-                    : _g711Codec.EncodeALaw(pcmFrame);
-
-                lock (encodedFrames) {
-                    encodedFrames.Add(i, payload);
-                }
+            _performanceStopwatch.Restart();
+            
+            byte[] pcmBytes;
+            int pcmLength;
+            
+            var resampler = _resamplerCache.GetOrAdd(ttsSampleRate, rate => {
+                _logger.LogInformation("Creating cached cross-type AudioResampler for {InputRate} -> {OutputRate} Hz.", rate, _profile.SampleRate);
+                return new AudioResamplerCrossType<float, byte>(rate, _profile.SampleRate, _logger);
             });
-
-            foreach (var frame in encodedFrames) {
-                var payload = frame.Value;
-                Interlocked.Add(ref _totalBytesGenerated, payload.Length);
-                if (!_jitterBuffer.Writer.TryWrite(payload)) {
-                    _logger.LogWarning("Failed to write frame to jitter buffer. Channel may be closed.");
-                    break;
-                }
+            
+            lock (resampler) {
+                var resampledBytes = resampler.Resample(src);
+                pcmLength = resampledBytes.Length;
+                pcmBytes = _bytePool.Rent(pcmLength);
+                Array.Copy(resampledBytes, pcmBytes, pcmLength);
+            }
+            
+            try {
+                ProcessAudioFramesSafe(pcmBytes, pcmLength);
+            } finally {
+                _bytePool.Return(pcmBytes);
             }
 
-            //int offset = 0;
-            //while (offset + frameSizeInBytes <= combinedBuffer.Length) {
-            //    var pcmFrame = new Span<byte>(combinedBuffer, offset, frameSizeInBytes);
-            //    byte[] payload;
-            //    if (_profile.Codec == AudioCodec.PCMU) {
-            //        payload = _g711Codec.EncodeMuLaw(pcmFrame);
-            //    } else {
-            //        payload = _g711Codec.EncodeALaw(pcmFrame);
-            //    }
-            //    Interlocked.Add(ref _totalBytesGenerated, payload.Length);
-            //    if (!_jitterBuffer.Writer.TryWrite(payload)) {
-            //        _logger.LogWarning("Failed to write frame to jitter buffer. Channel may be closed.");
-            //        break;
-            //    }
-            //    offset += frameSizeInBytes;
-            //}
-
-            int remainingBytes = combinedBuffer.Length - (frameCount * frameSizeInBytes);
-            if (remainingBytes > 0) {
-                _audioBuffer = new byte[remainingBytes];
-                Buffer.BlockCopy(combinedBuffer, frameCount * frameSizeInBytes, _audioBuffer, 0, remainingBytes);
-            } else {
-                _audioBuffer = Array.Empty<byte>();
+            var processingTime = _performanceStopwatch.ElapsedMilliseconds;
+            if (processingTime > _profile.PtimeMs * 0.8) {
+                _logger.LogWarning("Audio processing taking {ProcessingTime}ms, target is {TargetTime}ms", 
+                    processingTime, _profile.PtimeMs);
             }
 
             _logger.LogDebug($"Jitter buffer status: {_jitterBuffer.Reader.Count} frames");
+        }
+
+        private void ProcessAudioFramesSafe(byte[] newPcmBytes, int length) {
+            byte[] localAudioBuffer;
+            int localBufferLength;
+            
+            lock (_audioBufferLock) {
+                localAudioBuffer = _audioBuffer;
+                localBufferLength = _audioBuffer.Length;
+            }
+            
+            var totalLength = localBufferLength + length;
+            var combinedBuffer = _bytePool.Rent(totalLength);
+            
+            try {
+                if (localBufferLength > 0) {
+                    Buffer.BlockCopy(localAudioBuffer, 0, combinedBuffer, 0, localBufferLength);
+                }
+                Buffer.BlockCopy(newPcmBytes, 0, combinedBuffer, localBufferLength, length);
+
+                int frameSizeInBytes = _profile.SamplesPerFrame * 2;
+                int frameCount = totalLength / frameSizeInBytes;
+                var encodedFrames = new ConcurrentDictionary<int, byte[]>();
+                
+                Parallel.For(0, frameCount, new ParallelOptions { 
+                    MaxDegreeOfParallelism = Environment.ProcessorCount / 2 
+                }, i => {
+                    int offset = i * frameSizeInBytes;
+                    var pcmFrameBuffer = _bytePool.Rent(frameSizeInBytes);
+                    
+                    try {
+                        Buffer.BlockCopy(combinedBuffer, offset, pcmFrameBuffer, 0, frameSizeInBytes);
+                        
+                        byte[] payload = _profile.Codec == AudioCodec.PCMU
+                            ? _g711Codec.EncodeMuLaw(new ReadOnlySpan<byte>(pcmFrameBuffer, 0, frameSizeInBytes))
+                            : _g711Codec.EncodeALaw(new ReadOnlySpan<byte>(pcmFrameBuffer, 0, frameSizeInBytes));
+                        
+                        encodedFrames.TryAdd(i, payload);
+                    } finally {
+                        _bytePool.Return(pcmFrameBuffer);
+                    }
+                });
+
+                for (int i = 0; i < frameCount; i++) {
+                    if (encodedFrames.TryGetValue(i, out var payload)) {
+                        Interlocked.Add(ref _totalBytesGenerated, payload.Length);
+                        
+                        if (!_jitterBuffer.Writer.TryWrite(payload)) {
+                            _logger.LogWarning("Failed to write frame to jitter buffer. Channel may be closed.");
+                            continue;
+                        }
+                    } else {
+                        _logger.LogError("Missing encoded frame at index {Index}", i);
+                    }
+                }
+
+                lock (_audioBufferLock) {
+                    int remainingBytes = totalLength - (frameCount * frameSizeInBytes);
+                    if (remainingBytes > 0) {
+                        _audioBuffer = new byte[remainingBytes];
+                        Buffer.BlockCopy(combinedBuffer, frameCount * frameSizeInBytes, _audioBuffer, 0, remainingBytes);
+                    } else {
+                        _audioBuffer = Array.Empty<byte>();
+                    }
+                }
+                
+            } finally {
+                _bytePool.Return(combinedBuffer);
+            }
         }
 
         private async Task PlayoutLoop(CancellationToken ct) {
@@ -290,37 +320,17 @@ namespace AI.Caller.Core {
                         }
                     }
 
-                    byte[] frameToSend;
-                    if (_shouldSendAudio) {
-                        if (_jitterBuffer.Reader.TryRead(out var audioFrame)) {
-                            frameToSend = audioFrame;
-                            _lastSentFrame = audioFrame;
-                            Interlocked.Add(ref _totalBytesSent, audioFrame.Length);
-                        } else {
-                            if (_isTtsStreamFinished && _jitterBuffer.Reader.Count == 0 && Interlocked.Read(ref _totalBytesSent) >= Interlocked.Read(ref _totalBytesGenerated)) {
-                                _logger.LogInformation("Playback complete: Sent {Sent} >= Generated {Generated} bytes.", Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));
-                                break; 
-                            }
-                            frameToSend = _lastSentFrame ?? _g711SilenceFrame;
-                            _logger.LogTrace("Jitter buffer empty, sending silent frame to maintain continuity.");
-                        }
-                    } else {
-                        frameToSend = _g711SilenceFrame;
+                    byte[]? frameToSend = await GetNextFrameOptimized(ct);
+                    if (frameToSend == null) {
+                        _logger.LogInformation("Playback complete: Sent {Sent} >= Generated {Generated} bytes.", 
+                            Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));
+                        break;
                     }
 
                     OutgoingAudioGenerated?.Invoke(frameToSend);
-                    int bufferCount = _jitterBuffer.Reader.Count;
-                    double targetDelayMs = _profile.PtimeMs;
-
-                    if (bufferCount < LowWatermark) {
-                        targetDelayMs = _profile.PtimeMs * 1.1;
-                    } else if (bufferCount > JitterBufferWaterline) {
-                        targetDelayMs = _profile.PtimeMs * 0.9;
-                    }
-
-                    const double alpha = 0.3;
-                    smoothedDelayMs = alpha * targetDelayMs + (1 - alpha) * smoothedDelayMs;
-                    smoothedDelayMs = Math.Clamp(smoothedDelayMs, _profile.PtimeMs * 0.9, _profile.PtimeMs * 1.1);
+                    double adaptiveDelay = CalculateAdaptiveDelay();
+                    smoothedDelayMs = 0.3 * adaptiveDelay + 0.7 * smoothedDelayMs;
+                    smoothedDelayMs = Math.Clamp(smoothedDelayMs, _profile.PtimeMs * 0.95, _profile.PtimeMs * 1.05);
 
                     long elapsedInLoop = stopwatch.ElapsedMilliseconds - loopStartTime;
                     long adjustedDelay = (long)(smoothedDelayMs - elapsedInLoop);
@@ -368,10 +378,67 @@ namespace AI.Caller.Core {
             _logger.LogInformation("AIAutoResponder stopped.");
         }
 
+        private async Task<byte[]?> GetNextFrameOptimized(CancellationToken ct) {
+            if (_shouldSendAudio) {
+                if (_jitterBuffer.Reader.TryRead(out var audioFrame)) {
+                    _emptyFrameCount = 0;
+                    _lastSentFrame = audioFrame;
+                    Interlocked.Add(ref _totalBytesSent, audioFrame.Length);
+                    return audioFrame;
+                } else {
+                    if (_isTtsStreamFinished && _jitterBuffer.Reader.Count == 0 && 
+                        Interlocked.Read(ref _totalBytesSent) >= Interlocked.Read(ref _totalBytesGenerated)) {
+                        return null;
+                    }
+                    
+                    _emptyFrameCount++;
+                    
+                    if (_emptyFrameCount == 1 && !_isTtsStreamFinished) {
+                        await Task.Delay(2, ct);
+                        if (_jitterBuffer.Reader.TryRead(out audioFrame)) {
+                            _emptyFrameCount = 0;
+                            _lastSentFrame = audioFrame;
+                            Interlocked.Add(ref _totalBytesSent, audioFrame.Length);
+                            return audioFrame;
+                        }
+                    }
+                    
+                    if (_emptyFrameCount == 1) {
+                        _logger.LogTrace("First empty frame, repeating last frame");
+                        return _lastSentFrame ?? _g711SilenceFrame;
+                    } else {
+                        _logger.LogTrace("Multiple empty frames, sending silence");
+                        return _g711SilenceFrame;
+                    }
+                }
+            } else {
+                return _g711SilenceFrame;
+            }
+        }
+
+        private double CalculateAdaptiveDelay() {
+            int bufferCount = _jitterBuffer.Reader.Count;
+            
+            if (bufferCount == 0) {
+                return _profile.PtimeMs * 1.02;
+            } else if (bufferCount < LowWatermark) {
+                return _profile.PtimeMs * 1.01;
+            } else if (bufferCount > JitterBufferWaterline) {
+                return _profile.PtimeMs * 0.99;
+            }
+            
+            return _profile.PtimeMs;
+        }
+
         public async ValueTask DisposeAsync() {
             await StopAsync();
             _cts?.Dispose();
-            _resampler?.Dispose();
+            
+            foreach (var resampler in _resamplerCache.Values) {
+                resampler?.Dispose();
+            }
+            _resamplerCache.Clear();
+            
             OutgoingAudioGenerated = null;
         }
     }

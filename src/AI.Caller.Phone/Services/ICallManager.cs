@@ -620,7 +620,6 @@ namespace AI.Caller.Phone.Services {
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
-            if (callContext.Callee == null || callContext.Callee.User == null) throw new Exception("被叫用户不能为空");
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false);
             if (handle == null) return false;
@@ -675,8 +674,7 @@ namespace AI.Caller.Phone.Services {
         }
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
-            if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
-            if (callContext.Callee == null || callContext.Callee.User == null) throw new Exception("被叫用户不能为空");
+            if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");            
             if (sdpOffer == null) throw new ArgumentNullException(nameof(sdpOffer));
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true);
@@ -726,8 +724,7 @@ namespace AI.Caller.Phone.Services {
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
-            if (callContext.Callee == null || callContext.Callee.User == null) throw new Exception("被叫用户不能为空");
-
+            
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false);
             if (handle == null) return false;
 
