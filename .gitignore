@@ -254,3 +254,4 @@ ModelManifest.xml
 recordings/
 
 appsettings.Development.json
+/src/AI.Caller.Phone/uploads
