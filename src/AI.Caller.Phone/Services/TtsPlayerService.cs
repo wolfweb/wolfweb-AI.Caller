@@ -14,7 +14,7 @@ public class TtsPlayerService : ITtsPlayerService {
         _aiCustomerServiceManager = aiCustomerServiceManager;
     }
 
-    public async Task PlayTtsAsync(string text, User user, SIPClient sipClient, float? speed = 1.0f, int speakerId = 0) {
+    public async Task<TimeSpan> PlayTtsAsync(string text, User user, SIPClient sipClient, float? speed = 1.0f, int speakerId = 0) {
         var session = _aiCustomerServiceManager.GetActiveSession(user.Id);
 
         if (session == null) {
@@ -24,21 +24,33 @@ public class TtsPlayerService : ITtsPlayerService {
 
             if (!sessionCreated) {
                 _logger.LogError("Failed to create AI customer service session for user {UserId}.", user.Id);
-                return;
+                return TimeSpan.Zero;
             }
 
             session = _aiCustomerServiceManager.GetActiveSession(user.Id);
             if (session == null) {
                 _logger.LogError("Session should have been created but was not found for user {UserId}.", user.Id);
-                return;
+                return TimeSpan.Zero;
             }
              _logger.LogInformation("Successfully created and retrieved new session for user {UserId}.", user.Id);
         }
 
-        _ = session.AutoResponder.PlayScriptAsync(text, speakerId, speed ?? 1.0f);
+        var ttsGenerationTime = await session.AutoResponder.PlayScriptAsync(text, speakerId, speed ?? 1.0f);
 
         await session.AutoResponder.WaitForPlaybackToCompleteAsync();
         
         _logger.LogDebug("Finished playing script and waiting for user {UserId}.", user.Id);
+        
+        return ttsGenerationTime;
+    }
+
+    public void StopPlayout(User user) {
+        var session = _aiCustomerServiceManager.GetActiveSession(user.Id);
+        if (session != null) {
+            session.AutoResponder.SignalPlayoutComplete();
+            _logger.LogInformation("Signaled playout completion for user {UserId}.", user.Id);
+        } else {
+            _logger.LogWarning("No active session found for user {UserId} when trying to stop playout.", user.Id);
+        }
     }
 }

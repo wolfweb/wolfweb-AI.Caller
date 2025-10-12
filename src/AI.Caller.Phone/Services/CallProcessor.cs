@@ -94,8 +94,11 @@ public class CallProcessor : ICallProcessor {
                         await Task.Delay(TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds));
                         await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sipClient!, ttsTemplate.SpeechRate);
                     }
+
+                    ttsPlayer.StopPlayout(agent);
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Error starting AI Customer Service after call answered for CallLogId {CallLogId}.", callLogId);
+                } finally {
                     await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
                 }
             };

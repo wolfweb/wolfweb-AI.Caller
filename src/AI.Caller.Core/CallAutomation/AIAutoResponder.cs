@@ -40,6 +40,7 @@ namespace AI.Caller.Core {
 
         private volatile bool _shouldSendAudio = true;
         private volatile bool _isTtsStreamFinished;
+        private volatile bool _shouldStopPlayout = false;
 
         public AIAutoResponder(
             ILogger logger,
@@ -108,18 +109,19 @@ namespace AI.Caller.Core {
             return _playbackCompletionSource?.Task ?? Task.CompletedTask;
         }
 
-        public async Task PlayScriptAsync(string text, int speakerId = 0, float speed = 1.0f, CancellationToken ct = default) {
+        public void SignalPlayoutComplete() {
+            _shouldStopPlayout = true;
+            _logger.LogInformation("Playout completion signal received.");
+        }
+
+        public async Task<TimeSpan> PlayScriptAsync(string text, int speakerId = 0, float speed = 1.0f, CancellationToken ct = default) {
             Interlocked.Exchange(ref _totalBytesGenerated, 0);
             Interlocked.Exchange(ref _totalBytesSent, 0);
             _playbackCompletionSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _isTtsStreamFinished = false;
 
-            if (_playoutTask?.IsCompleted == true) {
-                Trace.WriteLine($"重启语音服务,播报内容=>{text}");
-                _playoutTask = Task.Run(() => PlayoutLoop(_cts?.Token ?? ct));
-            }
-
             var token = _cts?.Token ?? ct;
+            var ttsGenerationStopwatch = Stopwatch.StartNew();
             var stopwatch = Stopwatch.StartNew();
             int chunkCount = 0;
             int preBufferChunks = 3;
@@ -156,6 +158,10 @@ namespace AI.Caller.Core {
                 _logger.LogInformation($"Finished processing TTS script with {chunkCount} chunks.");
             }
             _isTtsStreamFinished = true;
+            
+            ttsGenerationStopwatch.Stop();
+            _logger.LogInformation($"TTS generation completed in {ttsGenerationStopwatch.ElapsedMilliseconds}ms");
+            return ttsGenerationStopwatch.Elapsed;
         }
 
         private void Flush() {
@@ -260,7 +266,6 @@ namespace AI.Caller.Core {
                     }
                     
                     Interlocked.Add(ref _totalBytesGenerated, payload.Length);
-                    Trace.WriteLine($"g711 data => {string.Join(",", payload)}");
                     
                     if (!_jitterBuffer.Writer.TryWrite(payload)) {
                         throw new InvalidOperationException($"Failed to write frame {i} to jitter buffer. Channel may be closed.");
@@ -283,67 +288,85 @@ namespace AI.Caller.Core {
         }
 
         private async Task PlayoutLoop(CancellationToken ct) {
-            _logger.LogInformation("Playout loop started. Waiting for jitter buffer to reach waterline ({Waterline} frames)...", JitterBufferWaterline);
+            _logger.LogInformation("Playout loop started. Running continuously until stopped.");
 
             try {
-                while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested) {
-                    int initialCount = _jitterBuffer.Reader.Count;
-                    await Task.Delay(500, ct);
-                    if (_jitterBuffer.Reader.Count == initialCount && _jitterBuffer.Reader.Count > 0) {
-                        await Task.Delay(500, ct);
-                    }
-                    if (_jitterBuffer.Reader.Count >= JitterBufferWaterline || _isTtsStreamFinished) {
-                        break;
-                    }
-                }
-
-                _logger.LogInformation("Jitter buffer waterline reached. Starting high-precision playout.");
                 var stopwatch = Stopwatch.StartNew();
                 double smoothedDelayMs = _profile.PtimeMs;
 
-                while (!ct.IsCancellationRequested) {
-                    long loopStartTime = stopwatch.ElapsedMilliseconds;
-
-                    if (_jitterBuffer.Reader.Count < LowWatermark && !_isTtsStreamFinished) {
-                        int pos = _jitterBuffer.Reader.Count;
-                        int retryCount = 0;
-                        while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested && retryCount++ < 5) {
-                            int delay = 50 + retryCount * 50;
-                            await Task.Delay(delay, ct);
-                            _logger.LogWarning("Jitter buffer low ({Count} frames), pausing {Delay}ms to re-buffer...", _jitterBuffer.Reader.Count, delay);
+                while (!ct.IsCancellationRequested && !_shouldStopPlayout) {
+                    while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested && !_shouldStopPlayout) {
+                        int initialCount = _jitterBuffer.Reader.Count;
+                        await Task.Delay(100, ct);
+                        
+                        if (_shouldStopPlayout) {
+                            _logger.LogInformation("Playout stop signal received, exiting loop.");
+                            break;
                         }
-                        if (_jitterBuffer.Reader.Count >= JitterBufferWaterline) {
-                            _logger.LogInformation("Jitter buffer recovered to {Count} frames, resuming playout.", _jitterBuffer.Reader.Count);
-                        } else {
-                            _logger.LogWarning("Jitter buffer still low ({Count} frames), continuing with caution.", _jitterBuffer.Reader.Count);
+                        
+                        if (_jitterBuffer.Reader.Count > 0 && _isTtsStreamFinished) {
+                            _logger.LogInformation("TTS finished with {Count} frames in buffer, starting playout.", _jitterBuffer.Reader.Count);
+                            break;
+                        }
+                        
+                        if (_jitterBuffer.Reader.Count == 0) {
+                            continue;
                         }
                     }
-
-                    byte[]? frameToSend = await GetNextFrameOptimized(ct);
-                    if (frameToSend == null) {
-                        _logger.LogInformation("Playback complete: Sent {Sent} >= Generated {Generated} bytes.", 
-                            Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));
+                    
+                    if (_shouldStopPlayout) {
+                        _logger.LogInformation("Playout stop signal detected, terminating loop.");
                         break;
                     }
 
-                    OutgoingAudioGenerated?.Invoke(frameToSend);
-                    double adaptiveDelay = CalculateAdaptiveDelay();
-                    smoothedDelayMs = 0.3 * adaptiveDelay + 0.7 * smoothedDelayMs;
-                    smoothedDelayMs = Math.Clamp(smoothedDelayMs, _profile.PtimeMs * 0.95, _profile.PtimeMs * 1.05);
-
-                    long elapsedInLoop = stopwatch.ElapsedMilliseconds - loopStartTime;
-                    long adjustedDelay = (long)(smoothedDelayMs - elapsedInLoop);
-                    if (adjustedDelay > 0) {
-                        await Task.Delay((int)adjustedDelay, ct);
+                    if (_jitterBuffer.Reader.Count > 0) {
+                        _logger.LogInformation("Jitter buffer ready ({Count} frames). Starting playout.", _jitterBuffer.Reader.Count);
                     }
-                    _logger.LogTrace($"Sending frame, buffer status: {_jitterBuffer.Reader.Count} frames, delay: {smoothedDelayMs:F2}ms");
+
+                    while (!ct.IsCancellationRequested) {
+                        long loopStartTime = stopwatch.ElapsedMilliseconds;
+
+                        if (_jitterBuffer.Reader.Count < LowWatermark && !_isTtsStreamFinished) {
+                            int retryCount = 0;
+                            while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested && retryCount++ < 5) {
+                                int delay = 50 + retryCount * 50;
+                                await Task.Delay(delay, ct);
+                                _logger.LogWarning("Jitter buffer low ({Count} frames), pausing {Delay}ms to re-buffer...", _jitterBuffer.Reader.Count, delay);
+                            }
+                            if (_jitterBuffer.Reader.Count >= JitterBufferWaterline) {
+                                _logger.LogInformation("Jitter buffer recovered to {Count} frames, resuming playout.", _jitterBuffer.Reader.Count);
+                            } else {
+                                _logger.LogWarning("Jitter buffer still low ({Count} frames), continuing with caution.", _jitterBuffer.Reader.Count);
+                            }
+                        }
+
+                        byte[]? frameToSend = await GetNextFrameOptimized(ct);
+                        if (frameToSend == null) {
+                            _logger.LogInformation("Segment playback complete: Sent {Sent} >= Generated {Generated} bytes.", 
+                                Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));                            
+                            _playbackCompletionSource?.TrySetResult();                            
+                            break;
+                        }
+
+                        OutgoingAudioGenerated?.Invoke(frameToSend);
+                        double adaptiveDelay = CalculateAdaptiveDelay();
+                        smoothedDelayMs = 0.3 * adaptiveDelay + 0.7 * smoothedDelayMs;
+                        smoothedDelayMs = Math.Clamp(smoothedDelayMs, _profile.PtimeMs * 0.95, _profile.PtimeMs * 1.05);
+
+                        long elapsedInLoop = stopwatch.ElapsedMilliseconds - loopStartTime;
+                        long adjustedDelay = (long)(smoothedDelayMs - elapsedInLoop);
+                        if (adjustedDelay > 0) {
+                            await Task.Delay((int)adjustedDelay, ct);
+                        }
+                        _logger.LogTrace($"Sending frame, buffer status: {_jitterBuffer.Reader.Count} frames, delay: {smoothedDelayMs:F2}ms");
+                    }
                 }
             } catch (OperationCanceledException) {
                 _logger.LogInformation("Playout loop was cancelled.");
             } catch (Exception ex) {
                 _logger.LogError(ex, "Critical error in playout loop.");
             } finally {
-                _logger.LogInformation("Playout loop terminated. Signaling completion.");
+                _logger.LogInformation("Playout loop terminated.");
                 _playbackCompletionSource?.TrySetResult();
             }
         }
@@ -378,7 +401,7 @@ namespace AI.Caller.Core {
         }
 
         private async Task<byte[]?> GetNextFrameOptimized(CancellationToken ct) {
-            if (_shouldSendAudio) {
+            if (/*_shouldSendAudio*/true) {
                 if (_jitterBuffer.Reader.TryRead(out var audioFrame)) {
                     _emptyFrameCount = 0;
                     _lastSentFrame = audioFrame;

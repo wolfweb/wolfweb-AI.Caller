@@ -37,19 +37,47 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
         if (callContext.Callee == null || callContext.Callee.User == null || callContext.Callee.Client == null) throw new Exception($"呼叫上下文被叫未初始化");
 
         _logger.LogInformation("Found TTS template '{TemplateName}' for call {CallId}", template.Name, callContext.CallId);
-        await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User,  callContext.Callee.Client.Client, template.SpeechRate);
+        
+        var ttsGenerationTime = await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate);
+        
         if (template.PlayCount > 1) {
-            for(var i=0;i<template.PlayCount - 1; i++) {
-                await Task.Delay(TimeSpan.FromSeconds(template.PauseBetweenPlaysInSeconds));
-                await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate);
+            for(var i = 0; i < template.PlayCount - 1; i++) {
+                var desiredPause = TimeSpan.FromSeconds(template.PauseBetweenPlaysInSeconds);
+                var actualWaitTime = desiredPause - ttsGenerationTime;
+                
+                if (actualWaitTime > TimeSpan.Zero) {
+                    _logger.LogInformation("Waiting {WaitTime}ms before next play (desired: {DesiredPause}ms, TTS generation: {TtsTime}ms)", 
+                        actualWaitTime.TotalMilliseconds, desiredPause.TotalMilliseconds, ttsGenerationTime.TotalMilliseconds);
+                    await Task.Delay(actualWaitTime);
+                } else {
+                    _logger.LogInformation("No wait needed, TTS generation time ({TtsTime}ms) exceeded desired pause ({DesiredPause}ms)", 
+                        ttsGenerationTime.TotalMilliseconds, desiredPause.TotalMilliseconds);
+                }
+                
+                ttsGenerationTime = await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate);
             }
         }
+        
         if(!string.IsNullOrEmpty(template.EndingSpeech)) {
-            await Task.Delay(TimeSpan.FromSeconds(template.PauseBetweenPlaysInSeconds));
+            var desiredPause = TimeSpan.FromSeconds(template.PauseBetweenPlaysInSeconds);
+            var actualWaitTime = desiredPause - ttsGenerationTime;
+            
+            if (actualWaitTime > TimeSpan.Zero) {
+                _logger.LogInformation("Waiting {WaitTime}ms before ending speech (desired: {DesiredPause}ms, TTS generation: {TtsTime}ms)", 
+                    actualWaitTime.TotalMilliseconds, desiredPause.TotalMilliseconds, ttsGenerationTime.TotalMilliseconds);
+                await Task.Delay(actualWaitTime);
+            } else {
+                _logger.LogInformation("No wait needed for ending speech, TTS generation time ({TtsTime}ms) exceeded desired pause ({DesiredPause}ms)", 
+                    ttsGenerationTime.TotalMilliseconds, desiredPause.TotalMilliseconds);
+            }
+            
             await _ttsPlayer.PlayTtsAsync(template.EndingSpeech, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate);
         }
 
         _logger.LogInformation("Finished playing initial TTS for call {CallId}", callContext.CallId);
+        
+        _ttsPlayer.StopPlayout(callContext.Callee.User);
+        
         await _callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
     }
 }
