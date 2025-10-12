@@ -123,7 +123,7 @@ namespace AI.Caller.Phone.Controllers {
             }
 
             var failedLogs = await _context.CallLogs
-                .Where(l => l.BatchCallJobId == id && (l.Status == Entities.CallStatus.Failed || l.Status == Entities.CallStatus.NoAnswer))
+                .Where(l => l.BatchCallJobId == id && l.Status != Entities.CallStatus.Completed)
                 .ToListAsync();
 
             if (failedLogs.Any()) {

@@ -10,6 +10,8 @@ class SignalRManager {
         this.connection = null;
         this.isReconnecting = false;
         this.reconnectAttempts = 0;
+        this.heartbeatInterval = null;
+        this.heartbeatIntervalMs = 5000; // 5秒心跳间隔
     }
 
     async initialize() {
@@ -19,6 +21,7 @@ class SignalRManager {
         this.setupRecordingEvents();
         
         await this.startConnection();
+        this.startHeartbeat();
     }
 
     createConnection() {
@@ -51,6 +54,8 @@ class SignalRManager {
             this.updateStatus('连接已恢复', 'success');
             this.reconnectAttempts = 0;
 
+            this.startHeartbeat();
+
             if(!this.webRTCManager.pc) 
                 this.webRTCManager.initialize();
 
@@ -71,6 +76,9 @@ class SignalRManager {
             this.isReconnecting = false;
             console.error('SignalR连接已关闭:', error);
             this.updateStatus('连接已断开，正在尝试重连...', 'danger');
+            
+            this.stopHeartbeat();
+            
             this.startManualReconnect();
         });
     }
@@ -270,6 +278,34 @@ class SignalRManager {
         } catch (error) {
             console.error('SignalR连接失败:', error);
             this.startManualReconnect();
+        }
+    }
+
+    startHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+        }
+
+        this.heartbeatInterval = setInterval(async () => {
+            if (this.connection && 
+                this.connection.state === signalR.HubConnectionState.Connected) {
+                try {
+                    await this.connection.invoke("Heartbeat");
+                    console.log('心跳发送成功');
+                } catch (error) {
+                    console.warn('心跳发送失败:', error);
+                }
+            }
+        }, this.heartbeatIntervalMs);
+
+        console.log(`心跳定时器已启动，间隔: ${this.heartbeatIntervalMs}ms`);
+    }
+
+    stopHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+            console.log('心跳定时器已停止');
         }
     }
 

@@ -192,5 +192,13 @@
                 console.error('电话应用启动失败:', error);
             }
         });
+
+        // 页面卸载时清理资源
+        window.addEventListener('beforeunload', () => {
+            if (window.phoneApp && window.phoneApp.signalRManager) {
+                window.phoneApp.signalRManager.stopHeartbeat();
+                console.log('页面卸载，心跳已停止');
+            }
+        });
     </script>
 }

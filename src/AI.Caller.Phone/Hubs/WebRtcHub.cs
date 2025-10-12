@@ -131,6 +131,12 @@ namespace AI.Caller.Phone.Hubs {
             await Task.CompletedTask;
         }
 
+        public async Task<bool> Heartbeat() {
+            var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+            _applicationContext.AddActiviteUser(userId);
+            return await Task.FromResult(true);
+        }
+
         public override Task OnConnectedAsync() {
             var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
             _applicationContext.AddActiviteUser(userId);

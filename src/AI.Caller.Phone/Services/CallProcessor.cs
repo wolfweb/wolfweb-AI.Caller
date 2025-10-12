@@ -142,8 +142,8 @@ public class CallProcessor : ICallProcessor {
 
             _logger.LogInformation("Call initiated for CallLogId {CallLogId}. Waiting for answer to start AI service.", callLogId);
 
-            _logger.LogInformation("Waiting for call completion for CallLogId {CallLogId}.", callLogId);
             var callResult = await tcs.Task;
+            _logger.LogInformation("Waiting for call completion for CallLogId {CallLogId}.", callLogId);
 
             if (callResult.Status == CallOutcome.Completed) {
                 callLog.Status = Entities.CallStatus.Completed;
@@ -165,11 +165,6 @@ public class CallProcessor : ICallProcessor {
                 await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
             }
         } finally {
-            if (agent != null && callContext!=null) {
-                _logger.LogInformation("Stopping AI Customer Service for agent {AgentId} for CallLogId {CallLogId}.", agent.Id, callLogId);
-                await callManager.HangupCallAsync(callContext.CallId, agent.Id);
-            } 
-
             callLog.CompletedAt = DateTime.UtcNow;
             await context.SaveChangesAsync();
 
