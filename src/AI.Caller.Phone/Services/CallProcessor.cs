@@ -31,7 +31,7 @@ public class CallProcessor : ICallProcessor {
             _logger.LogWarning("CallLog with ID {CallLogId} not found for processing.", callLogId);
             return;
         }
-
+        
         if (callLog.BatchCallJob != null && (callLog.BatchCallJob.Status == BatchJobStatus.Paused || callLog.BatchCallJob.Status == BatchJobStatus.Cancelled)) {
             _logger.LogInformation("Skipping CallLogId {callLogId} because parent BatchJobId {batchJobId} is {status}.", callLog.Id, callLog.BatchCallJob.Id, callLog.BatchCallJob.Status);
             return;
@@ -78,28 +78,46 @@ public class CallProcessor : ICallProcessor {
             callAnsweredHandler = async (sc) => {
                 _logger.LogInformation("Call answered for CallLogId {CallLogId}. Starting AI Customer Service.", callLogId);
                 callWasAnswered = true;
-                var batchCall = await context.BatchCallJobs.FindAsync(callLog.BatchCallJobId);
-                var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
-
+                
                 try {
-                    await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sipClient!);
+                    var batchCall = await context.BatchCallJobs.FindAsync(callLog.BatchCallJobId);
+                    var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
+
+                    var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sipClient!, ttsTemplate?.SpeechRate);
+                    
                     if (ttsTemplate?.PlayCount > 1) {
                         for (var i = 0; i < ttsTemplate.PlayCount - 1; i++) {
-                            await Task.Delay(TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds));
-                            await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sipClient!, ttsTemplate.SpeechRate);
+                            var desiredPause = TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds);
+                            var actualWaitTime = desiredPause - ttsGenerationTime;
+                            
+                            if (actualWaitTime > TimeSpan.Zero) {
+                                _logger.LogInformation("Waiting {WaitTime}ms before next play for CallLogId {CallLogId}", actualWaitTime.TotalMilliseconds, callLogId);
+                                await Task.Delay(actualWaitTime);
+                            }
+                            
+                            ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sipClient!, ttsTemplate.SpeechRate);
                         }
                     }
 
                     if (!string.IsNullOrEmpty(ttsTemplate?.EndingSpeech)) {
-                        await Task.Delay(TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds));
+                        var desiredPause = TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds);
+                        var actualWaitTime = desiredPause - ttsGenerationTime;
+                        
+                        if (actualWaitTime > TimeSpan.Zero) {
+                            _logger.LogInformation("Waiting {WaitTime}ms before ending speech for CallLogId {CallLogId}", actualWaitTime.TotalMilliseconds, callLogId);
+                            await Task.Delay(actualWaitTime);
+                        }
+                        
                         await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sipClient!, ttsTemplate.SpeechRate);
                     }
 
                     ttsPlayer.StopPlayout(agent);
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Error starting AI Customer Service after call answered for CallLogId {CallLogId}.", callLogId);
+                    tcs.TrySetResult(new CallResult { Status = CallOutcome.Failed, FailureReason = ex.Message });
                 } finally {
                     await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
+                    tcs.TrySetResult(new CallResult { Status = CallOutcome.Completed });
                 }
             };
 
