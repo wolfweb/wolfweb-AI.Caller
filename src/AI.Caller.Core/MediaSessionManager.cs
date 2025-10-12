@@ -47,7 +47,21 @@ namespace AI.Caller.Core {
             }
 
             if (audioFrame != null && audioFrame.Length > 0) {
-                _mediaSession.SendAudio(PCMA_SAMPLES_PER_20MS_FRAME, audioFrame);
+                _mediaSession.SendAudio(PCMA_SAMPLES_PER_20MS_FRAME, audioFrame);                
+                if (_mediaSession.AudioDestinationEndPoint != null) {
+                    var rtpPacket = new RTPPacket {
+                        Header = new RTPHeader {
+                            Timestamp = (uint)DateTime.UtcNow.Ticks,
+                            PayloadType = 0
+                        },
+                        Payload = audioFrame
+                    };
+                    AudioDataSent?.Invoke(
+                        _mediaSession.AudioDestinationEndPoint, 
+                        SDPMediaTypesEnum.audio, 
+                        rtpPacket
+                    );
+                }
             }
         }
 
