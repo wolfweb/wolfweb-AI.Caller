@@ -14,6 +14,9 @@ public enum BatchJobStatus {
     [Display(Name = "执行中")]
     Processing,
 
+    [Display(Name = "已暂停")]
+    Paused,
+
     [Display(Name = "已完成")]
     Completed,
 

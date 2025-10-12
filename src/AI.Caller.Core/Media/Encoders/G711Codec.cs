@@ -1,160 +1,227 @@
 using AI.Caller.Core.Media.Interfaces;
+using FFmpeg.AutoGen;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Runtime.InteropServices;
 
 namespace AI.Caller.Core.Media.Encoders {
-    public sealed class G711Codec : IAudioEncoder, IAudioDecoder {        
-        private const int MAX_PCM_VALUE = 32635; 
-        private const byte ALAW_SILENCE = 0xD5; 
+    /// <summary>
+    /// G.711编解码器（基于FFmpeg）
+    /// 使用FFmpeg标准实现，保证音质和稳定性
+    /// 支持A-Law和μ-Law编码/解码
+    /// </summary>
+    public sealed unsafe class G711Codec : IAudioEncoder, IAudioDecoder, IDisposable {
+        private readonly ILogger _logger;
+        private readonly int _sampleRate;
+        private readonly int _channels;
+        
+        private AVCodecContext* _alawEncoderContext;
+        private AVCodecContext* _mulawEncoderContext;
+        
+        private AVCodecContext* _alawDecoderContext;
+        private AVCodecContext* _mulawDecoderContext;
+        
+        private AVFrame* _encodeFrame;
+        private AVPacket* _encodePacket;
+        private AVFrame* _decodeFrame;
+        private AVPacket* _decodePacket;
+        
+        private bool _disposed = false;
+        
+        private const byte ALAW_SILENCE = 0xD5;
         private const byte MULAW_SILENCE = 0xFF;
 
-        public byte[] EncodeMuLaw(ReadOnlySpan<byte> pcmBytes) => MuLawEncode(pcmBytes);
-        public byte[] EncodeALaw(ReadOnlySpan<byte> pcmBytes) => ALawEncode(pcmBytes);
-        public byte[] DecodeG711MuLaw(ReadOnlySpan<byte> payload) => MuLawDecode(payload);
-        public byte[] DecodeG711ALaw(ReadOnlySpan<byte> payload) => ALawDecode(payload);
-
-        #region MuLaw
-        private static byte LinearToMuLawSample(byte lowByte, byte highByte) {
-            short sample = (short)(lowByte | (highByte << 8));
-            const int cBias = 0x84;
-            const int cClip = MAX_PCM_VALUE;
-
-            sample = Math.Max((short)-cClip, Math.Min((short)cClip, sample));
-            if (sample == 0) return MULAW_SILENCE;
-
-            int sign = (sample >> 8) & 0x80;
-            if (sign != 0) sample = (short)-sample;
-
-            sample = (short)(sample + cBias);
-            int exponent = MuLawExponentTable[(sample >> 7) & 0xFF];
-            int mantissa = (sample >> (exponent + 3)) & 0x0F;
-            byte muLaw = (byte)~(sign | (exponent << 4) | mantissa);
-            return muLaw;
+        public G711Codec(ILogger<G711Codec> logger, int sampleRate = 8000, int channels = 1) {
+            _logger = logger;
+            _sampleRate = sampleRate;
+            _channels = channels;
+            
+            InitializeCodecs();
+            _logger.LogInformation("G711Codec (FFmpeg) initialized: {SampleRate}Hz, {Channels} channel(s)", sampleRate, channels);
         }
 
-        private static void MuLawToLinearSample(byte muLaw, out byte lowByte, out byte highByte) {
-            muLaw = (byte)~muLaw;
-            int sign = muLaw & 0x80;
-            int exponent = (muLaw & 0x70) >> 4;
-            int mantissa = muLaw & 0x0F;
-            int sample = ((mantissa << 3) + 0x84) << exponent;
-            sample = Math.Max(-MAX_PCM_VALUE, Math.Min(MAX_PCM_VALUE, sample - 0x84));
-            short result = (short)(sign != 0 ? -sample : sample);
-            lowByte = (byte)(result & 0xFF);
-            highByte = (byte)((result >> 8) & 0xFF);
-        }
-
-        private static readonly byte[] MuLawExponentTable = new byte[256];
-
-        static G711Codec() {
-            for (int i = 0; i < 256; i++) {
-                int val = i << 3;
-                int exp = 7;
-                while (exp > 0 && (val & (1 << (exp + 3))) == 0) exp--;
-                MuLawExponentTable[i] = (byte)exp;
+        private void InitializeCodecs() {
+            InitializeEncoder(ref _alawEncoderContext, "pcm_alaw");
+            InitializeEncoder(ref _mulawEncoderContext, "pcm_mulaw");
+            
+            InitializeDecoder(ref _alawDecoderContext, "pcm_alaw");
+            InitializeDecoder(ref _mulawDecoderContext, "pcm_mulaw");
+            
+            _encodeFrame = ffmpeg.av_frame_alloc();
+            _encodePacket = ffmpeg.av_packet_alloc();
+            _decodeFrame = ffmpeg.av_frame_alloc();
+            _decodePacket = ffmpeg.av_packet_alloc();
+            
+            if (_encodeFrame == null || _encodePacket == null || _decodeFrame == null || _decodePacket == null) {
+                throw new Exception("Failed to allocate AVFrame or AVPacket");
             }
         }
 
-        private byte[] MuLawEncode(ReadOnlySpan<byte> pcmBytes) {
+        private void InitializeEncoder(ref AVCodecContext* context, string codecName) {
+            var codec = ffmpeg.avcodec_find_encoder_by_name(codecName);
+            if (codec == null) {
+                throw new Exception($"Encoder not found: {codecName}");
+            }
+
+            context = ffmpeg.avcodec_alloc_context3(codec);
+            if (context == null) {
+                throw new Exception($"Failed to allocate encoder context: {codecName}");
+            }
+
+            context->sample_rate = _sampleRate;
+            context->sample_fmt = AVSampleFormat.AV_SAMPLE_FMT_S16;
+            context->ch_layout = new AVChannelLayout { 
+                order = AVChannelOrder.AV_CHANNEL_ORDER_NATIVE, 
+                nb_channels = _channels, 
+                u = { mask = _channels == 1 ? ffmpeg.AV_CH_LAYOUT_MONO : ffmpeg.AV_CH_LAYOUT_STEREO } 
+            };
+
+            int ret = ffmpeg.avcodec_open2(context, codec, null);
+            if (ret < 0) {
+                throw new Exception($"Failed to open encoder: {codecName}, error: {GetErrorString(ret)}");
+            }
+        }
+
+        private void InitializeDecoder(ref AVCodecContext* context, string codecName) {
+            var codec = ffmpeg.avcodec_find_decoder_by_name(codecName);
+            if (codec == null) {
+                throw new Exception($"Decoder not found: {codecName}");
+            }
+
+            context = ffmpeg.avcodec_alloc_context3(codec);
+            if (context == null) {
+                throw new Exception($"Failed to allocate decoder context: {codecName}");
+            }
+
+            context->sample_rate = _sampleRate;
+            context->sample_fmt = AVSampleFormat.AV_SAMPLE_FMT_U8; // G.711输入是8-bit
+            context->ch_layout = new AVChannelLayout { 
+                order = AVChannelOrder.AV_CHANNEL_ORDER_NATIVE, 
+                nb_channels = _channels, 
+                u = { mask = _channels == 1 ? ffmpeg.AV_CH_LAYOUT_MONO : ffmpeg.AV_CH_LAYOUT_STEREO } 
+            };
+
+            int ret = ffmpeg.avcodec_open2(context, codec, null);
+            if (ret < 0) {
+                throw new Exception($"Failed to open decoder: {codecName}, error: {GetErrorString(ret)}");
+            }
+        }
+
+        public byte[] EncodeALaw(ReadOnlySpan<byte> pcmBytes) {
+            return Encode(pcmBytes, _alawEncoderContext);
+        }
+
+        public byte[] EncodeMuLaw(ReadOnlySpan<byte> pcmBytes) {
+            return Encode(pcmBytes, _mulawEncoderContext);
+        }
+
+        private byte[] Encode(ReadOnlySpan<byte> pcmBytes, AVCodecContext* encoderContext) {
+            if (_disposed) {
+                throw new ObjectDisposedException(nameof(G711Codec));
+            }
+
             if (pcmBytes.Length % 2 != 0) {
                 throw new ArgumentException("PCM byte array length must be even for 16-bit audio");
             }
 
-            var output = new byte[pcmBytes.Length / 2];
-            int silenceCount = 0;
-            for (int i = 0; i < output.Length; i++) {
-                output[i] = LinearToMuLawSample(pcmBytes[i * 2], pcmBytes[i * 2 + 1]);
-                if (output[i] == MULAW_SILENCE) silenceCount++;
-            }
-            return output;
-        }
+            int numSamples = pcmBytes.Length / 2; // 16-bit samples
+            
+            _encodeFrame->nb_samples = numSamples;
+            _encodeFrame->format = (int)AVSampleFormat.AV_SAMPLE_FMT_S16;
+            _encodeFrame->sample_rate = _sampleRate;
+            _encodeFrame->ch_layout = encoderContext->ch_layout;
 
-        private byte[] MuLawDecode(ReadOnlySpan<byte> data) {
-            var output = new byte[data.Length * 2];
-            for (int i = 0; i < data.Length; i++) {
-                MuLawToLinearSample(data[i], out output[i * 2], out output[i * 2 + 1]);
-            }
-            return output;
-        }
-        #endregion
-
-        #region ALaw
-        private static byte LinearToALawSample(byte lowByte, byte highByte) {
-            short sample = (short)(lowByte | (highByte << 8));
-            sample = Math.Max((short)-MAX_PCM_VALUE, Math.Min((short)MAX_PCM_VALUE, sample));
-            if (sample == 0) return ALAW_SILENCE;
-
-            int sign = (sample >> 8) & 0x80;
-            if (sign != 0) sample = (short)-sample;
-
-            int exponent;
-            int mantissa;
-            if (sample >= 256) {
-                exponent = ALawExponentTable[(sample >> 8) & 0x7F];
-                mantissa = (sample >> (exponent + 3)) & 0x0F;
-            } else {
-                exponent = 0;
-                mantissa = (sample >> 4) & 0x0F;
+            int ret = ffmpeg.av_frame_get_buffer(_encodeFrame, 0);
+            if (ret < 0) {
+                _logger.LogError("Failed to allocate frame buffer: {Error}", GetErrorString(ret));
+                return Array.Empty<byte>();
             }
 
-            byte aLaw = (byte)(sign | (exponent << 4) | mantissa);
-            return (byte)(aLaw ^ 0xD5);
-        }
-
-        private static void ALawToLinearSample(byte aLaw, out byte lowByte, out byte highByte) {
-            aLaw ^= 0xD5;
-            int sign = aLaw & 0x80;
-            int exponent = (aLaw & 0x70) >> 4;
-            int mantissa = aLaw & 0x0F;
-            int sample = (mantissa << 4) + 8;
-            if (exponent != 0) sample = (sample + 0x100) << (exponent - 1);
-            sample = Math.Max(-MAX_PCM_VALUE, Math.Min(MAX_PCM_VALUE, sample));
-            short result = (short)(sign != 0 ? -sample : sample);
-            lowByte = (byte)(result & 0xFF);
-            highByte = (byte)((result >> 8) & 0xFF);
-        }
-
-        private static readonly byte[] ALawExponentTable = new byte[128] {
-            0,0,1,1,2,2,2,2,
-            3,3,3,3,3,3,3,3,
-            4,4,4,4,4,4,4,4,
-            4,4,4,4,4,4,4,4,
-            5,5,5,5,5,5,5,5,
-            5,5,5,5,5,5,5,5,
-            5,5,5,5,5,5,5,5,
-            5,5,5,5,5,5,5,5,
-            6,6,6,6,6,6,6,6,
-            6,6,6,6,6,6,6,6,
-            6,6,6,6,6,6,6,6,
-            6,6,6,6,6,6,6,6,
-            7,7,7,7,7,7,7,7,
-            7,7,7,7,7,7,7,7,
-            7,7,7,7,7,7,7,7,
-            7,7,7,7,7,7,7,7
-        };
-
-        private byte[] ALawEncode(ReadOnlySpan<byte> pcmBytes) {
-            if (pcmBytes.Length % 2 != 0) {
-                throw new ArgumentException("PCM byte array length must be even for 16-bit audio");
+            fixed (byte* pcmPtr = pcmBytes) {
+                Buffer.MemoryCopy(pcmPtr, _encodeFrame->data[0], pcmBytes.Length, pcmBytes.Length);
             }
 
-            var output = new byte[pcmBytes.Length / 2];
-            int silenceCount = 0;
-            for (int i = 0; i < output.Length; i++) {
-                output[i] = LinearToALawSample(pcmBytes[i * 2], pcmBytes[i * 2 + 1]);
-                if (output[i] == ALAW_SILENCE) silenceCount++;
+            ret = ffmpeg.avcodec_send_frame(encoderContext, _encodeFrame);
+            ffmpeg.av_frame_unref(_encodeFrame);
+            
+            if (ret < 0) {
+                _logger.LogError("Failed to send frame to encoder: {Error}", GetErrorString(ret));
+                return Array.Empty<byte>();
             }
-            return output;
+
+            ret = ffmpeg.avcodec_receive_packet(encoderContext, _encodePacket);
+            if (ret < 0) {
+                if (ret != ffmpeg.AVERROR(ffmpeg.EAGAIN) && ret != ffmpeg.AVERROR_EOF) {
+                    _logger.LogError("Failed to receive packet from encoder: {Error}", GetErrorString(ret));
+                }
+                return Array.Empty<byte>();
+            }
+
+            byte[] encodedData = new byte[_encodePacket->size];
+            Marshal.Copy((IntPtr)_encodePacket->data, encodedData, 0, _encodePacket->size);
+            
+            ffmpeg.av_packet_unref(_encodePacket);
+            
+            return encodedData;
         }
 
-        private byte[] ALawDecode(ReadOnlySpan<byte> data) {
-            var output = new byte[data.Length * 2];
-            for (int i = 0; i < data.Length; i++) {
-                ALawToLinearSample(data[i], out output[i * 2], out output[i * 2 + 1]);
-            }
-            return output;
+        public byte[] DecodeG711ALaw(ReadOnlySpan<byte> payload) {
+            return Decode(payload, _alawDecoderContext);
         }
-        #endregion
+
+        public byte[] DecodeG711MuLaw(ReadOnlySpan<byte> payload) {
+            return Decode(payload, _mulawDecoderContext);
+        }
+
+        private byte[] Decode(ReadOnlySpan<byte> payload, AVCodecContext* decoderContext) {
+            if (_disposed) {
+                throw new ObjectDisposedException(nameof(G711Codec));
+            }
+
+            if (payload.Length == 0) {
+                return Array.Empty<byte>();
+            }
+
+            fixed (byte* payloadPtr = payload) {
+                _decodePacket->data = payloadPtr;
+                _decodePacket->size = payload.Length;
+            }
+
+            int ret = ffmpeg.avcodec_send_packet(decoderContext, _decodePacket);
+            if (ret < 0) {
+                _logger.LogError("Failed to send packet to decoder: {Error}", GetErrorString(ret));
+                return Array.Empty<byte>();
+            }
+
+            ret = ffmpeg.avcodec_receive_frame(decoderContext, _decodeFrame);
+            if (ret < 0) {
+                if (ret != ffmpeg.AVERROR(ffmpeg.EAGAIN) && ret != ffmpeg.AVERROR_EOF) {
+                    _logger.LogError("Failed to receive frame from decoder: {Error}", GetErrorString(ret));
+                }
+                return Array.Empty<byte>();
+            }
+
+            int dataSize = ffmpeg.av_samples_get_buffer_size(
+                null, 
+                _decodeFrame->ch_layout.nb_channels, 
+                _decodeFrame->nb_samples, 
+                (AVSampleFormat)_decodeFrame->format, 
+                1
+            );
+
+            if (dataSize <= 0) {
+                _logger.LogWarning("Invalid decoded data size: {Size}", dataSize);
+                ffmpeg.av_frame_unref(_decodeFrame);
+                return Array.Empty<byte>();
+            }
+
+            byte[] pcmData = new byte[dataSize];
+            Marshal.Copy((IntPtr)_decodeFrame->data[0], pcmData, 0, dataSize);
+            
+            ffmpeg.av_frame_unref(_decodeFrame);
+            
+            return pcmData;
+        }
 
         public byte[] GenerateALawSilenceFrame(int sampleCount) {
             var output = new byte[sampleCount];
@@ -166,6 +233,63 @@ namespace AI.Caller.Core.Media.Encoders {
             var output = new byte[sampleCount];
             Array.Fill(output, MULAW_SILENCE);
             return output;
+        }
+
+        private string GetErrorString(int error) {
+            var bufferSize = 1024;
+            var buffer = stackalloc byte[bufferSize];
+            ffmpeg.av_strerror(error, buffer, (ulong)bufferSize);
+            return Marshal.PtrToStringAnsi((IntPtr)buffer) ?? $"Unknown error: {error}";
+        }
+
+        public void Dispose() {
+            if (_disposed) return;
+
+            if (_encodeFrame != null) {
+                fixed (AVFrame** frame = &_encodeFrame) {
+                    ffmpeg.av_frame_free(frame);
+                }
+            }
+            if (_decodeFrame != null) {
+                fixed (AVFrame** frame = &_decodeFrame) {
+                    ffmpeg.av_frame_free(frame);
+                }
+            }
+            if (_encodePacket != null) {
+                fixed (AVPacket** packet = &_encodePacket) {
+                    ffmpeg.av_packet_free(packet);
+                }
+            }
+            if (_decodePacket != null) {
+                fixed (AVPacket** packet = &_decodePacket) {
+                    ffmpeg.av_packet_free(packet);
+                }
+            }
+
+            if (_alawEncoderContext != null) {
+                fixed (AVCodecContext** ctx = &_alawEncoderContext) {
+                    ffmpeg.avcodec_free_context(ctx);
+                }
+            }
+            if (_mulawEncoderContext != null) {
+                fixed (AVCodecContext** ctx = &_mulawEncoderContext) {
+                    ffmpeg.avcodec_free_context(ctx);
+                }
+            }
+
+            if (_alawDecoderContext != null) {
+                fixed (AVCodecContext** ctx = &_alawDecoderContext) {
+                    ffmpeg.avcodec_free_context(ctx);
+                }
+            }
+            if (_mulawDecoderContext != null) {
+                fixed (AVCodecContext** ctx = &_mulawDecoderContext) {
+                    ffmpeg.avcodec_free_context(ctx);
+                }
+            }
+
+            _disposed = true;
+            _logger.LogDebug("G711Codec disposed");
         }
     }
 }

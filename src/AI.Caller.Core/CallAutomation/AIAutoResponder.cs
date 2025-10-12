@@ -222,49 +222,48 @@ namespace AI.Caller.Core {
                 localAudioBuffer = _audioBuffer;
                 localBufferLength = _audioBuffer.Length;
             }
-            
+                
             var totalLength = localBufferLength + length;
             var combinedBuffer = _bytePool.Rent(totalLength);
             
-            try {
+            try {                
                 if (localBufferLength > 0) {
                     Buffer.BlockCopy(localAudioBuffer, 0, combinedBuffer, 0, localBufferLength);
                 }
                 Buffer.BlockCopy(newPcmBytes, 0, combinedBuffer, localBufferLength, length);
 
                 int frameSizeInBytes = _profile.SamplesPerFrame * 2;
-                int frameCount = totalLength / frameSizeInBytes;
-                var encodedFrames = new ConcurrentDictionary<int, byte[]>();
-                
+                int frameCount = totalLength / frameSizeInBytes;                
+                var encodedFrames = new byte[frameCount][];
+
                 Parallel.For(0, frameCount, new ParallelOptions { 
                     MaxDegreeOfParallelism = Environment.ProcessorCount / 2 
                 }, i => {
-                    int offset = i * frameSizeInBytes;
-                    var pcmFrameBuffer = _bytePool.Rent(frameSizeInBytes);
+                    int offset = i * frameSizeInBytes;                    
+                    var pcmFrame = new ReadOnlySpan<byte>(combinedBuffer, offset, frameSizeInBytes);
                     
-                    try {
-                        Buffer.BlockCopy(combinedBuffer, offset, pcmFrameBuffer, 0, frameSizeInBytes);
-                        
-                        byte[] payload = _profile.Codec == AudioCodec.PCMU
-                            ? _g711Codec.EncodeMuLaw(new ReadOnlySpan<byte>(pcmFrameBuffer, 0, frameSizeInBytes))
-                            : _g711Codec.EncodeALaw(new ReadOnlySpan<byte>(pcmFrameBuffer, 0, frameSizeInBytes));
-                        
-                        encodedFrames.TryAdd(i, payload);
-                    } finally {
-                        _bytePool.Return(pcmFrameBuffer);
+                    byte[] payload;
+                    lock (_g711Codec) {
+                        payload = _profile.Codec == AudioCodec.PCMU
+                            ? _g711Codec.EncodeMuLaw(pcmFrame)
+                            : _g711Codec.EncodeALaw(pcmFrame);
                     }
+                    
+                    encodedFrames[i] = payload;
                 });
 
                 for (int i = 0; i < frameCount; i++) {
-                    if (encodedFrames.TryGetValue(i, out var payload)) {
-                        Interlocked.Add(ref _totalBytesGenerated, payload.Length);
-                        
-                        if (!_jitterBuffer.Writer.TryWrite(payload)) {
-                            _logger.LogWarning("Failed to write frame to jitter buffer. Channel may be closed.");
-                            continue;
-                        }
-                    } else {
-                        _logger.LogError("Missing encoded frame at index {Index}", i);
+                    var payload = encodedFrames[i];
+                    
+                    if (payload == null || payload.Length == 0) {
+                        throw new InvalidOperationException($"Frame {i} encoding failed, payload is empty");
+                    }
+                    
+                    Interlocked.Add(ref _totalBytesGenerated, payload.Length);
+                    Trace.WriteLine($"g711 data => {string.Join(",", payload)}");
+                    
+                    if (!_jitterBuffer.Writer.TryWrite(payload)) {
+                        throw new InvalidOperationException($"Failed to write frame {i} to jitter buffer. Channel may be closed.");
                     }
                 }
 

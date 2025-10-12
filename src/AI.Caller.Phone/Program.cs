@@ -87,7 +87,6 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<IBatchProcessor, BatchProcessor>();
 
             builder.Services.AddAIAutoResponder();
-            builder.Services.AddMediaProcessing();
             builder.Services.AddSingleton<AICustomerServiceManager>();
             builder.Services.AddAuthentication(options => {
                 options.DefaultScheme = "CookieAuth";

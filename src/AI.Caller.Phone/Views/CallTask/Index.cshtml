@@ -1,48 +1,86 @@
-@model IEnumerable<AI.Caller.Phone.Entities.CallLog>
+@model IEnumerable<AI.Caller.Phone.Entities.BatchCallJob>
 
 @{
-    ViewData["Title"] = "呼叫任务历史";
+    ViewData["Title"] = "批量呼叫任务";
 }
-<div class="container mt-4">
-    <h1>@ViewData["Title"]</h1>
 
-    <p>
-        <a asp-action="CreateBatch" class="btn btn-secondary">创建批量呼叫任务</a>
-    </p>
+<h1>@ViewData["Title"]</h1>
 
-    <table class="table">
-        <thead>
+<p>
+    <a asp-action="CreateBatch" class="btn btn-primary">创建新任务</a>
+</p>
+
+<table class="table table-striped table-hover">
+    <thead>
+        <tr>
+            <th>@Html.DisplayNameFor(model => model.JobName)</th>
+            <th>@Html.DisplayNameFor(model => model.Status)</th>
+            <th>进度</th>
+            <th>@Html.DisplayNameFor(model => model.CreatedAt)</th>
+            <th>@Html.DisplayNameFor(model => model.CompletedAt)</th>
+            <th>操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model) {
             <tr>
-                <th>@Html.DisplayNameFor(model => model.PhoneNumber)</th>
-                <th>@Html.DisplayNameFor(model => model.Status)</th>
-                <th>@Html.DisplayNameFor(model => model.InitiationType)</th>
-                <th>@Html.DisplayNameFor(model => model.CreatedAt)</th>
-                <th>@Html.DisplayNameFor(model => model.CompletedAt)</th>
-                <th>@Html.DisplayNameFor(model => model.FailureReason)</th>
-                <th>所属批量任务</th>
-            </tr>
-        </thead>
-        <tbody>
-    @foreach (var item in Model) {
-            <tr>
-                <td>@Html.DisplayFor(modelItem => item.PhoneNumber)</td>
+                <td>@Html.DisplayFor(modelItem => item.JobName)</td>
                 <td>@Html.DisplayFor(modelItem => item.Status)</td>
-                <td>@Html.DisplayFor(modelItem => item.InitiationType)</td>
+                <td>
+                    @if (item.TotalCount > 0) {
+                        var progress = (int)Math.Round((double)item.ProcessedCount * 100 / item.TotalCount);
+                        <div class="progress" style="min-width: 150px;">
+                            <div class="progress-bar" role="progressbar" style="width: @progress%;" aria-valuenow="@progress" aria-valuemin="0" aria-valuemax="100">@item.ProcessedCount / @item.TotalCount</div>
+                        </div>
+                        <div>
+                            <small class="text-success">成功: @item.SuccessCount</small> |
+                            <small class="text-danger">失败: @item.FailedCount</small>
+                        </div>
+                    } else {
+                        <span>N/A</span>
+                    }
+                </td>
                 <td>@Html.DisplayFor(modelItem => item.CreatedAt)</td>
                 <td>@Html.DisplayFor(modelItem => item.CompletedAt)</td>
-                <td>@Html.DisplayFor(modelItem => item.FailureReason)</td>
                 <td>
-                    @if (item.BatchCallJobId.HasValue)
-                    {
-                        @item.BatchCallJob.JobName
+                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-info">详情</a>
+                    
+                    @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Processing) {
+                        <form asp-action="Pause" asp-route-id="@item.Id" method="post" style="display:inline;">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-sm btn-warning">暂停</button>
+                        </form>
                     }
-                    else
-                    {
-                        <text>N/A</text>
+                    
+                    @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Paused) {
+                        <form asp-action="Resume" asp-route-id="@item.Id" method="post" style="display:inline;">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-sm btn-success">恢复</button>
+                        </form>
+                    }
+
+                    @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.CompletedWithFailures || (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Completed && item.FailedCount > 0)) {
+                        <form asp-action="RetryFailed" asp-route-id="@item.Id" method="post" style="display:inline;">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-sm btn-primary">重试失败项</button>
+                        </form>
+                    }
+
+                    @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Processing || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Paused || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Queued) {
+                        <form asp-action="Cancel" asp-route-id="@item.Id" method="post" style="display:inline;">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-sm btn-danger">取消</button>
+                        </form>
+                    }
+
+                    @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Completed || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.CompletedWithFailures || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Cancelled || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Failed) {
+                        <form asp-action="Delete" asp-route-id="@item.Id" method="post" style="display:inline;" onsubmit="return confirm('确定要删除此任务吗？');">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-sm btn-danger">删除</button>
+                        </form>
                     }
                 </td>
             </tr>
-    }
-        </tbody>
-    </table>
-</div>
+        }
+    </tbody>
+</table>

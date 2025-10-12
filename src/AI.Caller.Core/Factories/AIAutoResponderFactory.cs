@@ -9,13 +9,15 @@ namespace AI.Caller.Core {
     public class AIAutoResponderFactory : IAIAutoResponderFactory {
         private readonly ILogger _logger;
         private readonly ITTSEngine _ttsEngine;
-        private readonly G711Codec _g711 = new();
+        private readonly G711Codec _g711;
 
         public AIAutoResponderFactory(
             ILogger<AIAutoResponder> logger,
-            ITTSEngine ttsEngine) {
+            ITTSEngine ttsEngine,
+            ILoggerFactory loggerFactory) {
             _logger = logger;
             _ttsEngine = ttsEngine;
+            _g711 = new G711Codec(loggerFactory.CreateLogger<G711Codec>());
         }
 
         public AIAutoResponder CreateAutoResponder(MediaProfile profile) {

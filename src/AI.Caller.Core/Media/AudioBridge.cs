@@ -6,15 +6,16 @@ namespace AI.Caller.Core {
     public sealed class AudioBridge : IAudioBridge {
         private readonly ILogger _logger;
         private readonly object _lock = new();
-        private readonly G711Codec _g711Codec = new();
+        private readonly G711Codec _g711Codec;
         
         private MediaProfile? _profile;
         private bool _isStarted;
 
         public event Action<byte[]>? IncomingAudioReceived;
 
-        public AudioBridge(ILogger<AudioBridge> logger) {
+        public AudioBridge(ILogger<AudioBridge> logger, G711Codec g711Codec) {
             _logger = logger;
+            _g711Codec = g711Codec;
         }
 
         public void Initialize(MediaProfile profile) {

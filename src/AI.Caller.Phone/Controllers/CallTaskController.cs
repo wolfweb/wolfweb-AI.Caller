@@ -1,3 +1,4 @@
+using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -11,16 +12,30 @@ namespace AI.Caller.Phone.Controllers {
         private readonly AppDbContext _context;
         private readonly ICallTaskService _callTaskService;
         private readonly IWebHostEnvironment _webHostEnvironment;
+        private readonly IBackgroundTaskQueue _taskQueue;
 
-        public CallTaskController(AppDbContext context, ICallTaskService callTaskService, IWebHostEnvironment webHostEnvironment) {
+        public CallTaskController(AppDbContext context, ICallTaskService callTaskService, IWebHostEnvironment webHostEnvironment, IBackgroundTaskQueue taskQueue) {
             _context = context;
             _callTaskService = callTaskService;
             _webHostEnvironment = webHostEnvironment;
+            _taskQueue = taskQueue;
         }
 
         public async Task<IActionResult> Index() {
-            var callLogs = _context.CallLogs.Include(c => c.BatchCallJob).OrderByDescending(c => c.CreatedAt);
-            return View(await callLogs.ToListAsync());
+            var batchJobs = await _context.BatchCallJobs.OrderByDescending(j => j.CreatedAt).ToListAsync();
+            return View(batchJobs);
+        }
+
+        public async Task<IActionResult> Details(int id) {
+            var batchJob = await _context.BatchCallJobs
+                .Include(j => j.CallLogs)
+                .FirstOrDefaultAsync(j => j.Id == id);
+
+            if (batchJob == null) {
+                return NotFound();
+            }
+
+            return View(batchJob);
         }
 
         public async Task<IActionResult> CreateBatch() {
@@ -51,6 +66,103 @@ namespace AI.Caller.Phone.Controllers {
 
             var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
             await _callTaskService.CreateBatchCallTaskAsync(jobName, ttsTemplateId, filePath, file.FileName, userId);
+
+            return RedirectToAction(nameof(Index));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Pause(int id) {
+            var batchJob = await _context.BatchCallJobs.FindAsync(id);
+            if (batchJob != null && batchJob.Status == BatchJobStatus.Processing) {
+                batchJob.Status = BatchJobStatus.Paused;
+                await _context.SaveChangesAsync();
+            }
+            return RedirectToAction(nameof(Index));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Resume(int id) {
+            var batchJob = await _context.BatchCallJobs.FindAsync(id);
+            if (batchJob != null && batchJob.Status == BatchJobStatus.Paused) {
+                batchJob.Status = BatchJobStatus.Processing;
+                await _context.SaveChangesAsync();
+
+                var queuedLogs = await _context.CallLogs
+                    .Where(l => l.BatchCallJobId == id && l.Status == Entities.CallStatus.Queued)
+                    .ToListAsync();
+
+                foreach (var callLog in queuedLogs) {
+                    _taskQueue.QueueBackgroundWorkItem((token, serviceProvider) => {
+                        var callProcessor = serviceProvider.GetRequiredService<ICallProcessor>();
+                        return callProcessor.ProcessCallLogJob(callLog.Id);
+                    });
+                }
+            }
+            return RedirectToAction(nameof(Index));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Cancel(int id) {
+            var batchJob = await _context.BatchCallJobs.FindAsync(id);
+            if (batchJob != null && (batchJob.Status == BatchJobStatus.Processing || batchJob.Status == BatchJobStatus.Paused || batchJob.Status == BatchJobStatus.Queued)) {
+                batchJob.Status = BatchJobStatus.Cancelled;
+                await _context.SaveChangesAsync();
+            }
+            return RedirectToAction(nameof(Index));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> RetryFailed(int id) {
+            var batchJob = await _context.BatchCallJobs.FindAsync(id);
+            if (batchJob == null) {
+                return NotFound();
+            }
+
+            var failedLogs = await _context.CallLogs
+                .Where(l => l.BatchCallJobId == id && (l.Status == Entities.CallStatus.Failed || l.Status == Entities.CallStatus.NoAnswer))
+                .ToListAsync();
+
+            if (failedLogs.Any()) {
+                foreach (var log in failedLogs) {
+                    log.Status = Entities.CallStatus.Queued;
+                    log.FailureReason = null;
+                    log.CompletedAt = null;
+                }
+
+                batchJob.Status = BatchJobStatus.Processing;
+                batchJob.CompletedAt = null;
+
+                await _context.SaveChangesAsync();
+
+                foreach (var callLog in failedLogs) {
+                    _taskQueue.QueueBackgroundWorkItem((token, serviceProvider) => {
+                        var callProcessor = serviceProvider.GetRequiredService<ICallProcessor>();
+                        return callProcessor.ProcessCallLogJob(callLog.Id);
+                    });
+                }
+            }
+
+            return RedirectToAction(nameof(Details), new { id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Delete(int id) {
+            var batchJob = await _context.BatchCallJobs
+                .Include(j => j.CallLogs)
+                .FirstOrDefaultAsync(j => j.Id == id);
+
+            if (batchJob == null) {
+                return NotFound();
+            }
+
+            _context.CallLogs.RemoveRange(batchJob.CallLogs);
+            _context.BatchCallJobs.Remove(batchJob);
+            await _context.SaveChangesAsync();
 
             return RedirectToAction(nameof(Index));
         }

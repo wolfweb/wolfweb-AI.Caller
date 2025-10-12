@@ -10,5 +10,6 @@ public class CallResult {
 
 public enum CallOutcome {
     Completed,
-    Failed
+    Failed,
+    NoAnswer
 }
