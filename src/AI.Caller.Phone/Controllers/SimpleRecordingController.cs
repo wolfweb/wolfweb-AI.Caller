@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using AI.Caller.Phone.Services;
-using AI.Caller.Phone.Models;
 using System.Security.Claims;
 
 namespace AI.Caller.Phone.Controllers {

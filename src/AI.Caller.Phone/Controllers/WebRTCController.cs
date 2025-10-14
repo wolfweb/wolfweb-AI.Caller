@@ -2,9 +2,6 @@ using AI.Caller.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
-using SIPSorcery.Net;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace AI.Caller.Phone.Controllers {
     [ApiController]

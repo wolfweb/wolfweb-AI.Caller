@@ -1,5 +1,4 @@
 using AI.Caller.Phone.Entities;
-using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;

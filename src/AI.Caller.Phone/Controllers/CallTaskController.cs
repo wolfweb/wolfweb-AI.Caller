@@ -1,13 +1,15 @@
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
+using System.Security.Claims;
 
 namespace AI.Caller.Phone.Controllers {
+    [Authorize]
     public class CallTaskController : Controller {
         private readonly AppDbContext _context;
         private readonly ICallTaskService _callTaskService;

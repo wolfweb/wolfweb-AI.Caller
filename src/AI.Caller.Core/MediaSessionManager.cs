@@ -1,9 +1,7 @@
-using AI.Caller.Core.Media.Encoders;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
-using System.Diagnostics;
 using System.Net;
 
 namespace AI.Caller.Core {
@@ -43,6 +41,7 @@ namespace AI.Caller.Core {
 
         public void SendAudioFrame(byte[] audioFrame) {
             if (_disposed || _mediaSession == null || _mediaSession.IsClosed) {
+                _logger.LogWarning($"send audio data exception, _disposed=>{_disposed}, _mediaSession is null=>{_mediaSession==null}, _mediaSession isClosed=>{_mediaSession?.IsClosed}");
                 return;
             }
 
@@ -219,21 +218,21 @@ namespace AI.Caller.Core {
                 _mediaSession!.SetRemoteDescription(description.type == RTCSdpType.offer ? SdpType.offer : SdpType.answer, sdp);
                 _logger.LogDebug($"Set SIP remote description ({description.type}) successfully on RTPSession.");
 
-                if (sdp.Connection != null && sdp.Media != null) {
-                    var audioMedia = sdp.Media.FirstOrDefault(m => m.Media == SDPMediaTypesEnum.audio);
-                    if (audioMedia != null && audioMedia.Port > 0) {
-                        var remoteEndPoint = new IPEndPoint(
-                            IPAddress.Parse(sdp.Connection.ConnectionAddress),
-                            audioMedia.Port
-                        );
-                        _mediaSession.SetDestination(SDPMediaTypesEnum.audio, remoteEndPoint, remoteEndPoint);
-                        _logger.LogDebug($"Configured RTPSession destination to {remoteEndPoint} for audio.");
-                    } else {
-                        _logger.LogWarning("No valid audio media found in SDP, cannot set RTPSession destination.");
-                    }
-                } else {
-                    _logger.LogWarning("Invalid SDP: missing connection or media information.");
-                }
+                //if (sdp.Connection != null && sdp.Media != null) {
+                //    var audioMedia = sdp.Media.FirstOrDefault(m => m.Media == SDPMediaTypesEnum.audio);
+                //    if (audioMedia != null && audioMedia.Port > 0) {
+                //        var remoteEndPoint = new IPEndPoint(
+                //            IPAddress.Parse(sdp.Connection.ConnectionAddress),
+                //            audioMedia.Port
+                //        );
+                //        _mediaSession.SetDestination(SDPMediaTypesEnum.audio, remoteEndPoint, remoteEndPoint);
+                //        _logger.LogDebug($"Configured RTPSession destination to {remoteEndPoint} for audio.");
+                //    } else {
+                //        _logger.LogWarning("No valid audio media found in SDP, cannot set RTPSession destination.");
+                //    }
+                //} else {
+                //    _logger.LogWarning("Invalid SDP: missing connection or media information.");
+                //}
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to set SIP remote description");
                 throw;

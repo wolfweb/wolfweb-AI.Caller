@@ -163,6 +163,23 @@ namespace AI.Caller.Core {
         private void SIPResponseOutTraceEvent(SIPEndPoint localEP, SIPEndPoint remoteEP, SIPResponse sipResponse) {
             _logger.LogDebug($"Response Sent {localEP}<-{remoteEP}: {sipResponse.ShortDescription}.");
 
+            // Log detailed 200 OK response for INVITE to diagnose ACK issues
+            if (sipResponse.Header.CSeqMethod == SIPMethodsEnum.INVITE && 
+                sipResponse.Status == SIPResponseStatusCodesEnum.Ok) {
+                var contactStr = sipResponse.Header.Contact != null && sipResponse.Header.Contact.Count > 0 
+                    ? string.Join(", ", sipResponse.Header.Contact.Select(c => c.ToString())) 
+                    : "(empty)";
+                
+                _logger.LogDebug($"*** 200 OK DETAILS *** CallId: {sipResponse.Header.CallId}, Contact: {contactStr}, Via: {sipResponse.Header.Vias}");
+                
+                if (!string.IsNullOrEmpty(sipResponse.Body)) {
+                    var sdpLines = sipResponse.Body.Split('\n');
+                    var connectionLine = sdpLines.FirstOrDefault(l => l.StartsWith("c=")) ?? "c=(not found)";
+                    var mediaLine = sdpLines.FirstOrDefault(l => l.StartsWith("m=audio")) ?? "m=(not found)";
+                    _logger.LogDebug($"200 OK SDP: {connectionLine.Trim()}, {mediaLine.Trim()}");
+                }
+            }
+
             if (_homerSIPClient != null) {
             }
         }        

@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Mvc;
 using AI.Caller.Phone.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.AspNetCore.Authorization;
 
 namespace AI.Caller.Phone.Controllers {
+    [Authorize]
     public class AICustomerServiceController : Controller {
         private readonly IAICustomerServiceSettingsProvider _settingsProvider;
         private readonly AppDbContext _context;

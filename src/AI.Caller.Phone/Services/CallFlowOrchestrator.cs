@@ -21,7 +21,7 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
     }
 
     public async Task HandleInboundCallAsync(CallContext callContext) {
-        await Task.Delay(1000);
+        await Task.Delay(200);
         using var scope = _scopeFactory.CreateScope();
         var settingProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -76,7 +76,7 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
 
         _logger.LogInformation("Finished playing initial TTS for call {CallId}", callContext.CallId);
         
-        _ttsPlayer.StopPlayout(callContext.Callee.User);
+        await _ttsPlayer.StopPlayoutAsync(callContext.Callee.User);
         
         await _callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
     }

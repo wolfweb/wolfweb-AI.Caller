@@ -44,11 +44,13 @@ public class TtsPlayerService : ITtsPlayerService {
         return ttsGenerationTime;
     }
 
-    public void StopPlayout(User user) {
+    public async Task StopPlayoutAsync(User user) {
         var session = _aiCustomerServiceManager.GetActiveSession(user.Id);
         if (session != null) {
             session.AutoResponder.SignalPlayoutComplete();
             _logger.LogInformation("Signaled playout completion for user {UserId}.", user.Id);
+            await Task.Delay(200);
+            await _aiCustomerServiceManager.StopAICustomerServiceAsync(user.Id);
         } else {
             _logger.LogWarning("No active session found for user {UserId} when trying to stop playout.", user.Id);
         }

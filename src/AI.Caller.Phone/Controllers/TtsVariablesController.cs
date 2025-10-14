@@ -2,8 +2,6 @@ using AI.Caller.Phone.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace AI.Caller.Phone.Controllers {
     [Authorize]

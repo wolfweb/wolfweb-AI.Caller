@@ -111,7 +111,7 @@ public class CallProcessor : ICallProcessor {
                         await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sipClient!, ttsTemplate.SpeechRate);
                     }
 
-                    ttsPlayer.StopPlayout(agent);
+                    await ttsPlayer.StopPlayoutAsync(agent);
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Error starting AI Customer Service after call answered for CallLogId {CallLogId}.", callLogId);
                     tcs.TrySetResult(new CallResult { Status = CallOutcome.Failed, FailureReason = ex.Message });
