@@ -138,7 +138,7 @@ namespace AI.Caller.Core {
 
             EnsureMediaSessionInitialized();
             
-            _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+            _mediaManager!.InitializePeerConnection();
             await _mediaManager.InitializeMediaSession();
 
             m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
@@ -166,20 +166,20 @@ namespace AI.Caller.Core {
         public void AddIceCandidate(RTCIceCandidateInit candidate) {
             EnsureMediaSessionInitialized();
             if (_mediaManager != null) {
-                _mediaManager?.InitializePeerConnection(GetRTCConfiguration());
-                _mediaManager?.AddIceCandidate(candidate);
+                _mediaManager.InitializePeerConnection();
+                _mediaManager.AddIceCandidate(candidate);
             }
         }
 
         public void SetRemoteDescription(RTCSessionDescriptionInit description) {
             EnsureMediaSessionInitialized();
-            _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+            _mediaManager!.InitializePeerConnection();
             _mediaManager.SetWebRtcRemoteDescription(description);
         }
 
         public async Task<RTCSessionDescriptionInit> CreateOfferAsync() {
             EnsureMediaSessionInitialized();
-            _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+            _mediaManager!.InitializePeerConnection();
             await _mediaManager.InitializeMediaSession();
             return await _mediaManager.CreateOfferAsync();
         }
@@ -187,7 +187,7 @@ namespace AI.Caller.Core {
         public async Task<RTCSessionDescriptionInit?> OfferAsync(RTCSessionDescriptionInit sdpOffer) {
             try {
                 EnsureMediaSessionInitialized();
-                _mediaManager!.InitializePeerConnection(GetRTCConfiguration());
+                _mediaManager!.InitializePeerConnection();
                 await _mediaManager.InitializeMediaSession();
                 _mediaManager.SetWebRtcRemoteDescription(sdpOffer);
                 return await _mediaManager.CreateAnswerAsync(); // This will trigger SdpAnswerGenerated event
@@ -252,37 +252,6 @@ namespace AI.Caller.Core {
             Hangup();
             _mediaManager?.Cancel();
             UnregisterFromNetworkMonitoring();
-        }
-
-        private RTCConfiguration GetRTCConfiguration() {
-            var iceServers = new List<RTCIceServer>();
-
-            if (_webRTCSettings != null && _webRTCSettings.IceServers != null && _webRTCSettings.IceServers.Count > 0) {
-                try {
-                    iceServers.AddRange(_webRTCSettings.GetRTCIceServers());
-                    _logger.LogDebug($"Using {iceServers.Count} configured ICE servers for WebRTC");
-                } catch (ArgumentException ex) {
-                    _logger.LogError(ex, "Failed to convert WebRTC settings to RTCIceServer instances. Using default STUN server.");
-                }
-            }
-
-            if (iceServers.Count == 0) {
-                _logger.LogWarning("No ICE servers configured, using default STUN server");
-            }
-
-            var iceTransportPolicy = RTCIceTransportPolicy.all;
-            if (_webRTCSettings != null &&
-                !string.IsNullOrEmpty(_webRTCSettings.IceTransportPolicy) &&
-                _webRTCSettings.IceTransportPolicy.Equals("relay", StringComparison.OrdinalIgnoreCase)) {
-                iceTransportPolicy = RTCIceTransportPolicy.relay;
-                _logger.LogDebug("Using 'relay' ICE transport policy");
-            }
-
-            return new RTCConfiguration {
-                iceServers = iceServers.ToList(),
-                iceTransportPolicy = iceTransportPolicy,
-                X_DisableExtendedMasterSecretKey = true
-            };
         }
 
         private void OnCallTrying(ISIPClientUserAgent uac, SIPResponse sipResponse) {
@@ -454,7 +423,7 @@ namespace AI.Caller.Core {
 
         private void EnsureMediaSessionInitialized() {
             if (_mediaManager == null) {
-                _mediaManager = new MediaSessionManager(_logger, _enableWebRtcBridging);
+                _mediaManager = new MediaSessionManager(_logger, _enableWebRtcBridging, _webRTCSettings);
                 SetupMediaSessionEvents();
                 _logger.LogDebug($"Created new MediaSessionManager for call (WebRTC bridging: {_enableWebRtcBridging})");
             }

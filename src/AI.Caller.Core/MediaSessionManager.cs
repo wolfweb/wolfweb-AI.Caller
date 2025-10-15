@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
@@ -7,7 +8,7 @@ using System.Net;
 namespace AI.Caller.Core {
     public class MediaSessionManager : IDisposable {
         private const uint PCMA_SAMPLES_PER_20MS_FRAME = 160;
-        private RTPSession? _mediaSession;
+        private VoIPMediaSession? _voipSession;
         private RTCPeerConnection? _peerConnection;
         private readonly object _lock = new object();
         private bool _disposed = false;
@@ -15,6 +16,7 @@ namespace AI.Caller.Core {
         private readonly ILogger _logger;
         private IAudioBridge? _audioBridge;
         private readonly bool _enableWebRtcBridging;
+        private readonly WebRTCSettings? _webRTCSettings;
 
         public event Action<RTCSessionDescriptionInit>? SdpOfferGenerated;
         public event Action<RTCSessionDescriptionInit>? SdpAnswerGenerated;
@@ -25,13 +27,14 @@ namespace AI.Caller.Core {
 
         public event Action<RTCPeerConnectionState>? ConnectionStateChanged;
 
-        public RTPSession? MediaSession => _mediaSession;
+        public IMediaSession? MediaSession => _voipSession;
 
         public RTCPeerConnection? PeerConnection => _peerConnection;
 
-        public MediaSessionManager(ILogger logger, bool enableWebRtcBridging = true) {
+        public MediaSessionManager(ILogger logger, bool enableWebRtcBridging = true, WebRTCSettings? webRTCSettings = null) {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _enableWebRtcBridging = enableWebRtcBridging;
+            _webRTCSettings = webRTCSettings;
         }
 
         public void SetAudioBridge(IAudioBridge audioBridge) {
@@ -40,14 +43,14 @@ namespace AI.Caller.Core {
         }
 
         public void SendAudioFrame(byte[] audioFrame) {
-            if (_disposed || _mediaSession == null || _mediaSession.IsClosed) {
-                _logger.LogWarning($"send audio data exception, _disposed=>{_disposed}, _mediaSession is null=>{_mediaSession==null}, _mediaSession isClosed=>{_mediaSession?.IsClosed}");
+            if (_disposed || _voipSession == null || _voipSession.IsClosed) {
+                _logger.LogWarning($"send audio data exception, _disposed=>{_disposed}, _voipSession is null=>{_voipSession==null}, _voipSession isClosed=>{_voipSession?.IsClosed}");
                 return;
             }
 
             if (audioFrame != null && audioFrame.Length > 0) {
-                _mediaSession.SendAudio(PCMA_SAMPLES_PER_20MS_FRAME, audioFrame);                
-                if (_mediaSession.AudioDestinationEndPoint != null) {
+                _voipSession.SendAudio(PCMA_SAMPLES_PER_20MS_FRAME, audioFrame);                
+                if (_voipSession.AudioDestinationEndPoint != null) {
                     var rtpPacket = new RTPPacket {
                         Header = new RTPHeader {
                             Timestamp = (uint)DateTime.UtcNow.Ticks,
@@ -56,7 +59,7 @@ namespace AI.Caller.Core {
                         Payload = audioFrame
                     };
                     AudioDataSent?.Invoke(
-                        _mediaSession.AudioDestinationEndPoint, 
+                        _voipSession.AudioDestinationEndPoint, 
                         SDPMediaTypesEnum.audio, 
                         rtpPacket
                     );
@@ -67,18 +70,18 @@ namespace AI.Caller.Core {
         public async Task InitializeMediaSession() {
             ThrowIfDisposed();
 
-            RTPSession? tempMediaSession = null;
+            VoIPMediaSession? tempVoipSession = null;
 
             lock (_lock) {
-                if (_mediaSession != null) {
-                    _logger.LogDebug("MediaSession already initialized, skipping.");
+                if (_voipSession != null) {
+                    _logger.LogDebug("VoIPMediaSession already initialized, skipping.");
                     return;
                 }
 
                 try {
-                    tempMediaSession = new RTPSession(false, true, false);
-                    tempMediaSession.AcceptRtpFromAny = true;
-
+                    tempVoipSession = new VoIPMediaSession(new MediaEndPoints());
+                    tempVoipSession.AcceptRtpFromAny = true;
+                    
                     var audioTrack = new MediaStreamTrack(
                         SDPMediaTypesEnum.audio,
                         false,
@@ -88,37 +91,41 @@ namespace AI.Caller.Core {
                         ]
                     );
 
-                    tempMediaSession.addTrack(audioTrack);
-                    tempMediaSession.OnRtpPacketReceived += OnRtpPacketReceived;
+                    tempVoipSession.addTrack(audioTrack);
+                    tempVoipSession.OnRtpPacketReceived += OnRtpPacketReceived;
 
-                    _mediaSession = tempMediaSession;
-                    tempMediaSession = null; // Prevent disposal in catch block
+                    _voipSession = tempVoipSession;
+                    tempVoipSession = null; // Prevent disposal in catch block
 
-                    _logger.LogInformation("MediaSession initialized successfully.");
+                    _logger.LogInformation("VoIPMediaSession initialized successfully.");
                 } catch (Exception ex) {
-                    _logger.LogError(ex, "Failed to initialize MediaSession");
+                    _logger.LogError(ex, "Failed to initialize VoIPMediaSession");
 
-                    tempMediaSession?.Dispose();
-                    _mediaSession = null;
+                    tempVoipSession?.Dispose();
+                    _voipSession = null;
                     throw;
                 }
             }
 
             try {
-                await _mediaSession.Start();
-                _logger.LogInformation("MediaSession started successfully.");
+                await _voipSession.Start();
+                _logger.LogInformation("VoIPMediaSession started successfully.");
             } catch (Exception ex) {
-                _logger.LogError(ex, "Failed to start MediaSession");
+                _logger.LogError(ex, "Failed to start VoIPMediaSession");
 
                 lock (_lock) {
-                    if (_mediaSession != null) {
-                        _mediaSession.OnRtpPacketReceived -= OnRtpPacketReceived;
-                        _mediaSession.Dispose();
-                        _mediaSession = null;
+                    if (_voipSession != null) {
+                        _voipSession.OnRtpPacketReceived -= OnRtpPacketReceived;
+                        _voipSession.Dispose();
+                        _voipSession = null;
                     }
                 }
                 throw;
             }
+        }
+
+        public void InitializePeerConnection() {
+            InitializePeerConnection(BuildRTCConfiguration());
         }
 
         public void InitializePeerConnection(RTCConfiguration config) {
@@ -208,15 +215,15 @@ namespace AI.Caller.Core {
             ThrowIfDisposed();
             ArgumentNullException.ThrowIfNull(description);
 
-            if (_mediaSession == null) {
-                _logger.LogDebug("MediaSession not initialized, initializing now for SIP remote description.");
+            if (_voipSession == null) {
+                _logger.LogDebug("VoIPMediaSession not initialized, initializing now for SIP remote description.");
                 await InitializeMediaSession();
             }
 
             try {
                 var sdp = SDP.ParseSDPDescription(description.sdp);
-                _mediaSession!.SetRemoteDescription(description.type == RTCSdpType.offer ? SdpType.offer : SdpType.answer, sdp);
-                _logger.LogDebug($"Set SIP remote description ({description.type}) successfully on RTPSession.");
+                _voipSession!.SetRemoteDescription(description.type == RTCSdpType.offer ? SdpType.offer : SdpType.answer, sdp);
+                _logger.LogDebug($"Set SIP remote description ({description.type}) successfully on VoIPMediaSession.");
 
                 //if (sdp.Connection != null && sdp.Media != null) {
                 //    var audioMedia = sdp.Media.FirstOrDefault(m => m.Media == SDPMediaTypesEnum.audio);
@@ -225,10 +232,10 @@ namespace AI.Caller.Core {
                 //            IPAddress.Parse(sdp.Connection.ConnectionAddress),
                 //            audioMedia.Port
                 //        );
-                //        _mediaSession.SetDestination(SDPMediaTypesEnum.audio, remoteEndPoint, remoteEndPoint);
-                //        _logger.LogDebug($"Configured RTPSession destination to {remoteEndPoint} for audio.");
+                //        _voipSession.SetDestination(SDPMediaTypesEnum.audio, remoteEndPoint, remoteEndPoint);
+                //        _logger.LogDebug($"Configured VoIPMediaSession destination to {remoteEndPoint} for audio.");
                 //    } else {
-                //        _logger.LogWarning("No valid audio media found in SDP, cannot set RTPSession destination.");
+                //        _logger.LogWarning("No valid audio media found in SDP, cannot set VoIPMediaSession destination.");
                 //    }
                 //} else {
                 //    _logger.LogWarning("Invalid SDP: missing connection or media information.");
@@ -240,8 +247,8 @@ namespace AI.Caller.Core {
         }
 
         public void Cancel() {
-            if (_mediaSession != null) {
-                _mediaSession.OnRtpPacketReceived -= OnRtpPacketReceived;
+            if (_voipSession != null) {
+                _voipSession.OnRtpPacketReceived -= OnRtpPacketReceived;
             }
             if (_peerConnection != null) {
                 _peerConnection.OnRtpPacketReceived -= OnForwardMediaToSIP;
@@ -297,10 +304,10 @@ namespace AI.Caller.Core {
                 _logger.LogDebug("Generated and set SDP Answer for RTCPeerConnection.");
 
                 lock (_lock) {
-                    if (_mediaSession != null) {
+                    if (_voipSession != null) {
                         var rtpAnswerSdp = SDP.ParseSDPDescription(answerSdp.sdp);
-                        _mediaSession.SetRemoteDescription(SdpType.answer, rtpAnswerSdp);
-                        _logger.LogDebug("Set SDP Answer for RTPSession.");
+                        _voipSession.SetRemoteDescription(SdpType.answer, rtpAnswerSdp);
+                        _logger.LogDebug("Set SDP Answer for VoIPMediaSession.");
                     }
                 }
 
@@ -387,14 +394,14 @@ namespace AI.Caller.Core {
                     AudioDataReceived = null;
                     ConnectionStateChanged = null;
 
-                    if (_mediaSession != null) {
+                    if (_voipSession != null) {
                         try {
-                            _mediaSession.OnRtpPacketReceived -= OnRtpPacketReceived;
-                            _mediaSession.Dispose();
+                            _voipSession.OnRtpPacketReceived -= OnRtpPacketReceived;
+                            _voipSession.Dispose();
                         } catch (Exception ex) {
-                            _logger.LogError(ex, "Error disposing MediaSession");
+                            _logger.LogError(ex, "Error disposing VoIPMediaSession");
                         } finally {
-                            _mediaSession = null;
+                            _voipSession = null;
                         }
                     }
 
@@ -419,6 +426,38 @@ namespace AI.Caller.Core {
         }
 
 
+        private RTCConfiguration BuildRTCConfiguration() {
+            var iceServers = new List<RTCIceServer>();
+
+            if (_webRTCSettings != null && _webRTCSettings.IceServers != null && _webRTCSettings.IceServers.Count > 0) {
+                try {
+                    iceServers.AddRange(_webRTCSettings.GetRTCIceServers());
+                    _logger.LogDebug($"Using {iceServers.Count} configured ICE servers for RTCPeerConnection");
+                } catch (ArgumentException ex) {
+                    _logger.LogError(ex, "Failed to convert WebRTC settings to RTCIceServer instances. Using default STUN server.");
+                }
+            }
+
+            if (iceServers.Count == 0) {
+                _logger.LogDebug("No ICE servers configured, using default STUN server");
+                iceServers.Add(new RTCIceServer { urls = "stun:stun.l.google.com:19302" });
+            }
+
+            var iceTransportPolicy = RTCIceTransportPolicy.all;
+            if (_webRTCSettings != null &&
+                !string.IsNullOrEmpty(_webRTCSettings.IceTransportPolicy) &&
+                _webRTCSettings.IceTransportPolicy.Equals("relay", StringComparison.OrdinalIgnoreCase)) {
+                iceTransportPolicy = RTCIceTransportPolicy.relay;
+                _logger.LogDebug("Using 'relay' ICE transport policy");
+            }
+
+            return new RTCConfiguration {
+                iceServers = iceServers,
+                iceTransportPolicy = iceTransportPolicy,
+                X_DisableExtendedMasterSecretKey = true
+            };
+        }
+
         private async Task EnsurePeerConnectionInitializedAsync() {
             if (!_enableWebRtcBridging) {
                 _logger.LogDebug("WebRTC bridging disabled, skipping RTCPeerConnection initialization");
@@ -430,18 +469,12 @@ namespace AI.Caller.Core {
                     return;
                 }
             }
-            if (_mediaSession == null) {
+            if (_voipSession == null) {
                 await InitializeMediaSession();
             }
 
-            var defaultConfig = new RTCConfiguration {
-                iceServers = new List<RTCIceServer> {
-                    new RTCIceServer { urls = "stun:stun.l.google.com:19302" }
-                }
-            };
-
-            InitializePeerConnection(defaultConfig);
-            _logger.LogDebug("RTCPeerConnection auto-initialized with default configuration");
+            InitializePeerConnection();
+            _logger.LogDebug("RTCPeerConnection auto-initialized with configuration");
         }
 
         private void OnRtpPacketReceived(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
@@ -485,20 +518,20 @@ namespace AI.Caller.Core {
                     return;
                 }
 
-                if (_enableWebRtcBridging && _mediaSession != null && !_mediaSession.IsClosed) {
-                    var sendToEndPoint = _mediaSession.AudioDestinationEndPoint;
+                if (_enableWebRtcBridging && _voipSession != null && !_voipSession.IsClosed) {
+                    var sendToEndPoint = _voipSession.AudioDestinationEndPoint;
                     if (sendToEndPoint != null) {
-                        _mediaSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
+                        _voipSession.SendAudio((uint)rtpPacket.Payload.Length, rtpPacket.Payload);
                         _logger.LogTrace($"Forwarded WebRTC audio to SIP: {rtpPacket.Payload.Length} bytes from {remote} to {sendToEndPoint}");
                         AudioDataSent?.Invoke(remote, mediaType, rtpPacket);
                     }
                 } else if (!_enableWebRtcBridging) {
                     _logger.LogTrace("WebRTC bridging disabled, skipping SIP audio forwarding");
                 } else {
-                    if (_mediaSession == null) {
-                        _logger.LogError("*** MEDIA SESSION NULL *** Cannot forward audio to SIP - MediaSession not initialized");
-                    } else if (_mediaSession.IsClosed) {
-                        _logger.LogWarning("*** MEDIA SESSION CLOSED *** Cannot forward audio to SIP - MediaSession was closed");
+                    if (_voipSession == null) {
+                        _logger.LogError("*** VOIP SESSION NULL *** Cannot forward audio to SIP - VoIPMediaSession not initialized");
+                    } else if (_voipSession.IsClosed) {
+                        _logger.LogWarning("*** VOIP SESSION CLOSED *** Cannot forward audio to SIP - VoIPMediaSession was closed");
                     }
                 }
             } catch (Exception ex) {
