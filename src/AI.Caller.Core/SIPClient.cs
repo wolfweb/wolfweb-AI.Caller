@@ -98,7 +98,7 @@ namespace AI.Caller.Core {
             EnsureMediaSessionInitialized();
 
             StatusMessage?.Invoke(this, "Initializing SIP media session...");
-            await _mediaManager!.InitializeMediaSession();
+            _mediaManager!.InitializeMediaSession();
 
             StatusMessage?.Invoke(this, "SIP media session initialized, RTCPeerConnection will be created when needed.");
             _logger.LogDebug("MediaSessionManager ready, RTCPeerConnection will be lazy-initialized");
@@ -108,6 +108,7 @@ namespace AI.Caller.Core {
 
             StatusMessage?.Invoke(this, "Starting SIP call...");
             await m_userAgent.InitiateCallAsync(callDescriptor, _mediaManager.MediaSession);
+            await _mediaManager.MediaSession!.Start();
         }
 
         public void Cancel() {
@@ -139,7 +140,7 @@ namespace AI.Caller.Core {
             EnsureMediaSessionInitialized();
             
             _mediaManager!.InitializePeerConnection();
-            await _mediaManager.InitializeMediaSession();
+            _mediaManager.InitializeMediaSession();
 
             m_userAgent.RemotePutOnHold += OnRemotePutOnHold;
             m_userAgent.RemoteTookOffHold += OnRemoteTookOffHold;
@@ -151,6 +152,7 @@ namespace AI.Caller.Core {
             if (!result) {
                 _logger.LogError($"*** ANSWER FAILED *** CallId: {sipRequest.Header.CallId}");
             } else {
+                await _mediaManager.MediaSession!.Start();
                 _logger.LogDebug($"*** CALL ANSWERED *** CallId: {sipRequest.Header.CallId}");
             }
             
@@ -180,7 +182,7 @@ namespace AI.Caller.Core {
         public async Task<RTCSessionDescriptionInit> CreateOfferAsync() {
             EnsureMediaSessionInitialized();
             _mediaManager!.InitializePeerConnection();
-            await _mediaManager.InitializeMediaSession();
+            _mediaManager.InitializeMediaSession();
             return await _mediaManager.CreateOfferAsync();
         }
 
@@ -188,7 +190,7 @@ namespace AI.Caller.Core {
             try {
                 EnsureMediaSessionInitialized();
                 _mediaManager!.InitializePeerConnection();
-                await _mediaManager.InitializeMediaSession();
+                _mediaManager.InitializeMediaSession();
                 _mediaManager.SetWebRtcRemoteDescription(sdpOffer);
                 return await _mediaManager.CreateAnswerAsync(); // This will trigger SdpAnswerGenerated event
             } catch (Exception ex) {
@@ -263,7 +265,7 @@ namespace AI.Caller.Core {
             }
         }
 
-        private async void OnCallRinging(ISIPClientUserAgent uac, SIPResponse sipResponse) {
+        private void OnCallRinging(ISIPClientUserAgent uac, SIPResponse sipResponse) {
             StatusMessage?.Invoke(this, "Call ringing: " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
 
             if (!string.IsNullOrEmpty(sipResponse.Body)) {
@@ -276,7 +278,7 @@ namespace AI.Caller.Core {
                     type = RTCSdpType.answer,
                     sdp = sipResponse.Body
                 };
-                await _mediaManager!.SetSipRemoteDescriptionAsync(remoteAnswer);
+                _mediaManager!.SetSipRemoteDescription(remoteAnswer);
                 _lastRemoteSdp = sipResponse.Body;
                 _logger.LogDebug("Processed new SDP in ringing response");
             }
@@ -288,7 +290,7 @@ namespace AI.Caller.Core {
             Shutdown();
         }
 
-        private async void OnCallAnswered(ISIPClientUserAgent uac, SIPResponse response) {
+        private void OnCallAnswered(ISIPClientUserAgent uac, SIPResponse response) {
             StatusMessage?.Invoke(this, "Call answered: " + response.StatusCode + " " + response.ReasonPhrase + ".");
 
             if (!string.IsNullOrEmpty(response.Body)) {
@@ -299,7 +301,7 @@ namespace AI.Caller.Core {
                         type = RTCSdpType.answer,
                         sdp = response.Body
                     };
-                    await _mediaManager!.SetSipRemoteDescriptionAsync(remoteAnswer);
+                    _mediaManager!.SetSipRemoteDescription(remoteAnswer);
                     _lastRemoteSdp = response.Body;
                     _logger.LogDebug("Processed new SDP in call answered response");
                 }

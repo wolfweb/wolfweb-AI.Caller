@@ -18,11 +18,11 @@ public class PerformanceTests : IDisposable {
     }
 
     [Fact]
-    public async Task MediaSessionManager_InitializeMediaSession_ShouldCompleteWithinTimeLimit() {
+    public void MediaSessionManager_InitializeMediaSession_ShouldCompleteWithinTimeLimit() {
         var mediaManager = new MediaSessionManager(_mockLogger.Object);
         var stopwatch = Stopwatch.StartNew();
 
-        await mediaManager.InitializeMediaSession();
+        mediaManager.InitializeMediaSession();
         
         stopwatch.Stop();
         Assert.True(stopwatch.ElapsedMilliseconds < 5000, $"MediaSession initialization took {stopwatch.ElapsedMilliseconds}ms, expected < 5000ms");
@@ -33,7 +33,7 @@ public class PerformanceTests : IDisposable {
     [Fact]
     public async Task MediaSessionManager_CreateOfferAsync_ShouldCompleteWithinTimeLimit() {
         var mediaManager = new MediaSessionManager(_mockLogger.Object);
-        await mediaManager.InitializeMediaSession();
+        mediaManager.InitializeMediaSession();
         
         var config = new RTCConfiguration {
             iceServers = new List<RTCIceServer> {
@@ -58,8 +58,8 @@ public class PerformanceTests : IDisposable {
         var tasks = new List<Task>();
 
         for (int i = 0; i < 10; i++) {
-            tasks.Add(Task.Run(async () => {
-                await mediaManager.InitializeMediaSession();
+            tasks.Add(Task.Run(() => {
+                mediaManager.InitializeMediaSession();
             }));
         }
 
@@ -98,7 +98,7 @@ public class PerformanceTests : IDisposable {
         
         for (int i = 0; i < 50; i++) {
             var mediaManager = new MediaSessionManager(_mockLogger.Object);
-            await mediaManager.InitializeMediaSession();
+            mediaManager.InitializeMediaSession();
             mediaManager.Dispose();
         }
 

@@ -29,8 +29,8 @@ public class CoreCallFlowTests : IDisposable {
 
         try {
 
-            await callerMedia.InitializeMediaSession();
-            await calleeMedia.InitializeMediaSession();
+            callerMedia.InitializeMediaSession();
+            calleeMedia.InitializeMediaSession();
 
             callerMedia.InitializePeerConnection(new RTCConfiguration());
             calleeMedia.InitializePeerConnection(new RTCConfiguration());
@@ -69,8 +69,8 @@ public class CoreCallFlowTests : IDisposable {
         var calleeMedia = new MediaSessionManager(_mediaLogger);
 
         try {
-            await callerMedia.InitializeMediaSession();
-            await calleeMedia.InitializeMediaSession();
+            callerMedia.InitializeMediaSession();
+            calleeMedia.InitializeMediaSession();
 
             callerMedia.InitializePeerConnection(new RTCConfiguration());
             calleeMedia.InitializePeerConnection(new RTCConfiguration());
@@ -111,7 +111,7 @@ public class CoreCallFlowTests : IDisposable {
         var mobileNumber = "+8613800138000";
 
         try {
-            await webMedia.InitializeMediaSession();
+            webMedia.InitializeMediaSession();
             webMedia.InitializePeerConnection(new RTCConfiguration());
 
 
@@ -133,7 +133,7 @@ public class CoreCallFlowTests : IDisposable {
             };
 
 
-            await webMedia.SetSipRemoteDescriptionAsync(mobileAnswer);
+            webMedia.SetSipRemoteDescription(mobileAnswer);
 
 
             Assert.NotNull(offer);
@@ -153,7 +153,7 @@ public class CoreCallFlowTests : IDisposable {
         var webMedia = new MediaSessionManager(_mediaLogger);
 
         try {
-            await webMedia.InitializeMediaSession();
+            webMedia.InitializeMediaSession();
             webMedia.InitializePeerConnection(new RTCConfiguration());
 
 
@@ -177,7 +177,7 @@ a=sendrecv";
             };
 
 
-            await webMedia.SetSipRemoteDescriptionAsync(pstnAnswer);
+            webMedia.SetSipRemoteDescription(pstnAnswer);
 
 
             Assert.Contains("PCMU", pstnAnswerSdp);
@@ -203,7 +203,7 @@ a=sendrecv";
         var mobileNumber = "+8613800138000";
 
         try {
-            await webMedia.InitializeMediaSession();
+            webMedia.InitializeMediaSession();
             webMedia.InitializePeerConnection(new RTCConfiguration());
 
 
@@ -253,7 +253,7 @@ a=sendrecv";
         var webMedia = new MediaSessionManager(_mediaLogger);
 
         try {
-            await webMedia.InitializeMediaSession();
+            webMedia.InitializeMediaSession();
             webMedia.InitializePeerConnection(new RTCConfiguration());
 
 
@@ -327,7 +327,7 @@ a=sendrecv";
         var mediaManager = new MediaSessionManager(_mediaLogger);
 
         try {
-            await mediaManager.InitializeMediaSession();
+            mediaManager.InitializeMediaSession();
             mediaManager.InitializePeerConnection(new RTCConfiguration());
 
 
@@ -351,7 +351,7 @@ a=sendrecv";
         var mediaManager = new MediaSessionManager(_mediaLogger);
 
         try {
-            await mediaManager.InitializeMediaSession();
+            mediaManager.InitializeMediaSession();
             mediaManager.InitializePeerConnection(new RTCConfiguration());
 
 
@@ -360,7 +360,7 @@ a=sendrecv";
 
 
             var remoteMedia = new MediaSessionManager(_mediaLogger);
-            await remoteMedia.InitializeMediaSession();
+            remoteMedia.InitializeMediaSession();
             remoteMedia.InitializePeerConnection(new RTCConfiguration());
 
 

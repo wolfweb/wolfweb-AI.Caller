@@ -117,7 +117,7 @@ public class RealCoreBusinessScenarioTests : IDisposable {
             Assert.NotNull(webMediaManager);
 
 
-            await webMediaManager.InitializeMediaSession();
+            webMediaManager.InitializeMediaSession();
             webMediaManager.InitializePeerConnection(new RTCConfiguration());
 
 
@@ -146,7 +146,7 @@ a=sendrecv";
             };
 
 
-            await webMediaManager.SetSipRemoteDescriptionAsync(pstnAnswer);
+            webMediaManager.SetSipRemoteDescription(pstnAnswer);
             _sipClientLogger.LogInformation("Web2Mobile外呼 - PSTN SDP Answer设置成功");
 
 
@@ -187,7 +187,7 @@ a=sendrecv";
             webClient.Accept(mockMobileInviteRequest);
 
 
-            await webMediaManager.InitializeMediaSession();
+            webMediaManager.InitializeMediaSession();
             webMediaManager.InitializePeerConnection(new RTCConfiguration());
 
 

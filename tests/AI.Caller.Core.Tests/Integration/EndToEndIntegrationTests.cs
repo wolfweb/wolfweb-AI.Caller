@@ -60,8 +60,8 @@ public class EndToEndIntegrationTests : IDisposable {
         var calleeMedia = new MediaSessionManager(_mockLogger.Object);
 
         try {
-            await callerMedia.InitializeMediaSession();
-            await calleeMedia.InitializeMediaSession();
+            callerMedia.InitializeMediaSession();
+            calleeMedia.InitializeMediaSession();
 
             var config = new RTCConfiguration {
                 iceServers = new List<RTCIceServer> {
@@ -127,12 +127,12 @@ public class EndToEndIntegrationTests : IDisposable {
     }
 
     [Fact]
-    public async Task ResourceManagement_CreateAndDisposeMultipleManagers_ShouldNotLeak() {
+    public void ResourceManagement_CreateAndDisposeMultipleManagers_ShouldNotLeak() {
         var managers = new List<MediaSessionManager>();
 
         for (int i = 0; i < 20; i++) {
             var manager = new MediaSessionManager(_mockLogger.Object);
-            await manager.InitializeMediaSession();
+            manager.InitializeMediaSession();
             managers.Add(manager);
         }
 

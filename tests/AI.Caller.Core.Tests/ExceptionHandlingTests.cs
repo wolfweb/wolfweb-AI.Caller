@@ -49,12 +49,12 @@ public class ExceptionHandlingTests : IDisposable {
     }
 
     [Fact]
-    public async Task MediaSessionManager_InitializeMediaSession_WhenAlreadyInitialized_ShouldNotThrow() {
+    public void MediaSessionManager_InitializeMediaSession_WhenAlreadyInitialized_ShouldNotThrow() {
         var mediaManager = new MediaSessionManager(_mockLogger.Object);
 
-        await mediaManager.InitializeMediaSession();
-        var exception = await Record.ExceptionAsync(async () => {
-            await mediaManager.InitializeMediaSession();
+        mediaManager.InitializeMediaSession();
+        var exception = Record.Exception(() => {
+            mediaManager.InitializeMediaSession();
         });
 
         Assert.Null(exception);

@@ -67,7 +67,7 @@ namespace AI.Caller.Core {
             }
         }
 
-        public async Task InitializeMediaSession() {
+        public void InitializeMediaSession() {
             ThrowIfDisposed();
 
             VoIPMediaSession? tempVoipSession = null;
@@ -79,7 +79,7 @@ namespace AI.Caller.Core {
                 }
 
                 try {
-                    tempVoipSession = new VoIPMediaSession(new MediaEndPoints());
+                    tempVoipSession = new VoIPMediaSession(new MediaEndPoints() );
                     tempVoipSession.AcceptRtpFromAny = true;
                     
                     var audioTrack = new MediaStreamTrack(
@@ -105,22 +105,6 @@ namespace AI.Caller.Core {
                     _voipSession = null;
                     throw;
                 }
-            }
-
-            try {
-                await _voipSession.Start();
-                _logger.LogInformation("VoIPMediaSession started successfully.");
-            } catch (Exception ex) {
-                _logger.LogError(ex, "Failed to start VoIPMediaSession");
-
-                lock (_lock) {
-                    if (_voipSession != null) {
-                        _voipSession.OnRtpPacketReceived -= OnRtpPacketReceived;
-                        _voipSession.Dispose();
-                        _voipSession = null;
-                    }
-                }
-                throw;
             }
         }
 
@@ -211,13 +195,13 @@ namespace AI.Caller.Core {
             }
         }
 
-        public async Task SetSipRemoteDescriptionAsync(RTCSessionDescriptionInit description) {
+        public void SetSipRemoteDescription(RTCSessionDescriptionInit description) {
             ThrowIfDisposed();
             ArgumentNullException.ThrowIfNull(description);
 
             if (_voipSession == null) {
                 _logger.LogDebug("VoIPMediaSession not initialized, initializing now for SIP remote description.");
-                await InitializeMediaSession();
+                InitializeMediaSession();
             }
 
             try {
@@ -258,7 +242,7 @@ namespace AI.Caller.Core {
         public async Task<RTCSessionDescriptionInit> CreateOfferAsync() {
             ThrowIfDisposed();
 
-            await EnsurePeerConnectionInitializedAsync();
+            EnsurePeerConnectionInitialized();
 
             lock (_lock) {
                 if (_peerConnection == null) {
@@ -290,7 +274,7 @@ namespace AI.Caller.Core {
         public async Task<RTCSessionDescriptionInit> CreateAnswerAsync() {
             ThrowIfDisposed();
 
-            await EnsurePeerConnectionInitializedAsync();
+            EnsurePeerConnectionInitialized();
 
             lock (_lock) {
                 if (_peerConnection == null) {
@@ -458,7 +442,7 @@ namespace AI.Caller.Core {
             };
         }
 
-        private async Task EnsurePeerConnectionInitializedAsync() {
+        private void EnsurePeerConnectionInitialized() {
             if (!_enableWebRtcBridging) {
                 _logger.LogDebug("WebRTC bridging disabled, skipping RTCPeerConnection initialization");
                 return;
@@ -470,7 +454,7 @@ namespace AI.Caller.Core {
                 }
             }
             if (_voipSession == null) {
-                await InitializeMediaSession();
+                InitializeMediaSession();
             }
 
             InitializePeerConnection();

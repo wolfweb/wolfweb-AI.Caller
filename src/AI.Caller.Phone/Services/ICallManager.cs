@@ -526,7 +526,7 @@ namespace AI.Caller.Phone.Services {
             handle.Client.Accept(sipRequest);
 
             var sdp = SDP.ParseSDPDescription(sipRequest.Body);
-            await handle.Client.MediaSessionManager!.SetSipRemoteDescriptionAsync(new RTCSessionDescriptionInit {
+            handle.Client.MediaSessionManager!.SetSipRemoteDescription(new RTCSessionDescriptionInit {
                 type = RTCSdpType.offer,
                 sdp = sipRequest.Body
             });
@@ -776,7 +776,7 @@ namespace AI.Caller.Phone.Services {
             handle.Client.Accept(sipRequest);
 
             var sdp = SDP.ParseSDPDescription(sipRequest.Body);
-            await handle.Client.MediaSessionManager!.SetSipRemoteDescriptionAsync(new RTCSessionDescriptionInit {
+            handle.Client.MediaSessionManager!.SetSipRemoteDescription(new RTCSessionDescriptionInit {
                 type = RTCSdpType.offer,
                 sdp = sipRequest.Body
             });

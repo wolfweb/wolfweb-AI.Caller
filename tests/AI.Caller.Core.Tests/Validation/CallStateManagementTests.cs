@@ -298,7 +298,7 @@ a=sendrecv"
                         };
 
 
-                        await mediaManager.InitializeMediaSession();
+                        mediaManager.InitializeMediaSession();
                         mediaManager.InitializePeerConnection(new RTCConfiguration());
                         mediaManager.SetWebRtcRemoteDescription(mockRemoteOffer);
                         var answer = await mediaManager.CreateAnswerAsync();
