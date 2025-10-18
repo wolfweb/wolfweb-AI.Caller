@@ -1,4 +1,5 @@
 using AI.Caller.Core;
+using AI.Caller.Core.Media;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Services;
 
@@ -14,6 +15,11 @@ namespace AI.Caller.Phone.Models {
         
         public bool          IsActive => State != CallState.Ended && State != CallState.Failed;
         public TimeSpan      Duration => DateTime.UtcNow - CreatedAt;
+        
+        public Timer?        IncomingCallTimeoutTimer { get; set; }
+        public int           IncomingCallTimeoutSeconds { get; set; } = 60; // 默认60秒
+        
+        public RingbackTonePlayer? RingbackPlayer { get; set; }
     }
 
     public class Caller {

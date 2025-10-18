@@ -89,6 +89,16 @@ class SignalRManager {
             this.handleIncomingCall(callData);
         });
 
+        // 呼叫中事件（Trying）
+        this.connection.on("callTrying", (data) => {
+            this.handleCallTrying(data);
+        });
+
+        // 对方振铃事件（Ringing）- 播放回铃音
+        this.connection.on("callRinging", (data) => {
+            this.handleCallRinging(data);
+        });
+
         // 通话接听事件
         this.connection.on("callAnswered", async () => {
             this.handleCallAnswered();
@@ -148,6 +158,15 @@ class SignalRManager {
         console.log("callData.callee:", callData.callee);
         console.log("callData.isExternal:", callData.isExternal);
         console.log("=== 来电数据分析结束 ===");
+        
+        // ===== 第一步：播放来电铃音 =====
+        if (window.ringtoneManager) {
+            console.log('触发来电铃音播放');
+            window.ringtoneManager.play();
+        } else {
+            console.warn('铃音管理器未初始化');
+        }
+        // ================================
         
         try {
             if (!callData || !callData.caller || !callData.callee) {
@@ -214,7 +233,23 @@ class SignalRManager {
         }
     }
 
+    handleCallTrying(data) {
+        console.log('收到 callTrying 事件:', data);
+        this.updateStatus('正在呼叫...', 'info');
+    }
+
+    handleCallRinging(data) {
+        console.log('收到 callRinging 事件:', data);
+        
+        // 回铃音由后端通过 SIP/RTP 发送，前端不再播放
+        console.log('对方振铃中（回铃音由后端 SIP/RTP 发送）');
+        
+        this.updateStatus('对方振铃中...', 'info');
+    }
+
     handleCallAnswered() {
+        // 回铃音由后端控制，前端无需停止
+        
         this.updateStatus('接听成功', 'success');
         this.callStateManager.setState(CallState.CONNECTED);
         this.stopCallTimer();
@@ -224,6 +259,8 @@ class SignalRManager {
     }
 
     handleAnswered() {
+        // 回铃音由后端控制，前端无需停止
+        
         this.updateStatus('通话已接听', 'success');
         this.callStateManager.setState(CallState.CONNECTED);
         this.showCallInfo(false);
@@ -234,10 +271,24 @@ class SignalRManager {
     }
 
     handleCallTimeout() {
-        this.updateStatus('拨打超时', 'warning');
+        console.log('收到来电超时通知');
+        
+        // ===== 停止铃音 =====
+        if (window.ringtoneManager) {
+            console.log('来电超时，停止铃音');
+            window.ringtoneManager.stop();
+        }
+        // ====================
+        
+        this.updateStatus('来电超时未接听', 'warning');
         this.callStateManager.resetToIdle();
         this.showCallInfo(false);
         this.stopCallTimer();
+        
+        // 3秒后恢复就绪状态
+        setTimeout(() => {
+            this.updateStatus('就绪', 'success');
+        }, 3000);
     }
 
     handleSdpAnswered(answerDesc) {

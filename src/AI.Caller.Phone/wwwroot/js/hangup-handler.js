@@ -238,6 +238,13 @@ class HangupHandler {
         this.isHangingUp = false;
         this.hideHangupProgress();
         
+        // ===== 第一步：停止铃音 =====
+        if (window.ringtoneManager) {
+            console.log('通话结束，停止铃音');
+            window.ringtoneManager.stop();
+        }
+        // ==============================
+        
         // 使用现有的clearCallUI函数清理UI（包含状态重置）
         if (this.clearCallUI && typeof this.clearCallUI === 'function') {
             this.clearCallUI();
@@ -279,6 +286,13 @@ class HangupHandler {
     handleRemoteHangup(data) {
         console.log('收到对方挂断通知:', data);
         this.isHangingUp = false;
+        
+        // ===== 第一步：停止铃音 =====
+        if (window.ringtoneManager) {
+            console.log('对方挂断，停止铃音');
+            window.ringtoneManager.stop();
+        }
+        // ==============================
         
         // 使用现有的clearCallUI函数清理UI（包含状态重置）
         if (this.clearCallUI && typeof this.clearCallUI === 'function') {

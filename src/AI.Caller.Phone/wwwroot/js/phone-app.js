@@ -224,6 +224,13 @@ class PhoneApp {
     }
 
     async handleAnswer() {
+        // ===== 第一步：停止铃音 =====
+        if (window.ringtoneManager) {
+            console.log('接听电话，停止铃音');
+            window.ringtoneManager.stop();
+        }
+        // ==============================
+        
         this.uiManager.updateStatus('正在接听...', 'warning');
         try {
             const offerData = this.elements.answerButton.getAttribute('data-offer');

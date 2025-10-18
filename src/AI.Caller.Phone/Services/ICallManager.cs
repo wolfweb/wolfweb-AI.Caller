@@ -4,6 +4,7 @@ using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
+using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
 using System.Collections.Concurrent;
@@ -75,6 +76,18 @@ namespace AI.Caller.Phone.Services {
         public async Task AnswerAsync(string callId, RTCSessionDescriptionInit? answer) {
             if (!_contexts.TryGetValue(callId, out var ctx)) {
                 throw new Exception($"无效的呼叫标识:{callId}");
+            }
+
+            if (ctx.IncomingCallTimeoutTimer != null) {
+                ctx.IncomingCallTimeoutTimer.Dispose();
+                ctx.IncomingCallTimeoutTimer = null;
+            }
+
+            if (ctx.RingbackPlayer != null) {
+                _logger.LogInformation("Stopping ringback tone as call is being answered");
+                ctx.RingbackPlayer.Stop();
+                ctx.RingbackPlayer.Dispose();
+                ctx.RingbackPlayer = null;
             }
 
             if (ctx.Callee == null) throw new Exception($"呼叫上下文被叫不能是空:{callId}");
@@ -190,6 +203,19 @@ namespace AI.Caller.Phone.Services {
             }
 
             var result = await callScenario.HandleInboundCallAsync(sipRequest, routingResult, ctx);
+            
+            if (result && ctx.Callee != null) {
+                ctx.IncomingCallTimeoutTimer = new Timer(
+                    async _ => await HandleIncomingCallTimeoutAsync(ctx.CallId),
+                    null,
+                    TimeSpan.FromSeconds(ctx.IncomingCallTimeoutSeconds),
+                    Timeout.InfiniteTimeSpan
+                );
+                _logger.LogDebug($"来电超时定时器已设置: {ctx.CallId}, 超时时长: {ctx.IncomingCallTimeoutSeconds}秒");
+                
+                StartRingbackTone(ctx);
+            }
+            
             return result;
         }
 
@@ -214,6 +240,13 @@ namespace AI.Caller.Phone.Services {
             var result = await callScenario.HandleOutboundCallAsync(destination, caller, offer, ctx);
             if (!result) throw new Exception($"呼叫失败");
 
+            if (ctx.Caller?.Client?.Client != null) {
+                ctx.Caller.Client.Client.CallRinging += (client) => {
+                    _logger.LogDebug("CallRinging事件触发，启动回铃音: {CallId}", ctx.CallId);
+                    StartRingbackTone(ctx);
+                };
+            }
+
             OnMakeCalled(ctx);
 
             return ctx;
@@ -231,6 +264,19 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void OnHangupCall(CallContext ctx) {
+            if (ctx.IncomingCallTimeoutTimer != null) {
+                ctx.IncomingCallTimeoutTimer.Dispose();
+                ctx.IncomingCallTimeoutTimer = null;
+                _logger.LogDebug($"已清理来电超时定时器: {ctx.CallId}");
+            }
+            
+            if (ctx.RingbackPlayer != null) {
+                _logger.LogInformation("停止回铃音（挂断时）: {CallId}", ctx.CallId);
+                ctx.RingbackPlayer.Stop();
+                ctx.RingbackPlayer.Dispose();
+                ctx.RingbackPlayer = null;
+            }
+            
             if (ctx.Caller != null && ctx.Caller.User != null) {
                 if (ctx.Caller.Client != null) {
                     _recordingManager.OnSipHanguped(ctx.Caller.User.Id, ctx.Caller.Client.Client);
@@ -313,6 +359,137 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
+        private async Task HandleIncomingCallTimeoutAsync(string callId) {
+            if (!_contexts.TryGetValue(callId, out var ctx)) {
+                _logger.LogWarning("来电超时触发，但呼叫上下文不存在: {CallId}", callId);
+                return;
+            }
+
+            if (ctx.Callee?.Client?.Client?.IsCallActive == true) {
+                _logger.LogDebug("呼叫 {CallId} 已接听，忽略超时", callId);
+                return;
+            }
+
+            _logger.LogInformation("来电超时: {CallId}, 超时时长: {Timeout}秒", callId, ctx.IncomingCallTimeoutSeconds);
+
+            try {
+                if (ctx.Callee?.User != null) {
+                    await _hubContext.Clients.User(ctx.Callee.User.Id.ToString())
+                        .SendAsync("callEnded", new {
+                            callId = callId,
+                            message = "来电超时未接听",
+                            timestamp = DateTime.UtcNow
+                        });
+                    _logger.LogDebug("已通知被叫方 {UserId} 来电超时（callEnded）", ctx.Callee.User.Id);
+                }
+
+                if (ctx.Caller?.User != null) {
+                    await _hubContext.Clients.User(ctx.Caller.User.Id.ToString())
+                        .SendAsync("callEnded", new {
+                            callId = callId,
+                            message = "对方未接听",
+                            timestamp = DateTime.UtcNow
+                        });
+                    _logger.LogDebug("已通知主叫方 {UserId} 对方未接听（callEnded）", ctx.Caller.User.Id);
+                }
+
+                CancelTimedOutCall(ctx);
+            } catch (Exception ex) {
+                _logger.LogError(ex, "处理来电超时时发生错误: {CallId}", callId);
+            }
+        }
+
+        private void CancelTimedOutCall(CallContext ctx) {
+            try {
+                _logger.LogInformation("取消超时呼叫: {CallId}", ctx.CallId);
+
+                if (ctx.IncomingCallTimeoutTimer != null) {
+                    ctx.IncomingCallTimeoutTimer.Dispose();
+                    ctx.IncomingCallTimeoutTimer = null;
+                }
+
+                if (ctx.RingbackPlayer != null) {
+                    _logger.LogInformation("停止回铃音（超时时）: {CallId}", ctx.CallId);
+                    ctx.RingbackPlayer.Stop();
+                    ctx.RingbackPlayer.Dispose();
+                    ctx.RingbackPlayer = null;
+                }
+
+                if (ctx.Callee?.Client?.Client != null) {
+                    try {
+                        ctx.Callee.Client.Client.Reject();
+                        ctx.Callee.Client.Client.Shutdown();
+                        _logger.LogDebug("已拒绝被叫方 SIP 连接（超时）: {CallId}", ctx.CallId);
+                    } catch (Exception ex) {
+                        _logger.LogWarning(ex, "拒绝被叫方 SIP 连接时出错: {CallId}", ctx.CallId);
+                    }
+                }
+
+                if (ctx.Caller?.Client?.Client != null) {
+                    try {
+                        ctx.Caller.Client.Client.Cancel(); // 发送 SIP CANCEL
+                        ctx.Caller.Client.Client.Shutdown();
+                        _logger.LogDebug("已取消主叫方 SIP 连接: {CallId}", ctx.CallId);
+                    } catch (Exception ex) {
+                        _logger.LogWarning(ex, "取消主叫方 SIP 连接时出错: {CallId}", ctx.CallId);
+                    }
+                }
+
+                if (ctx.Caller?.User != null) {
+                    _ = _aiManager.StopAICustomerServiceAsync(ctx.Caller.User.Id);
+                }
+                if (ctx.Callee?.User != null) {
+                    _ = _aiManager.StopAICustomerServiceAsync(ctx.Callee.User.Id);
+                }
+
+                _contexts.TryRemove(ctx.CallId, out _);
+
+                _logger.LogInformation("超时呼叫已清理: {CallId}", ctx.CallId);
+            } catch (Exception ex) {
+                _logger.LogError(ex, "清理超时呼叫时发生错误: {CallId}", ctx.CallId);
+            }
+        }
+
+        private void StartRingbackTone(CallContext ctx) {
+            try {
+                var mediaSessionManager = ctx.Callee?.Client?.Client?.MediaSessionManager;
+                if (mediaSessionManager == null) {
+                    _logger.LogWarning("无法启动回铃音：被叫方MediaSessionManager未初始化, CallId: {CallId}", ctx.CallId);
+                    return;
+                }
+
+                var voipSession = mediaSessionManager.MediaSession as VoIPMediaSession;
+                if (voipSession == null) {
+                    _logger.LogWarning("无法启动回铃音：被叫方VoIPMediaSession未初始化, CallId: {CallId}", ctx.CallId);
+                    return;
+                }
+
+                if (voipSession.AudioDestinationEndPoint == null) {
+                    _logger.LogDebug("跳过回铃音：RTP远程端点未建立（无Early Media），CallId: {CallId}", ctx.CallId);
+                    return;
+                }
+
+                if (ctx.RingbackPlayer != null) {
+                    _logger.LogDebug("停止旧的回铃音实例: {CallId}", ctx.CallId);
+                    ctx.RingbackPlayer.Stop();
+                    ctx.RingbackPlayer.Dispose();
+                }
+
+                var audioFilePath = Path.Combine("wwwroot", "ringtones", "default.mp3");
+                
+                ctx.RingbackPlayer = new AI.Caller.Core.Media.RingbackTonePlayer(
+                    _logger,
+                    mediaSessionManager,
+                    audioFilePath
+                );
+                ctx.RingbackPlayer.Start();
+                
+                _logger.LogInformation("回铃音已启动（从被叫方发送）: {CallId}", ctx.CallId);
+            } catch (Exception ex) {
+                _logger.LogError(ex, "启动回铃音失败: {CallId}", ctx.CallId);
+            }
+        }
+
         public void Dispose() {
             _monitoringTimer.Dispose();
         }
@@ -381,6 +558,17 @@ namespace AI.Caller.Phone.Services {
                 Client = handle
             };
 
+            try {
+                var sessionProgressSent = await handle.Client.SendSessionProgressAsync();
+                if (sessionProgressSent) {
+                    _logger.LogInformation("Early Media established for WebToWeb");
+                } else {
+                    _logger.LogWarning("Failed to establish Early Media for WebToWeb");
+                }
+            } catch (Exception ex) {
+                _logger.LogWarning(ex, "Error establishing Early Media in WebToWeb");
+            }
+
             var offer = await handle.Client.CreateOfferAsync();
             handle.Client.MediaSessionManager!.IceCandidateGenerated += (candidate) => {
                 if (handle.Client.MediaSessionManager.PeerConnection?.signalingState == RTCSignalingState.have_remote_offer ||
@@ -432,6 +620,32 @@ namespace AI.Caller.Phone.Services {
                 }
             };
 
+            handle.Client.CallTrying += async (client) => {
+                try {
+                    await _hubContext.Clients.User(callerUser.Id.ToString()).SendAsync("callTrying", new {
+                        callId = callContext.CallId,
+                        message = "正在呼叫...",
+                        timestamp = DateTime.UtcNow
+                    });
+                    _logger.LogInformation($"Sent callTrying event to user {callerUser.Id}");
+                } catch (Exception e) {
+                    _logger.LogError(e, "发送 callTrying 事件失败");
+                }
+            };
+
+            handle.Client.CallRinging += async (client) => {
+                try {
+                    await _hubContext.Clients.User(callerUser.Id.ToString()).SendAsync("callRinging", new {
+                        callId = callContext.CallId,
+                        message = "对方振铃中...",
+                        timestamp = DateTime.UtcNow
+                    });
+                    _logger.LogInformation($"Sent callRinging event to user {callerUser.Id}");
+                } catch (Exception e) {
+                    _logger.LogError(e, "发送 callRinging 事件失败");
+                }
+            };
+
             await CheckSecureContextReady(callerUser, handle.Client);
 
             var fromTag = GenerateFromTag(callerUser, callContext);
@@ -476,6 +690,32 @@ namespace AI.Caller.Phone.Services {
                     } catch (Exception e) {
                         _logger.LogError(e, e.Message);
                     }
+                }
+            };
+
+            handle.Client.CallTrying += async (client) => {
+                try {
+                    await _hubContext.Clients.User(callerUser.Id.ToString()).SendAsync("callTrying", new {
+                        callId = callContext.CallId,
+                        message = "正在呼叫...",
+                        timestamp = DateTime.UtcNow
+                    });
+                    _logger.LogInformation($"Sent callTrying event to user {callerUser.Id}");
+                } catch (Exception e) {
+                    _logger.LogError(e, "发送 callTrying 事件失败");
+                }
+            };
+
+            handle.Client.CallRinging += async (client) => {
+                try {
+                    await _hubContext.Clients.User(callerUser.Id.ToString()).SendAsync("callRinging", new {
+                        callId = callContext.CallId,
+                        message = "对方振铃中...",
+                        timestamp = DateTime.UtcNow
+                    });
+                    _logger.LogInformation($"Sent callRinging event to user {callerUser.Id}");
+                } catch (Exception e) {
+                    _logger.LogError(e, "发送 callRinging 事件失败");
                 }
             };
 
@@ -530,6 +770,17 @@ namespace AI.Caller.Phone.Services {
                 type = RTCSdpType.offer,
                 sdp = sipRequest.Body
             });
+
+            try {
+                var sessionProgressSent = await handle.Client.SendSessionProgressAsync();
+                if (sessionProgressSent) {
+                    _logger.LogInformation("Early Media established for MobileToWeb");
+                } else {
+                    _logger.LogWarning("Failed to establish Early Media for MobileToWeb");
+                }
+            } catch (Exception ex) {
+                _logger.LogWarning(ex, "Error establishing Early Media in MobileToWeb");
+            }
 
             var offer = await handle.Client.CreateOfferAsync();
             handle.Client.MediaSessionManager!.IceCandidateGenerated += (candidate) => {

@@ -26,6 +26,7 @@ namespace AI.Caller.Core {
         public event Action<SIPClient>? CallAnswered;
         public event Action<SIPClient>? CallEnded;
         public event Action<SIPClient>? CallTrying;
+        public event Action<SIPClient>? CallRinging;
         public event Action<SIPClient>? RemotePutOnHold;
         public event Action<SIPClient>? RemoteTookOffHold;
         public event Action<SIPClient, string>? StatusMessage;
@@ -119,6 +120,52 @@ namespace AI.Caller.Core {
         public void Accept(SIPRequest sipRequest) {
             m_pendingIncomingCall = m_userAgent.AcceptCall(sipRequest);
             EnsureMediaSessionInitialized();
+        }
+
+        public async Task<bool> SendSessionProgressAsync() {
+            if (m_pendingIncomingCall == null) {
+                _logger.LogWarning("No pending incoming call to send session progress");
+                return false;
+            }
+
+            try {
+                var sipRequest = m_pendingIncomingCall.ClientTransaction.TransactionRequest;
+                
+                if (string.IsNullOrEmpty(sipRequest.Body)) {
+                    _logger.LogWarning("INVITE request has no SDP body, cannot establish Early Media");
+                    return false;
+                }
+
+                EnsureMediaSessionInitialized();
+                _mediaManager!.InitializeMediaSession();
+
+                var remoteSdp = SDP.ParseSDPDescription(sipRequest.Body);
+                _mediaManager.MediaSession!.SetRemoteDescription(SIPSorcery.SIP.App.SdpType.offer, remoteSdp);
+                _logger.LogDebug("Set remote SDP from INVITE for Early Media");
+
+                var sdpAnswer = _mediaManager.MediaSession!.CreateAnswer(null);
+                
+                var sessionProgressResponse = SIPResponse.GetResponse(
+                    sipRequest,
+                    SIPResponseStatusCodesEnum.SessionProgress,
+                    null
+                );
+                
+                sessionProgressResponse.Body = sdpAnswer.ToString();
+                sessionProgressResponse.Header.ContentType = SDP.SDP_MIME_CONTENTTYPE;
+                
+                await m_pendingIncomingCall.ClientTransaction.SendProvisionalResponse(sessionProgressResponse);
+                
+                await _mediaManager.MediaSession.Start();
+                
+                _logger.LogInformation("Sent 183 Session Progress with SDP for Early Media");
+                StatusMessage?.Invoke(this, "Early Media session established");
+                
+                return true;
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Failed to send send session progress");
+                return false;
+            }
         }
 
         public async Task<bool> AnswerAsync() {
@@ -282,6 +329,8 @@ namespace AI.Caller.Core {
                 _lastRemoteSdp = sipResponse.Body;
                 _logger.LogDebug("Processed new SDP in ringing response");
             }
+            
+            CallRinging?.Invoke(this);
         }
 
         private void OnCallFailed(ISIPClientUserAgent uac, string errorMessage, SIPResponse failureResponse) {
