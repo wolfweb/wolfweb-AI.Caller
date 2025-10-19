@@ -78,11 +78,6 @@ namespace AI.Caller.Phone.Services {
                 throw new Exception($"无效的呼叫标识:{callId}");
             }
 
-            if (ctx.IncomingCallTimeoutTimer != null) {
-                ctx.IncomingCallTimeoutTimer.Dispose();
-                ctx.IncomingCallTimeoutTimer = null;
-            }
-
             if (ctx.RingbackPlayer != null) {
                 _logger.LogInformation("Stopping ringback tone as call is being answered");
                 ctx.RingbackPlayer.Stop();
@@ -205,13 +200,10 @@ namespace AI.Caller.Phone.Services {
             var result = await callScenario.HandleInboundCallAsync(sipRequest, routingResult, ctx);
             
             if (result && ctx.Callee != null) {
-                ctx.IncomingCallTimeoutTimer = new Timer(
-                    async _ => await HandleIncomingCallTimeoutAsync(ctx.CallId),
-                    null,
-                    TimeSpan.FromSeconds(ctx.IncomingCallTimeoutSeconds),
-                    Timeout.InfiniteTimeSpan
-                );
-                _logger.LogDebug($"来电超时定时器已设置: {ctx.CallId}, 超时时长: {ctx.IncomingCallTimeoutSeconds}秒");
+                ctx.Callee.Client!.Client.CallEnded += (client) => {
+                    _logger.LogInformation("被叫方CallEnded事件触发: {CallId}", ctx.CallId);
+                    _ = HandleCallEndedAsync(ctx.CallId, ctx.Callee.User?.Id ?? 0, "被叫方");
+                };
                 
                 StartRingbackTone(ctx);
             }
@@ -245,6 +237,11 @@ namespace AI.Caller.Phone.Services {
                     _logger.LogDebug("CallRinging事件触发，启动回铃音: {CallId}", ctx.CallId);
                     StartRingbackTone(ctx);
                 };
+                
+                ctx.Caller.Client.Client.CallEnded += (client) => {
+                    _logger.LogInformation("主叫方CallEnded事件触发: {CallId}", ctx.CallId);
+                    _ = HandleCallEndedAsync(ctx.CallId, ctx.Caller.User?.Id ?? 0, "主叫方");
+                };
             }
 
             OnMakeCalled(ctx);
@@ -264,12 +261,6 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void OnHangupCall(CallContext ctx) {
-            if (ctx.IncomingCallTimeoutTimer != null) {
-                ctx.IncomingCallTimeoutTimer.Dispose();
-                ctx.IncomingCallTimeoutTimer = null;
-                _logger.LogDebug($"已清理来电超时定时器: {ctx.CallId}");
-            }
-            
             if (ctx.RingbackPlayer != null) {
                 _logger.LogInformation("停止回铃音（挂断时）: {CallId}", ctx.CallId);
                 ctx.RingbackPlayer.Stop();
@@ -359,96 +350,30 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        private async Task HandleIncomingCallTimeoutAsync(string callId) {
+        private async Task HandleCallEndedAsync(string callId, int userId, string role) {
             if (!_contexts.TryGetValue(callId, out var ctx)) {
-                _logger.LogWarning("来电超时触发，但呼叫上下文不存在: {CallId}", callId);
+                _logger.LogDebug("{Role}CallEnded触发，但呼叫上下文不存在: {CallId}", role, callId);
                 return;
             }
 
-            if (ctx.Callee?.Client?.Client?.IsCallActive == true) {
-                _logger.LogDebug("呼叫 {CallId} 已接听，忽略超时", callId);
-                return;
-            }
-
-            _logger.LogInformation("来电超时: {CallId}, 超时时长: {Timeout}秒", callId, ctx.IncomingCallTimeoutSeconds);
+            _logger.LogInformation("{Role}呼叫结束（SIP超时/取消/失败）: {CallId}, UserId={UserId}", role, callId, userId);
 
             try {
                 if (ctx.Callee?.User != null) {
-                    await _hubContext.Clients.User(ctx.Callee.User.Id.ToString())
-                        .SendAsync("callEnded", new {
-                            callId = callId,
-                            message = "来电超时未接听",
-                            timestamp = DateTime.UtcNow
-                        });
-                    _logger.LogDebug("已通知被叫方 {UserId} 来电超时（callEnded）", ctx.Callee.User.Id);
+                    await _hubContext.Clients.User(ctx.Callee.User.Id.ToString()).SendAsync("callTimeout");
                 }
 
                 if (ctx.Caller?.User != null) {
-                    await _hubContext.Clients.User(ctx.Caller.User.Id.ToString())
-                        .SendAsync("callEnded", new {
-                            callId = callId,
-                            message = "对方未接听",
-                            timestamp = DateTime.UtcNow
-                        });
-                    _logger.LogDebug("已通知主叫方 {UserId} 对方未接听（callEnded）", ctx.Caller.User.Id);
+                    await _hubContext.Clients.User(ctx.Caller.User.Id.ToString()).SendAsync("callTimeout");
                 }
 
-                CancelTimedOutCall(ctx);
+                OnHangupCall(ctx);
             } catch (Exception ex) {
-                _logger.LogError(ex, "处理来电超时时发生错误: {CallId}", callId);
+                _logger.LogError(ex, "处理{Role}CallEnded时发生错误: {CallId}", role, callId);
             }
         }
 
-        private void CancelTimedOutCall(CallContext ctx) {
-            try {
-                _logger.LogInformation("取消超时呼叫: {CallId}", ctx.CallId);
 
-                if (ctx.IncomingCallTimeoutTimer != null) {
-                    ctx.IncomingCallTimeoutTimer.Dispose();
-                    ctx.IncomingCallTimeoutTimer = null;
-                }
-
-                if (ctx.RingbackPlayer != null) {
-                    _logger.LogInformation("停止回铃音（超时时）: {CallId}", ctx.CallId);
-                    ctx.RingbackPlayer.Stop();
-                    ctx.RingbackPlayer.Dispose();
-                    ctx.RingbackPlayer = null;
-                }
-
-                if (ctx.Callee?.Client?.Client != null) {
-                    try {
-                        ctx.Callee.Client.Client.Reject();
-                        ctx.Callee.Client.Client.Shutdown();
-                        _logger.LogDebug("已拒绝被叫方 SIP 连接（超时）: {CallId}", ctx.CallId);
-                    } catch (Exception ex) {
-                        _logger.LogWarning(ex, "拒绝被叫方 SIP 连接时出错: {CallId}", ctx.CallId);
-                    }
-                }
-
-                if (ctx.Caller?.Client?.Client != null) {
-                    try {
-                        ctx.Caller.Client.Client.Cancel(); // 发送 SIP CANCEL
-                        ctx.Caller.Client.Client.Shutdown();
-                        _logger.LogDebug("已取消主叫方 SIP 连接: {CallId}", ctx.CallId);
-                    } catch (Exception ex) {
-                        _logger.LogWarning(ex, "取消主叫方 SIP 连接时出错: {CallId}", ctx.CallId);
-                    }
-                }
-
-                if (ctx.Caller?.User != null) {
-                    _ = _aiManager.StopAICustomerServiceAsync(ctx.Caller.User.Id);
-                }
-                if (ctx.Callee?.User != null) {
-                    _ = _aiManager.StopAICustomerServiceAsync(ctx.Callee.User.Id);
-                }
-
-                _contexts.TryRemove(ctx.CallId, out _);
-
-                _logger.LogInformation("超时呼叫已清理: {CallId}", ctx.CallId);
-            } catch (Exception ex) {
-                _logger.LogError(ex, "清理超时呼叫时发生错误: {CallId}", ctx.CallId);
-            }
-        }
 
         private void StartRingbackTone(CallContext ctx) {
             try {
