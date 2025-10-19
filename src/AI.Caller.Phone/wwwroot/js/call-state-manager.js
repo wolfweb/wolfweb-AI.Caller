@@ -14,7 +14,7 @@ const CallState = {
 const BUTTON_STATES = {
     IDLE: { call: true, answer: false, hangup: false, pauseRecording: false, resumeRecording: false },
     OUTGOING: { call: false, answer: false, hangup: true, pauseRecording: false, resumeRecording: false },
-    INCOMING: { call: false, answer: true, hangup: false, pauseRecording: false, resumeRecording: false },
+    INCOMING: { call: false, answer: true, hangup: true, pauseRecording: false, resumeRecording: false },  // 来电时显示接听和挂断按钮
     CONNECTED: { call: false, answer: false, hangup: true, pauseRecording: true, resumeRecording: false },
     ENDING: { call: false, answer: false, hangup: false, pauseRecording: false, resumeRecording: false }
 };

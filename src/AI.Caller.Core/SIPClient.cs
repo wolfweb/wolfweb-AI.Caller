@@ -325,7 +325,7 @@ namespace AI.Caller.Core {
                     type = RTCSdpType.answer,
                     sdp = sipResponse.Body
                 };
-                _mediaManager!.SetSipRemoteDescription(remoteAnswer);
+                _mediaManager?.SetSipRemoteDescription(remoteAnswer);
                 _lastRemoteSdp = sipResponse.Body;
                 _logger.LogDebug("Processed new SDP in ringing response");
             }

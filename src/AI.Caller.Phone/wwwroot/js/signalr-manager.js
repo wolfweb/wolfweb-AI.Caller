@@ -217,6 +217,12 @@ class SignalRManager {
             this.elements.answerButton.setAttribute('data-offer', JSON.stringify(offerObj));
             console.log("Offer SDP processed:", offerObj);
             
+            // 显示接听和挂断按钮
+            this.elements.answerButton.classList.remove('d-none');
+            this.elements.hangupButton.classList.remove('d-none');
+            this.elements.callButton.classList.add('d-none');
+            console.log('已显示接听和挂断按钮');
+            
             this.showCallInfo(true);
             this.startCallTimer();
             this.updateStatus('来电中...', 'info');
