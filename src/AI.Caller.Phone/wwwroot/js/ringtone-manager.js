@@ -15,15 +15,33 @@ class RingtoneManager {
     /**
      * 初始化音频对象
      */
-    initialize() {
+    async initialize() {
         try {
+            let ringtoneUrl = this.defaultRingtone;
+            
+            // 尝试获取用户的来电铃音设置
+            try {
+                const response = await fetch('/api/ringtone/user-settings');
+                if (response.ok) {
+                    const settings = await response.json();
+                    if (settings.incomingRingtone && settings.incomingRingtone.filePath) {
+                        ringtoneUrl = settings.incomingRingtone.filePath;
+                        console.log('使用用户自定义来电铃音:', ringtoneUrl);
+                    } else {
+                        console.log('用户未设置来电铃音，使用默认铃音');
+                    }
+                }
+            } catch (fetchError) {
+                console.warn('获取用户铃音设置失败，使用默认铃音:', fetchError);
+            }
+            
             // 初始化来电铃音
-            this.incomingAudio = new Audio(this.defaultRingtone);
+            this.incomingAudio = new Audio(ringtoneUrl);
             this.incomingAudio.loop = true;
             this.incomingAudio.volume = 0.7;
             this.incomingAudio.load();
 
-            console.log('来电铃音音频对象已创建:', this.defaultRingtone);
+            console.log('来电铃音音频对象已创建:', ringtoneUrl);
             return true;
         } catch (error) {
             console.error('铃音初始化失败:', error);

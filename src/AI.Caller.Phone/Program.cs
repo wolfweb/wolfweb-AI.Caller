@@ -73,6 +73,7 @@ namespace AI.Caller.Phone {
             builder.Services.AddSingleton<HangupMonitoringService>();
 
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
+            builder.Services.AddScoped<IRingtoneService, RingtoneService>();
 
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
 

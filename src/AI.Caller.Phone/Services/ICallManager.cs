@@ -205,7 +205,10 @@ namespace AI.Caller.Phone.Services {
                     _ = HandleCallEndedAsync(ctx.CallId, ctx.Callee.User?.Id ?? 0, "被叫方");
                 };
                 
-                StartRingbackTone(ctx);
+                var ringtoneService = scope.ServiceProvider.GetRequiredService<IRingtoneService>();
+                var ringbackTone = await ringtoneService.GetRingtoneForUserAsync(ctx.Callee.User!.Id, RingtoneType.Ringback);
+                
+                StartRingbackTone(ctx, ringbackTone.FilePath);
             }
             
             return result;
@@ -375,7 +378,7 @@ namespace AI.Caller.Phone.Services {
 
 
 
-        private void StartRingbackTone(CallContext ctx) {
+        private void StartRingbackTone(CallContext ctx, string? customAudioFilePath = null) {
             try {
                 var mediaSessionManager = ctx.Callee?.Client?.Client?.MediaSessionManager;
                 if (mediaSessionManager == null) {
@@ -400,7 +403,14 @@ namespace AI.Caller.Phone.Services {
                     ctx.RingbackPlayer.Dispose();
                 }
 
-                var audioFilePath = Path.Combine("wwwroot", "ringtones", "default.mp3");
+                string audioFilePath;
+                if (!string.IsNullOrEmpty(customAudioFilePath)) {
+                    audioFilePath = Path.Combine("wwwroot", customAudioFilePath.TrimStart('/'));
+                    _logger.LogInformation("使用自定义回铃音: {FilePath}", customAudioFilePath);
+                } else {
+                    audioFilePath = Path.Combine("wwwroot", "ringtones", "default.mp3");
+                    _logger.LogInformation("使用默认回铃音");
+                }
                 
                 ctx.RingbackPlayer = new AI.Caller.Core.Media.RingbackTonePlayer(
                     _logger,
@@ -409,7 +419,7 @@ namespace AI.Caller.Phone.Services {
                 );
                 ctx.RingbackPlayer.Start();
                 
-                _logger.LogInformation("回铃音已启动（从被叫方发送）: {CallId}", ctx.CallId);
+                _logger.LogInformation("回铃音已启动: {CallId}, 文件: {FilePath}", ctx.CallId, audioFilePath);
             } catch (Exception ex) {
                 _logger.LogError(ex, "启动回铃音失败: {CallId}", ctx.CallId);
             }

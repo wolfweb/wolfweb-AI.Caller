@@ -1,0 +1,114 @@
+@{
+    ViewData["Title"] = "铃音管理";
+}
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card modern-card">
+                <div class="card-header">
+                    <h5 class="mb-0 d-flex align-items-center">
+                        <div class="icon-wrapper me-3">
+                            <i class="bi bi-music-note-beamed"></i>
+                        </div>
+                        我的铃音设置
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- 状态提示 -->
+                    <div class="alert alert-info d-none" id="statusAlert"></div>
+
+                    <!-- 铃音设置表单 -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <label class="form-label">来电铃音</label>
+                            <div class="input-group">
+                                <select class="form-select" id="incomingRingtoneSelect">
+                                    <option value="">加载中...</option>
+                                </select>
+                                <button class="btn btn-outline-primary" id="previewIncomingBtn" type="button">
+                                    <i class="bi bi-play-circle"></i> 试听
+                                </button>
+                            </div>
+                            <small class="text-muted">被叫方听到的铃音</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">回铃音</label>
+                            <div class="input-group">
+                                <select class="form-select" id="ringbackToneSelect">
+                                    <option value="">加载中...</option>
+                                </select>
+                                <button class="btn btn-outline-primary" id="previewRingbackBtn" type="button">
+                                    <i class="bi bi-play-circle"></i> 试听
+                                </button>
+                            </div>
+                            <small class="text-muted">主叫方听到的铃音</small>
+                        </div>
+                    </div>
+
+                    <div class="text-end mb-4">
+                        <button class="btn btn-primary" id="saveSettingsBtn">
+                            <i class="bi bi-save"></i> 保存设置
+                        </button>
+                    </div>
+
+                    <hr>
+
+                    <!-- 上传铃音 -->
+                    <h6 class="mb-3">上传自定义铃音</h6>
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <input type="text" class="form-control" id="ringtoneName" placeholder="铃音名称">
+                        </div>
+                        <div class="col-md-4">
+                            <select class="form-select" id="ringtoneType">
+                                <option value="Both">通用（来电+回铃）</option>
+                                <option value="Incoming">仅来电铃音</option>
+                                <option value="Ringback">仅回铃音</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <input type="file" class="form-control" id="ringtoneFile" accept=".mp3,.wav">
+                        </div>
+                    </div>
+                    <div class="text-end mb-4">
+                        <button class="btn btn-success" id="uploadBtn">
+                            <i class="bi bi-upload"></i> 上传铃音
+                        </button>
+                    </div>
+
+                    <hr>
+
+                    <!-- 铃音列表 -->
+                    <h6 class="mb-3">我的铃音</h6>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>名称</th>
+                                    <th>类型</th>
+                                    <th>大小</th>
+                                    <th>时长</th>
+                                    <th>来源</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ringtoneList">
+                                <tr>
+                                    <td colspan="6" class="text-center">加载中...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 音频播放器（隐藏） -->
+<audio id="previewAudio" style="display: none;"></audio>
+
+@section Scripts {
+    <script src="~/js/ringtone-management.js" asp-append-version="true"></script>
+}

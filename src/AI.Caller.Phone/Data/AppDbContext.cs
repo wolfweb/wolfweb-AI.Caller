@@ -1,7 +1,5 @@
 using AI.Caller.Phone.Entities;
-using AI.Caller.Phone.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 
 namespace AI.Caller.Phone;
 
@@ -17,6 +15,9 @@ public class AppDbContext : DbContext {
     public DbSet<AICustomerServiceSettings> AICustomerServiceSettings { get; set; }
     public DbSet<CallLog> CallLogs { get; set; }
     public DbSet<BatchCallJob> BatchCallJobs { get; set; }
+    public DbSet<Ringtone> Ringtones { get; set; }
+    public DbSet<UserRingtoneSettings> UserRingtoneSettings { get; set; }
+    public DbSet<SystemRingtoneSettings> SystemRingtoneSettings { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
         base.OnConfiguring(optionsBuilder);
@@ -131,6 +132,69 @@ public class AppDbContext : DbContext {
                   .WithMany(j => j.CallLogs)
                   .HasForeignKey(e => e.BatchCallJobId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Ringtone>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.FileName).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.FilePath).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.Type).IsRequired().HasMaxLength(20);
+            entity.Property(e => e.IsSystem).HasDefaultValue(false);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("datetime('now')");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("datetime('now')");
+
+            entity.HasOne(e => e.Uploader)
+                  .WithMany()
+                  .HasForeignKey(e => e.UploadedBy)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.UploadedBy).HasDatabaseName("IX_Ringtones_UploadedBy");
+            entity.HasIndex(e => e.Type).HasDatabaseName("IX_Ringtones_Type");
+            entity.HasIndex(e => e.IsSystem).HasDatabaseName("IX_Ringtones_IsSystem");
+        });
+
+        modelBuilder.Entity<UserRingtoneSettings>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("datetime('now')");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("datetime('now')");
+
+            entity.HasOne(e => e.User)
+                  .WithMany()
+                  .HasForeignKey(e => e.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.IncomingRingtone)
+                  .WithMany()
+                  .HasForeignKey(e => e.IncomingRingtoneId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.RingbackTone)
+                  .WithMany()
+                  .HasForeignKey(e => e.RingbackToneId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.UserId).IsUnique().HasDatabaseName("IX_UserRingtoneSettings_UserId");
+        });
+
+        modelBuilder.Entity<SystemRingtoneSettings>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("datetime('now')");
+
+            entity.HasOne(e => e.DefaultIncomingRingtone)
+                  .WithMany()
+                  .HasForeignKey(e => e.DefaultIncomingRingtoneId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.DefaultRingbackTone)
+                  .WithMany()
+                  .HasForeignKey(e => e.DefaultRingbackToneId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.UpdatedByUser)
+                  .WithMany()
+                  .HasForeignKey(e => e.UpdatedBy)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }
