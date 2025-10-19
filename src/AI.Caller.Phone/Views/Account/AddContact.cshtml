@@ -2,21 +2,52 @@
 @model Contact
 
 @{
-    ViewData["Title"] = "Add Contact";
+    ViewData["Title"] = "添加联系人";
 }
 
-<h2>Add a New Contact</h2>
+<div class="container mt-4">
+    <div class="page-header mb-4">
+        <div class="d-flex align-items-center">
+            <div class="page-icon me-3">
+                <i class="bi bi-person-plus-fill"></i>
+            </div>
+            <div>
+                <h2 class="page-title mb-1">添加联系人</h2>
+                <p class="page-subtitle mb-0">添加新的联系人到通讯录</p>
+            </div>
+        </div>
+    </div>
 
-<form asp-controller="Account" asp-action="AddContact" method="post">
-    <div class="form-group">
-        <label asp-for="Name"></label>
-        <input asp-for="Name" class="form-control" />
-        <span asp-validation-for="Name" class="text-danger"></span>
+    <div class="card modern-card">
+        <div class="card-header">
+            <h5 class="mb-0 d-flex align-items-center">
+                <div class="icon-wrapper me-3">
+                    <i class="bi bi-person-vcard"></i>
+                </div>
+                联系人信息
+            </h5>
+        </div>
+        <div class="card-body">
+            <form asp-controller="Account" asp-action="AddContact" method="post">
+                <div class="form-group">
+                    <label asp-for="Name" class="form-label">姓名</label>
+                    <input asp-for="Name" class="form-control" placeholder="请输入联系人姓名" />
+                    <span asp-validation-for="Name" class="text-danger"></span>
+                </div>
+                <div class="form-group">
+                    <label asp-for="PhoneNumber" class="form-label">电话号码</label>
+                    <input asp-for="PhoneNumber" class="form-control" placeholder="请输入电话号码" />
+                    <span asp-validation-for="PhoneNumber" class="text-danger"></span>
+                </div>
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check-circle me-2"></i>添加联系人
+                    </button>
+                    <a asp-action="ManageContacts" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left me-2"></i>返回列表
+                    </a>
+                </div>
+            </form>
+        </div>
     </div>
-    <div class="form-group">
-        <label asp-for="PhoneNumber"></label>
-        <input asp-for="PhoneNumber" class="form-control" />
-        <span asp-validation-for="PhoneNumber" class="text-danger"></span>
-    </div>
-    <button type="submit" class="btn btn-primary">Add Contact</button>
-</form>
+</div>

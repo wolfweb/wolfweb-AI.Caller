@@ -4,13 +4,17 @@
     ViewData["Title"] = "TTS模板列表";
 }
 <div class="container mt-5">
-    <h1>@ViewData["Title"]</h1>
+    <div class="mb-4">
+        <h1 class="text-gradient">@ViewData["Title"]</h1>
+    </div>
 
     <p>
-        <a asp-action="Create" class="btn btn-primary">创建新模板</a>
+        <a asp-action="Create" class="btn btn-primary btn-neon">
+            <i class="bi bi-plus-circle"></i> 创建新模板
+        </a>
     </p>
 
-    <div class="card shadow-sm">
+    <div class="card shadow-custom hover-lift">
         <div class="card-header">
             <h4 class="mb-0">模板列表</h4>
         </div>
@@ -41,15 +45,15 @@
                             @(item.Variables.Any() ? string.Join(", ", item.Variables.Select(v => v.Name)) : "无")
                         </td>
                         <td>
-                            <button type="button" class="btn btn-sm btn-outline-success test-tts-btn" 
+                            <button type="button" class="btn btn-sm btn-outline-success btn-neon test-tts-btn" 
                                     data-text="@item.Content" 
                                     data-rate="@item.SpeechRate.ToString("F1")"
                                     title="播放测试">
                                 <i class="bi bi-play-circle"></i>
                             </button>
-                            <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary" title="编辑"><i class="bi bi-pencil-square"></i></a>
-                            <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-info" title="详情"><i class="bi bi-info-lg"></i></a>
-                            <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger" title="删除"><i class="bi bi-trash"></i></a>
+                            <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary btn-neon" title="编辑"><i class="bi bi-pencil-square"></i></a>
+                            <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary btn-neon" title="详情"><i class="bi bi-info-lg"></i></a>
+                            <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger btn-neon" title="删除"><i class="bi bi-trash"></i></a>
                         </td>
                     </tr>
             }

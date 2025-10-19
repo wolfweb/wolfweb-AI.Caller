@@ -1,0 +1,2006 @@
+/**
+ * AI.Caller 企业级科技主题
+ * 设计理念：深色背景 + 霓虹发光 + 毛玻璃效果 + 流畅动画
+ * 版本：1.0.0
+ */
+
+/* ==================== CSS 变量定义 ==================== */
+:root {
+  /* 主色调 - 科技蓝紫 */
+  --primary: #6366F1;
+  --primary-light: #818CF8;
+  --primary-dark: #4F46E5;
+  --primary-glow: rgba(99, 102, 241, 0.5);
+
+  /* 背景色 - 深色系 */
+  --bg-primary: #0A0E27;
+  --bg-secondary: #151932;
+  --bg-tertiary: #1E2139;
+  --bg-hover: #252A47;
+
+  /* 文字色 - 提升对比度 */
+  --text-primary: #FFFFFF;
+  --text-secondary: #E2E8F0;
+  --text-tertiary: #CBD5E1;
+
+  /* 状态色 */
+  --success: #10B981;
+  --success-glow: rgba(16, 185, 129, 0.3);
+  --warning: #F59E0B;
+  --warning-glow: rgba(245, 158, 11, 0.3);
+  --danger: #EF4444;
+  --danger-glow: rgba(239, 68, 68, 0.3);
+  --info: #3B82F6;
+
+  /* 边框和分割线 */
+  --border-color: rgba(148, 163, 184, 0.1);
+  --border-glow: rgba(99, 102, 241, 0.2);
+
+  /* 阴影 */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 20px var(--primary-glow);
+}
+
+/* ==================== 全局样式重置 ==================== */
+body {
+  background: linear-gradient(135deg, #0A0E27 0%, #1a1f3a 50%, #0A0E27 100%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+/* ==================== 导航栏样式 ==================== */
+.navbar {
+  background: rgba(10, 14, 39, 0.95) !important;
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-color) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border-radius: 0 !important;
+  /* 无圆角 */
+}
+
+.navbar-brand {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
+  font-size: 1.6rem;
+  text-shadow: none;
+  position: relative;
+}
+
+.navbar-brand::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--primary), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.navbar-brand:hover::after {
+  opacity: 1;
+}
+
+.nav-link {
+  color: var(--text-secondary) !important;
+  font-weight: 500;
+  padding: 10px 16px !important;
+  border-radius: 0;
+  /* 无圆角 */
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: var(--primary);
+  transform: translateX(-50%);
+  transition: width 0.3s ease;
+}
+
+.nav-link:hover {
+  color: var(--text-primary) !important;
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.nav-link:hover::after {
+  width: 80%;
+}
+
+.nav-link.active {
+  color: var(--primary) !important;
+  background: rgba(99, 102, 241, 0.15);
+}
+
+/* ==================== 下拉菜单样式 ==================== */
+.dropdown-menu {
+  background: rgba(30, 33, 57, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: 0;
+  /* 无圆角 */
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+}
+
+.dropdown-item {
+  color: var(--text-primary);
+  /* 提升对比度 */
+  border-radius: 0;
+  /* 无圆角 */
+  transition: all 0.3s ease;
+  padding: 10px 16px;
+}
+
+.dropdown-item:hover {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--text-primary);
+  transform: translateX(4px);
+}
+
+.dropdown-item i {
+  margin-right: 8px;
+  opacity: 0.7;
+}
+
+.dropdown-divider {
+  border-color: var(--border-color);
+  margin: 8px 0;
+}
+
+/* ==================== 卡片样式 ==================== */
+.card {
+  background: rgba(30, 33, 57, 0.7);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: 0;
+  /* 无圆角 */
+  box-shadow: var(--shadow-md);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.card:hover {
+  border-color: var(--border-glow);
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  transform: translateY(-4px);
+}
+
+.card-header {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+  border: none;
+  color: white;
+  font-weight: 700;
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.card-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.6s ease;
+}
+
+.card:hover .card-header::before {
+  left: 100%;
+}
+
+.card-body {
+  padding: 1.5rem;
+}
+
+.card-footer {
+  background: rgba(21, 25, 50, 0.5);
+  border-top: 1px solid var(--border-color);
+  padding: 1rem 1.5rem;
+}
+
+/* ==================== 按钮样式 ==================== */
+.btn {
+  border: none;
+  border-radius: 0;
+  /* 无圆角 */
+  font-weight: 600;
+  padding: 12px 24px;
+  text-transform: none;
+  letter-spacing: 0.3px;
+  font-size: 0.95rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 霓虹按钮效果 */
+.btn-neon {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  box-shadow: 0 4px 15px var(--primary-glow);
+  color: white;
+}
+
+.btn-neon::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transition: left 0.5s;
+}
+
+.btn-neon:hover::before {
+  left: 100%;
+}
+
+.btn-neon:hover {
+  box-shadow: 0 6px 25px var(--primary-glow);
+  transform: translateY(-2px);
+  color: white;
+}
+
+.btn-neon:active {
+  transform: translateY(0);
+}
+
+/* 成功按钮 */
+.btn-success {
+  background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
+  box-shadow: 0 4px 15px var(--success-glow);
+}
+
+.btn-success:hover {
+  box-shadow: 0 6px 25px var(--success-glow);
+  transform: translateY(-2px);
+}
+
+/* 危险按钮 */
+.btn-danger {
+  background: linear-gradient(135deg, var(--danger) 0%, #DC2626 100%);
+  box-shadow: 0 4px 15px var(--danger-glow);
+}
+
+.btn-danger:hover {
+  box-shadow: 0 6px 25px var(--danger-glow);
+  transform: translateY(-2px);
+}
+
+/* 警告按钮 */
+.btn-warning {
+  background: linear-gradient(135deg, var(--warning) 0%, #D97706 100%);
+  box-shadow: 0 4px 15px var(--warning-glow);
+  color: white;
+}
+
+.btn-warning:hover {
+  box-shadow: 0 6px 25px var(--warning-glow);
+  transform: translateY(-2px);
+  color: white;
+}
+
+/* 主要按钮 */
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  box-shadow: 0 4px 15px var(--primary-glow);
+}
+
+.btn-primary:hover {
+  box-shadow: 0 6px 25px var(--primary-glow);
+  transform: translateY(-2px);
+}
+
+/* 轮廓按钮 */
+.btn-outline-primary {
+  border: 2px solid var(--primary);
+  color: var(--primary);
+  background: transparent;
+}
+
+.btn-outline-primary:hover {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 4px 15px var(--primary-glow);
+}
+
+.btn-outline-secondary {
+  border: 2px solid var(--text-secondary);
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.btn-outline-secondary:hover {
+  background: var(--text-secondary);
+  color: var(--bg-primary);
+}
+
+/* ==================== 输入框样式 ==================== */
+.form-control {
+  background: rgba(30, 33, 57, 0.5) !important;
+  border: 2px solid var(--border-color) !important;
+  border-radius: 0 !important;
+  /* 无圆角 */
+  color: var(--text-primary) !important;
+  padding: 12px 16px !important;
+  transition: all 0.3s ease;
+}
+
+.form-control:focus {
+  background: rgba(30, 33, 57, 0.8) !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 4px var(--primary-glow) !important;
+  outline: none !important;
+  color: var(--text-primary) !important;
+}
+
+.form-control::placeholder {
+  color: var(--text-tertiary) !important;
+  opacity: 0.7;
+}
+
+.form-control:disabled {
+  background: rgba(30, 33, 57, 0.3) !important;
+  color: var(--text-tertiary) !important;
+  cursor: not-allowed;
+}
+
+/* 发光输入框效果 */
+.input-glow {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.input-glow:focus {
+  box-shadow: 0 0 0 4px var(--primary-glow), 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 输入组样式 */
+.input-group {
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  border-radius: 0;
+  /* 无圆角 */
+  overflow: hidden;
+}
+
+.input-group-text {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: white;
+  border: none;
+  font-size: 1.2rem;
+  padding: 12px 16px;
+}
+
+.input-group .form-control {
+  border-left: none !important;
+  border-radius: 0 !important;
+  /* 无圆角 */
+}
+
+/* ==================== 警告框样式 ==================== */
+.alert {
+  border: none;
+  border-radius: 0;
+  /* 无圆角 */
+  font-weight: 500;
+  padding: 1rem 1.25rem;
+  backdrop-filter: blur(10px);
+  border-left: 4px solid;
+}
+
+.alert-success {
+  background: rgba(16, 185, 129, 0.15);
+  border-left-color: var(--success);
+  color: #A7F3D0;
+  /* 提升对比度 */
+}
+
+.alert-danger {
+  background: rgba(239, 68, 68, 0.15);
+  border-left-color: var(--danger);
+  color: #FECACA;
+  /* 提升对比度 */
+}
+
+.alert-warning {
+  background: rgba(245, 158, 11, 0.15);
+  border-left-color: var(--warning);
+  color: #FDE68A;
+  /* 提升对比度 */
+}
+
+.alert-info {
+  background: rgba(59, 130, 246, 0.15);
+  border-left-color: var(--info);
+  color: #BFDBFE;
+  /* 提升对比度 */
+}
+
+/* ==================== 拨号键盘样式 ==================== */
+.dialpad-btn-tech {
+  background: rgba(30, 33, 57, 0.7) !important;
+  backdrop-filter: blur(10px);
+  border: 2px solid var(--border-color) !important;
+  border-radius: 0 !important;
+  /* 无圆角 - 方形按钮 */
+  color: var(--text-primary) !important;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  width: 70px !important;
+  height: 70px !important;
+  min-width: 70px !important;
+  max-width: 70px !important;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.4rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.dialpad-btn-tech::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--primary-glow), transparent);
+  transform: translate(-50%, -50%);
+  transition: width 0.4s, height 0.4s;
+}
+
+.dialpad-btn-tech:hover::before {
+  width: 100%;
+  height: 100%;
+}
+
+.dialpad-btn-tech:hover {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+  border-color: transparent !important;
+  box-shadow: 0 6px 25px var(--primary-glow);
+  transform: translateY(-2px) scale(1.05);
+  color: white !important;
+}
+
+.dialpad-btn-tech:active {
+  transform: translateY(0) scale(0.95);
+}
+
+.dialpad-btn-tech:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* 拨号键盘容器 */
+.dialpad-container {
+  background: rgba(21, 25, 50, 0.5);
+  border-radius: 0;
+  /* 无圆角 */
+  padding: 1.5rem;
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.dialpad .row {
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.dialpad .col-4 {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0.25rem;
+}
+
+/* ==================== 联系人卡片样式 ==================== */
+.contact-card-tech {
+  background: rgba(30, 33, 57, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  border-radius: 0;
+  /* 无圆角 */
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.contact-card-tech:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--border-glow);
+  box-shadow: 0 4px 20px var(--primary-glow);
+  transform: translateX(4px);
+}
+
+.contact-card-tech:active {
+  transform: translateX(2px);
+}
+
+.contact-item {
+  border: none !important;
+  border-radius: 0 !important;
+  margin: 0;
+  padding: 12px 16px !important;
+  background: rgba(30, 33, 57, 0.5);
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  text-align: left !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  transition: all 0.3s ease;
+  color: var(--text-primary);
+}
+
+.contact-item:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(79, 70, 229, 0.2) 100%) !important;
+  color: white !important;
+  box-shadow: 0 4px 15px var(--primary-glow);
+  transform: translateX(4px);
+}
+
+.contact-item:hover .badge {
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: white !important;
+}
+
+.contact-item .badge {
+  background: rgba(99, 102, 241, 0.2);
+  color: #C7D2FE;
+  /* 提升对比度 */
+  padding: 0.5rem 0.75rem;
+  border-radius: 0;
+  /* 无圆角 */
+  font-weight: 600;
+}
+
+.contact-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ==================== 表格样式 ==================== */
+.table {
+  background: rgba(30, 33, 57, 0.5);
+  border-radius: 0;
+  /* 无圆角 */
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  margin-bottom: 0;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.table thead th {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: white;
+  border: none;
+  font-weight: 600;
+  padding: 1rem 1.25rem;
+  text-align: left;
+  vertical-align: middle;
+  border-radius: 0;
+}
+
+.table tbody td {
+  padding: 1rem 1.25rem;
+  border-color: var(--border-color);
+  vertical-align: middle;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  /* 提升对比度 */
+}
+
+.table tbody tr {
+  transition: all 0.2s ease;
+  background: rgba(30, 33, 57, 0.3);
+}
+
+.table tbody tr:hover {
+  background: rgba(99, 102, 241, 0.1);
+  transform: scale(1.01);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* 表格斑马纹 */
+.table-striped tbody tr:nth-of-type(odd) {
+  background: rgba(30, 33, 57, 0.4);
+}
+
+.table-striped tbody tr:nth-of-type(even) {
+  background: rgba(30, 33, 57, 0.2);
+}
+
+/* ==================== 列表组样式 ==================== */
+.list-group {
+  border-radius: 0;
+  /* 无圆角 */
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-color);
+}
+
+.list-group-item {
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  padding: 1rem 1.25rem;
+  background: rgba(30, 33, 57, 0.5);
+  border-radius: 0;
+  /* 无圆角 */
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+
+.list-group-item:last-child {
+  border-bottom: none;
+}
+
+.list-group-item-action:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--text-primary);
+  transform: translateX(4px);
+}
+
+.list-group-item-action:active {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+/* ==================== 进度条样式 ==================== */
+.progress {
+  background: rgba(30, 33, 57, 0.5);
+  border-radius: 0;
+  /* 无圆角 */
+  height: 24px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.progress-bar {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+  box-shadow: 0 0 10px var(--primary-glow);
+  transition: width 0.6s ease;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ==================== 徽章样式 ==================== */
+.badge {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0;
+  /* 无圆角 */
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.badge.bg-success {
+  background: linear-gradient(135deg, var(--success) 0%, #059669 100%) !important;
+  box-shadow: 0 2px 8px var(--success-glow);
+}
+
+.badge.bg-danger {
+  background: linear-gradient(135deg, var(--danger) 0%, #DC2626 100%) !important;
+  box-shadow: 0 2px 8px var(--danger-glow);
+}
+
+.badge.bg-warning {
+  background: linear-gradient(135deg, var(--warning) 0%, #D97706 100%) !important;
+  box-shadow: 0 2px 8px var(--warning-glow);
+}
+
+.badge.bg-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+  box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+.badge.bg-light {
+  background: rgba(148, 163, 184, 0.2) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* ==================== 通话信息样式 ==================== */
+.call-info-tech {
+  background: rgba(30, 33, 57, 0.8);
+  backdrop-filter: blur(20px);
+  border-radius: 0;
+  /* 无圆角 */
+  padding: 2rem;
+  text-align: center;
+  border: 1px solid var(--border-glow);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+#callTimer {
+  background: linear-gradient(135deg, var(--success) 0%, #059669 100%) !important;
+  font-size: 1.2rem;
+  padding: 12px 24px;
+  border-radius: 0;
+  /* 无圆角 */
+  font-weight: 600;
+  box-shadow: 0 4px 15px var(--success-glow);
+  display: inline-block;
+}
+
+#callerName {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+#callerNumber {
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+/* ==================== 录音状态样式 ==================== */
+#recordingStatusAlert {
+  background: rgba(239, 68, 68, 0.15);
+  border-left: 4px solid var(--danger);
+  backdrop-filter: blur(10px);
+}
+
+#recordingIcon {
+  animation: pulse-recording 1.5s infinite;
+}
+
+@keyframes pulse-recording {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+}
+
+#recordingTimer {
+  background: rgba(239, 68, 68, 0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 0;
+  /* 无圆角 */
+  font-weight: 600;
+  color: #FCA5A5;
+  /* 提升对比度 */
+}
+
+/* ==================== 页脚样式 ==================== */
+.footer {
+  background: linear-gradient(135deg, #0A0E27 0%, #151932 100%);
+  color: var(--text-secondary) !important;
+  border-top: 1px solid var(--border-color) !important;
+  padding: 2rem 0;
+  font-weight: 500;
+  position: relative;
+  z-index: 1;
+}
+
+.footer a {
+  color: var(--primary-light) !important;
+  text-decoration: none;
+  transition: color 0.3s ease;
+  font-weight: 600;
+}
+
+.footer a:hover {
+  color: var(--primary) !important;
+  text-shadow: 0 0 10px var(--primary-glow);
+}
+
+/* ==================== 动画效果 ==================== */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 10px var(--primary-glow);
+  }
+
+  50% {
+    box-shadow: 0 0 25px var(--primary-glow);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+/* 应用动画 */
+.card {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.card:nth-child(1) {
+  animation-delay: 0.1s;
+}
+
+.card:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.card:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* ==================== 响应式设计 ==================== */
+@media (max-width: 768px) {
+  body {
+    padding-top: 4.5rem;
+    background-attachment: scroll;
+  }
+
+  .container {
+    padding: 1rem;
+    padding-top: 2rem;
+  }
+
+  .navbar {
+    border-radius: 0;
+    /* 无圆角 */
+    min-height: 60px;
+  }
+
+  .navbar-brand {
+    font-size: 1.3rem;
+  }
+
+  .nav-link {
+    padding: 8px 12px !important;
+    margin: 0 2px;
+  }
+
+  .card {
+    margin-bottom: 1.5rem;
+    border-radius: 0;
+    /* 无圆角 */
+  }
+
+  .card-header {
+    padding: 1rem;
+  }
+
+  .dialpad-btn-tech {
+    width: 60px !important;
+    height: 60px !important;
+    min-width: 60px !important;
+    max-width: 60px !important;
+    font-size: 1.2rem;
+  }
+
+  .btn {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+  }
+
+  .table {
+    font-size: 0.9rem;
+  }
+
+  .table thead th,
+  .table tbody td {
+    padding: 0.75rem;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .container {
+    max-width: 90%;
+  }
+
+  .dialpad-btn-tech {
+    width: 65px !important;
+    height: 65px !important;
+    min-width: 65px !important;
+    max-width: 65px !important;
+  }
+}
+
+/* ==================== 模态框样式 ==================== */
+.modal-content {
+  background: rgba(30, 33, 57, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  border-radius: 0;
+  /* 无圆角 */
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+}
+
+.modal-header {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: white;
+  border: none;
+  border-radius: 0;
+  /* 无圆角 */
+  padding: 1.5rem;
+}
+
+.modal-header .btn-close {
+  filter: brightness(0) invert(1);
+  opacity: 0.8;
+}
+
+.modal-header .btn-close:hover {
+  opacity: 1;
+}
+
+.modal-body {
+  padding: 2rem;
+  color: var(--text-primary);
+}
+
+.modal-footer {
+  border-top: 1px solid var(--border-color);
+  padding: 1.5rem;
+  background: rgba(21, 25, 50, 0.5);
+}
+
+/* ==================== 空状态样式 ==================== */
+.empty-state {
+  padding: 3rem 1rem;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  color: var(--primary);
+  opacity: 0.6;
+  margin-bottom: 1rem;
+  display: inline-block;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.empty-state h6 {
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.empty-state p {
+  color: var(--text-tertiary);
+  font-size: 0.9rem;
+}
+
+/* ==================== 加载动画 ==================== */
+.loading-spinner {
+  display: inline-block;
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(99, 102, 241, 0.2);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ==================== 工具提示样式 ==================== */
+.tooltip-inner {
+  background: rgba(30, 33, 57, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0;
+  /* 无圆角 */
+  box-shadow: var(--shadow-md);
+}
+
+.tooltip.bs-tooltip-top .tooltip-arrow::before {
+  border-top-color: rgba(30, 33, 57, 0.95);
+}
+
+.tooltip.bs-tooltip-bottom .tooltip-arrow::before {
+  border-bottom-color: rgba(30, 33, 57, 0.95);
+}
+
+/* ==================== 分页样式 ==================== */
+.pagination {
+  gap: 0.5rem;
+}
+
+.page-link {
+  background: rgba(30, 33, 57, 0.5);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  /* 提升对比度 */
+  border-radius: 0;
+  /* 无圆角 */
+  padding: 0.5rem 0.75rem;
+  transition: all 0.3s ease;
+}
+
+.page-link:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.page-item.active .page-link {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  border-color: var(--primary);
+  color: white;
+  box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+.page-item.disabled .page-link {
+  background: rgba(30, 33, 57, 0.3);
+  border-color: var(--border-color);
+  color: var(--text-tertiary);
+  opacity: 0.5;
+}
+
+/* ==================== 表单标签样式 ==================== */
+.form-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.form-check-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.form-check-input {
+  background-color: rgba(30, 33, 57, 0.5);
+  border: 2px solid var(--border-color);
+}
+
+.form-check-input:checked {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-glow);
+}
+
+.form-check-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-glow);
+}
+
+/* ==================== 选择框样式 ==================== */
+.form-select {
+  background-color: rgba(30, 33, 57, 0.5) !important;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23E2E8F0' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 16px 12px !important;
+  border: 2px solid var(--border-color) !important;
+  border-radius: 0 !important;
+  /* 无圆角 */
+  color: var(--text-primary) !important;
+  padding: 12px 40px 12px 16px !important;
+  transition: all 0.3s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+.form-select:focus {
+  background-color: rgba(30, 33, 57, 0.8) !important;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%236366F1' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 16px 12px !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 4px var(--primary-glow) !important;
+  outline: none !important;
+}
+
+.form-select option {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 8px 12px;
+}
+
+/* ==================== 文本区域样式 ==================== */
+textarea.form-control {
+  min-height: 120px;
+  resize: vertical;
+}
+
+/* ==================== 按钮组样式 ==================== */
+.btn-group .btn {
+  margin: 0;
+  border-radius: 0;
+  /* 无圆角 */
+}
+
+.btn-group .btn:first-child {
+  border-radius: 0;
+  /* 无圆角 */
+}
+
+.btn-group .btn:last-child {
+  border-radius: 0;
+  /* 无圆角 */
+}
+
+.btn-group-vertical .btn {
+  border-radius: 0;
+  /* 无圆角 */
+}
+
+.btn-group-vertical .btn:first-child {
+  border-radius: 0;
+  /* 无圆角 */
+}
+
+.btn-group-vertical .btn:last-child {
+  border-radius: 0;
+  /* 无圆角 */
+}
+
+/* ==================== 面包屑导航样式 ==================== */
+.breadcrumb {
+  background: rgba(30, 33, 57, 0.5);
+  border-radius: 0;
+  /* 无圆角 */
+  padding: 1rem 1.5rem;
+}
+
+.breadcrumb-item {
+  color: var(--text-primary);
+  /* 提升对比度 */
+}
+
+.breadcrumb-item.active {
+  color: var(--primary);
+}
+
+.breadcrumb-item+.breadcrumb-item::before {
+  color: var(--text-tertiary);
+}
+
+.breadcrumb-item a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.breadcrumb-item a:hover {
+  color: var(--primary);
+}
+
+/* ==================== 特殊效果类 ==================== */
+/* 发光脉冲效果 */
+.glow-pulse {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* 悬停上浮效果 */
+.hover-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* 渐变文字效果 */
+.text-gradient {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+}
+
+/* 毛玻璃效果 */
+.glass-effect {
+  background: rgba(30, 33, 57, 0.7);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+}
+
+/* 霓虹边框效果 */
+.neon-border {
+  border: 2px solid var(--primary);
+  box-shadow: 0 0 10px var(--primary-glow), inset 0 0 10px var(--primary-glow);
+}
+
+/* ==================== 滚动条样式 ==================== */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(30, 33, 57, 0.5);
+  border-radius: 0;
+  /* 无圆角 */
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  border-radius: 0;
+  /* 无圆角 */
+  border: 2px solid rgba(30, 33, 57, 0.5);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%);
+  box-shadow: 0 0 10px var(--primary-glow);
+}
+
+/* Firefox 滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary) rgba(30, 33, 57, 0.5);
+}
+
+/* ==================== 辅助类 ==================== */
+.text-primary-custom {
+  color: var(--primary) !important;
+}
+
+.text-secondary-custom {
+  color: var(--text-secondary) !important;
+}
+
+.text-tertiary-custom {
+  color: var(--text-tertiary) !important;
+}
+
+.bg-primary-custom {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+}
+
+.bg-dark-custom {
+  background: var(--bg-tertiary) !important;
+}
+
+.border-primary-custom {
+  border-color: var(--primary) !important;
+}
+
+.shadow-custom {
+  box-shadow: var(--shadow-md) !important;
+}
+
+.shadow-glow-custom {
+  box-shadow: var(--shadow-glow) !important;
+}
+
+/* ==================== 打印样式 ==================== */
+@media print {
+  body {
+    background: white;
+    color: black;
+  }
+
+  .navbar,
+  .footer,
+  .btn,
+  .no-print {
+    display: none !important;
+  }
+
+  .card {
+    border: 1px solid #ddd;
+    box-shadow: none;
+    page-break-inside: avoid;
+  }
+}
+
+/* ==================== 无障碍优化 ==================== */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* 焦点可见性 */
+*:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 减少动画（用户偏好） */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==================== 高对比度模式 ==================== */
+@media (prefers-contrast: high) {
+  :root {
+    --border-color: rgba(255, 255, 255, 0.3);
+    --text-secondary: #E2E8F0;
+  }
+
+  .btn {
+    border: 2px solid currentColor;
+  }
+
+  .card {
+    border: 2px solid var(--border-color);
+  }
+}
+
+/* ==================== 结束 ==================== */
+
+/* ==================== 文字对比度优化 ==================== */
+/* 确保所有文字在深色背景上清晰可读 */
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+p {
+  color: var(--text-primary);
+}
+
+label {
+  color: var(--text-primary);
+}
+
+a {
+  color: var(--primary-light);
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+a:hover {
+  color: var(--primary);
+}
+
+/* 表格文字对比度 */
+.table thead th {
+  color: #FFFFFF;
+  /* 纯白色 */
+}
+
+.table tbody td {
+  color: var(--text-primary);
+  /* 高对比度 */
+}
+
+/* 列表文字对比度 */
+.list-group-item {
+  color: var(--text-primary);
+}
+
+/* 下拉菜单文字对比度 */
+.dropdown-item {
+  color: var(--text-primary);
+}
+
+/* 表单文字对比度 */
+.form-label {
+  color: var(--text-primary);
+}
+
+.form-check-label {
+  color: var(--text-primary);
+}
+
+/* 卡片文字对比度 */
+.card-body {
+  color: var(--text-primary);
+}
+
+.card-footer {
+  color: var(--text-primary);
+}
+
+/* 小文字对比度 */
+small,
+.small {
+  color: var(--text-secondary);
+}
+
+/* 禁用状态文字 */
+.text-muted {
+  color: var(--text-secondary) !important;
+}
+
+/* 状态文字颜色 */
+.text-success {
+  color: #6EE7B7 !important;
+}
+
+.text-danger {
+  color: #FCA5A5 !important;
+}
+
+.text-warning {
+  color: #FCD34D !important;
+}
+
+.text-info {
+  color: #93C5FD !important;
+}
+
+/* ==================== 去除所有剩余圆角 ==================== */
+/* 确保所有元素都是直角 */
+
+* {
+  border-radius: 0 !important;
+}
+
+/* 但保留圆形元素（如头像、图标） */
+.rounded-circle {
+  border-radius: 50% !important;
+}
+
+/* 保留完全圆形的按钮（如果有特殊需求） */
+.btn-circle {
+  border-radius: 50% !important;
+}
+
+/* 保留 Switch 开关的圆角 */
+.form-switch .form-check-input {
+  border-radius: 2rem !important;
+}
+
+.form-switch .form-check-input::before {
+  border-radius: 50% !important;
+}
+
+/* 保留加载动画的圆角 */
+.loading-spinner {
+  border-radius: 50% !important;
+}
+
+/* 保留进度条圆形指示器 */
+.spinner-border,
+.spinner-grow {
+  border-radius: 50% !important;
+}
+
+/* 保留 Toast 通知的轻微圆角 */
+.toast {
+  border-radius: 4px !important;
+}
+
+/* 保留徽章的轻微圆角（可选） */
+.badge-pill {
+  border-radius: 10rem !important;
+}
+
+/* ==================== 增强对比度的辅助类 ==================== */
+.text-high-contrast {
+  color: #FFFFFF !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.bg-high-contrast {
+  background: rgba(10, 14, 39, 0.95) !important;
+}
+
+.border-high-contrast {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+
+/* ==================== 联系人管理页面样式 ==================== */
+
+/* 联系人网格容器 */
+.contacts-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* 联系人卡片/行 */
+.contact-card,
+.contact-row {
+  display: flex;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  background: rgba(30, 33, 57, 0.5);
+  border-bottom: 1px solid var(--border-color);
+  transition: all 0.3s ease;
+  gap: 1rem;
+}
+
+.contact-card:hover,
+.contact-row:hover {
+  background: rgba(99, 102, 241, 0.1);
+  transform: translateX(4px);
+  border-left: 3px solid var(--primary);
+}
+
+.contact-card:last-child,
+.contact-row:last-child {
+  border-bottom: none;
+}
+
+/* 联系人头像 */
+.contact-avatar {
+  flex-shrink: 0;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  border-radius: 50%;
+  color: white;
+  font-size: 1.8rem;
+  box-shadow: 0 4px 12px var(--primary-glow);
+}
+
+/* 联系人信息 */
+.contact-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.contact-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-phone {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-bottom: 0;
+  display: flex;
+  align-items: center;
+}
+
+.contact-phone i {
+  opacity: 0.7;
+}
+
+/* 联系人操作按钮 */
+.contact-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.contact-actions .btn-group-vertical {
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+}
+
+.contact-actions .btn-group {
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+}
+
+.contact-actions .btn {
+  min-width: 70px;
+  font-size: 0.9rem;
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.contact-actions .btn i {
+  font-size: 1rem;
+}
+
+/* 拨打按钮特殊样式 */
+.call-contact-btn {
+  background: linear-gradient(135deg, var(--success) 0%, #059669 100%) !important;
+  border: none !important;
+  color: white !important;
+  box-shadow: 0 2px 8px var(--success-glow);
+  font-weight: 600;
+}
+
+.call-contact-btn:hover {
+  box-shadow: 0 4px 15px var(--success-glow);
+  transform: translateY(-2px);
+}
+
+/* 编辑和删除按钮 */
+.contact-actions .btn-outline-primary {
+  border: 2px solid var(--primary);
+  color: var(--primary);
+  background: transparent;
+  min-width: 45px;
+  padding: 0.5rem 0.75rem;
+}
+
+.contact-actions .btn-outline-primary:hover {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+.contact-actions .btn-outline-danger {
+  border: 2px solid var(--danger);
+  color: var(--danger);
+  background: transparent;
+  min-width: 45px;
+  padding: 0.5rem 0.75rem;
+}
+
+.contact-actions .btn-outline-danger:hover {
+  background: var(--danger);
+  color: white;
+  box-shadow: 0 2px 8px var(--danger-glow);
+}
+
+/* 隐藏状态（搜索时使用） */
+.contact-card.hidden,
+.contact-row.hidden {
+  display: none;
+}
+
+/* 高亮状态（搜索匹配时） */
+.contact-card.highlight,
+.contact-row.highlight {
+  background: rgba(99, 102, 241, 0.15);
+  animation: highlight-pulse 0.3s ease;
+}
+
+@keyframes highlight-pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* 页面头部样式 */
+.page-header {
+  margin-bottom: 2rem;
+}
+
+.page-icon {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  border-radius: 50%;
+  color: white;
+  font-size: 1.8rem;
+  box-shadow: 0 4px 15px var(--primary-glow);
+}
+
+.page-title {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.page-subtitle {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* 搜索框样式 */
+.search-box {
+  width: 100%;
+}
+
+.search-box .input-group {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+}
+
+.search-box .input-group-text {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  border: none;
+  color: white;
+}
+
+.search-box .form-control {
+  border-left: none;
+}
+
+/* 空状态样式 */
+.empty-state-large {
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.empty-icon {
+  font-size: 5rem;
+  color: var(--primary);
+  opacity: 0.5;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.empty-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.empty-description {
+  font-size: 1rem;
+  color: var(--text-secondary);
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+/* 现代卡片样式 */
+.modern-card {
+  background: rgba(30, 33, 57, 0.7);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modern-card:hover {
+  border-color: var(--border-glow);
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+}
+
+/* 现代按钮样式 */
+.btn-modern {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.btn-modern i {
+  font-size: 1.1rem;
+}
+
+/* 图标包装器 */
+.icon-wrapper {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.2);
+  border-radius: 50%;
+  color: var(--primary-light);
+  font-size: 1.2rem;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .contact-card,
+  .contact-row {
+    flex-wrap: wrap;
+    padding: 1rem;
+  }
+  
+  .contact-info {
+    flex: 1 1 100%;
+    margin-bottom: 0.75rem;
+  }
+  
+  .contact-actions {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+  
+  .contact-actions .btn-group-vertical {
+    flex-direction: row;
+    width: 100%;
+  }
+  
+  .contact-actions .btn {
+    flex: 1;
+    min-width: auto;
+  }
+  
+  .page-icon {
+    width: 50px;
+    height: 50px;
+    font-size: 1.5rem;
+  }
+  
+  .page-title {
+    font-size: 1.5rem;
+  }
+  
+  .page-subtitle {
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 576px) {
+  .contact-avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 1.5rem;
+  }
+  
+  .contact-name {
+    font-size: 1rem;
+  }
+  
+  .contact-phone {
+    font-size: 0.85rem;
+  }
+  
+  .contact-actions .btn {
+    font-size: 0.85rem;
+    padding: 0.4rem 0.75rem;
+  }
+}
+
+
+/* ==================== 强制按钮组无圆角 ==================== */
+/* 覆盖 Bootstrap 默认的按钮组圆角样式 */
+.btn-group > .btn,
+.btn-group-vertical > .btn,
+.btn-group > .btn:first-child,
+.btn-group > .btn:last-child,
+.btn-group > .btn:not(:first-child):not(:last-child),
+.btn-group-vertical > .btn:first-child,
+.btn-group-vertical > .btn:last-child,
+.btn-group-vertical > .btn:not(:first-child):not(:last-child) {
+  border-radius: 0 !important;
+}
+
+/* 联系人操作按钮强制无圆角 */
+.contact-actions .btn,
+.contact-actions .btn-group .btn,
+.contact-actions .btn-group-vertical .btn,
+.contact-actions .btn-group-sm .btn {
+  border-radius: 0 !important;
+}
+
+
+/* ==================== 统一联系人按钮大小 ==================== */
+.contact-actions .btn,
+.contact-actions .btn-success,
+.contact-actions .btn-outline-primary,
+.contact-actions .btn-outline-danger {
+  min-width: 70px !important;
+  height: 38px !important;
+  font-size: 0.9rem !important;
+  padding: 0.5rem 1rem !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+}
+
+.contact-actions .btn i {
+  font-size: 0.9rem !important;
+  margin-right: 0.25rem !important;
+}
+
+
+/* ==================== 表单页面统一样式 ==================== */
+/* 表单组间距 */
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+/* 表单按钮间距 */
+form .btn {
+  margin-top: 1rem;
+  margin-right: 0.5rem;
+}
+
+form .btn:last-child {
+  margin-right: 0;
+}
+
+/* 表单底部按钮组 */
+form .btn-group {
+  margin-top: 1rem;
+  gap: 0.5rem;
+}
+
+/* 表单内多个按钮的间距 */
+form button + button,
+form button + a,
+form a + button,
+form a + a {
+  margin-left: 0.5rem;
+}

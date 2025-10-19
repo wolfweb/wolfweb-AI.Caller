@@ -12,7 +12,7 @@
     <div class="row g-4">
         <!-- 左侧通讯录 -->
         <div class="col-lg-4">
-            <div class="card modern-card">
+            <div class="card modern-card hover-lift">
                 <div class="card-header">
                     <h5 class="mb-0 d-flex align-items-center">
                         <div class="icon-wrapper me-3">
@@ -66,7 +66,7 @@
 
         <!-- 右侧拨号器 -->
         <div class="col-lg-8">
-            <div class="card modern-card">
+            <div class="card modern-card hover-lift">
                 <div class="card-header">
                     <h5 class="mb-0 d-flex align-items-center">
                         <div class="icon-wrapper me-3">
@@ -96,15 +96,15 @@
                     <!-- 输入框和拨号按钮 -->
                     <div class="input-group mb-4">
                         <span class="input-group-text"><i class="bi bi-telephone"></i></span>
-                        <input type="text" id="destination" class="form-control form-control-lg" 
+                        <input type="text" id="destination" class="form-control form-control-lg input-glow" 
                                placeholder="输入电话号码或选择联系人" />
-                        <button id="callButton" class="btn btn-success">
+                        <button id="callButton" class="btn btn-success btn-neon">
                             <i class="bi bi-telephone-fill"></i> 拨打
                         </button>
-                        <button id="answerButton" class="btn btn-primary d-none">
+                        <button id="answerButton" class="btn btn-primary btn-neon d-none">
                             <i class="bi bi-telephone-inbound-fill"></i> 接听
                         </button>
-                        <button id="hangupButton" class="btn btn-danger d-none">
+                        <button id="hangupButton" class="btn btn-danger btn-neon d-none">
                             <i class="bi bi-telephone-x-fill"></i> 挂断
                         </button>
                         @if (User.HasClaim("isAdmin", "True")) {
@@ -118,31 +118,31 @@
                     </div>
                     
                     <!-- 拨号盘 -->
-                    <div class="dialpad mb-3">
+                    <div class="dialpad dialpad-container mb-3">
                         <div class="row g-2 mb-2">
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="1">1</button></div>
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="2">2</button></div>
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="3">3</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="1">1</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="2">2</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="3">3</button></div>
                         </div>
                         <div class="row g-2 mb-2">
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="4">4</button></div>
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="5">5</button></div>
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="6">6</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="4">4</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="5">5</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="6">6</button></div>
                         </div>
                         <div class="row g-2 mb-2">
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="7">7</button></div>
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="8">8</button></div>
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="9">9</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="7">7</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="8">8</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="9">9</button></div>
                         </div>
                         <div class="row g-2">
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="*">*</button></div>
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="0">0</button></div>
-                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn" data-key="#">#</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="*">*</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="0">0</button></div>
+                            <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="#">#</button></div>
                         </div>
                     </div>
                     
                     <!-- 通话信息 -->
-                    <div class="call-info d-none" id="callInfo">
+                    <div class="call-info call-info-tech d-none" id="callInfo">
                         <div class="text-center mb-3">
                             <div class="display-1 text-primary">
                                 <i class="bi bi-person-circle"></i>

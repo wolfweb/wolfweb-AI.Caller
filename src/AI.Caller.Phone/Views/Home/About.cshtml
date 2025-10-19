@@ -1,371 +1,271 @@
-@{
+﻿@{
     ViewData["Title"] = "关于";
 }
 
 <div class="container mt-4">
+    <!-- 页面头部 -->
+    <div class="page-header mb-4">
+        <div class="d-flex align-items-center">
+            <div class="page-icon me-3">
+                <i class="bi bi-info-circle-fill"></i>
+            </div>
+            <div>
+                <h2 class="page-title mb-1">关于 AI.Caller</h2>
+                <p class="page-subtitle mb-0">企业级智能 SIP 电话系统</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 系统概述卡片 -->
+    <div class="card modern-card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0 d-flex align-items-center">
+                <div class="icon-wrapper me-3">
+                    <i class="bi bi-stars"></i>
+                </div>
+                系统概述
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-8">
+                    <p class="lead">
+                        AI.Caller 是一个基于 .NET 8 的<strong>生产级 SIP 电话解决方案</strong>，核心特色是将 AI 能力深度集成到电话通信流程中。
+                    </p>
+                    <p>
+                        系统不仅提供完整的 Web 界面进行电话管理，更重要的是实现了<strong>智能化的外呼任务自动化</strong>和<strong>来电自动应答</strong>。
+                        通过高性能后台任务队列，系统能够高效处理大规模批量外呼任务。
+                    </p>
+                </div>
+                <div class="col-md-4">
+                    <div class="card bg-primary-custom text-white">
+                        <div class="card-body text-center">
+                            <h3 class="mb-2">v1.0.0</h3>
+                            <p class="mb-0">当前版本</p>
+                            <hr class="bg-white">
+                            <small>.NET 8.0 | ASP.NET Core MVC</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 核心功能 -->
+    <div class="card modern-card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0 d-flex align-items-center">
+                <div class="icon-wrapper me-3">
+                    <i class="bi bi-lightning-charge-fill"></i>
+                </div>
+                核心功能
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="card border-primary h-100">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <i class="bi bi-robot text-primary"></i> AI 智能应答系统
+                            </h6>
+                            <ul class="small mb-0">
+                                <li><strong>流式 TTS 播放</strong> - 支持预缓冲机制，降低首字延迟</li>
+                                <li><strong>智能 VAD 检测</strong> - 自适应噪声底线，双阈值判决</li>
+                                <li><strong>自动暂停/恢复</strong> - 检测到用户说话时自动暂停播报</li>
+                                <li><strong>来电自动应答</strong> - 基于被叫号码的智能路由</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-success h-100">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <i class="bi bi-telephone-outbound text-success"></i> AI 外呼任务管理
+                            </h6>
+                            <ul class="small mb-0">
+                                <li><strong>单个任务</strong> - 快速创建单个外呼任务</li>
+                                <li><strong>批量任务</strong> - Excel 批量导入，自动解析并创建任务队列</li>
+                                <li><strong>TTS 模板系统</strong> - 支持变量占位符，动态生成播报内容</li>
+                                <li><strong>任务状态管理</strong> - 排队中 → 进行中 → 已完成/失败</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-info h-100">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <i class="bi bi-diagram-3 text-info"></i> 多场景通话支持
+                            </h6>
+                            <ul class="small mb-0">
+                                <li><strong>Web ↔ Web</strong> - 浏览器之间的 WebRTC 通话</li>
+                                <li><strong>Web ↔ Mobile</strong> - 浏览器与外部 SIP 设备互通</li>
+                                <li><strong>Server ↔ Web/Mobile</strong> - AI 坐席呼叫用户</li>
+                                <li><strong>实时状态监控</strong> - 通过 SignalR 推送通话状态</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card border-warning h-100">
+                        <div class="card-body">
+                            <h6 class="card-title">
+                                <i class="bi bi-soundwave text-warning"></i> 实时音频处理
+                            </h6>
+                            <ul class="small mb-0">
+                                <li><strong>G.711 编解码</strong> - PCMA/PCMU 音频编解码标准</li>
+                                <li><strong>音频重采样</strong> - 支持 8kHz/16kHz/24kHz</li>
+                                <li><strong>Jitter Buffer</strong> - 自适应播放速率，平滑播放</li>
+                                <li><strong>通话录音</strong> - 完整的呼叫日志和录音回放</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 技术架构 -->
+    <div class="card modern-card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0 d-flex align-items-center">
+                <div class="icon-wrapper me-3">
+                    <i class="bi bi-layers-fill"></i>
+                </div>
+                技术架构
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <h6 class="text-primary"><i class="bi bi-server"></i> 核心框架</h6>
+                    <ul class="list-unstyled small">
+                        <li><i class="bi bi-check-circle text-success"></i> .NET 8.0</li>
+                        <li><i class="bi bi-check-circle text-success"></i> ASP.NET Core MVC</li>
+                        <li><i class="bi bi-check-circle text-success"></i> Entity Framework Core</li>
+                        <li><i class="bi bi-check-circle text-success"></i> SignalR</li>
+                    </ul>
+                </div>
+                <div class="col-md-3">
+                    <h6 class="text-success"><i class="bi bi-telephone"></i> 通信协议</h6>
+                    <ul class="list-unstyled small">
+                        <li><i class="bi bi-check-circle text-success"></i> SIPSorcery</li>
+                        <li><i class="bi bi-check-circle text-success"></i> WebRTC</li>
+                        <li><i class="bi bi-check-circle text-success"></i> G.711 (PCMA/PCMU)</li>
+                        <li><i class="bi bi-check-circle text-success"></i> RTP/RTCP</li>
+                    </ul>
+                </div>
+                <div class="col-md-3">
+                    <h6 class="text-info"><i class="bi bi-cpu"></i> AI 与音频</h6>
+                    <ul class="list-unstyled small">
+                        <li><i class="bi bi-check-circle text-success"></i> Sherpa-ONNX (VAD)</li>
+                        <li><i class="bi bi-check-circle text-success"></i> FFmpeg</li>
+                        <li><i class="bi bi-check-circle text-success"></i> 自定义 TTS 引擎</li>
+                        <li><i class="bi bi-check-circle text-success"></i> 自适应 VAD 算法</li>
+                    </ul>
+                </div>
+                <div class="col-md-3">
+                    <h6 class="text-warning"><i class="bi bi-lightning"></i> 异步处理</h6>
+                    <ul class="list-unstyled small">
+                        <li><i class="bi bi-check-circle text-success"></i> System.Threading.Channels</li>
+                        <li><i class="bi bi-check-circle text-success"></i> IHostedService</li>
+                        <li><i class="bi bi-check-circle text-success"></i> ArrayPool</li>
+                        <li><i class="bi bi-check-circle text-success"></i> SQLite</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 帮助和支持 -->
+    <div class="card modern-card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0 d-flex align-items-center">
+                <div class="icon-wrapper me-3">
+                    <i class="bi bi-question-circle-fill"></i>
+                </div>
+                帮助和支持
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100 border-primary">
+                        <div class="card-body">
+                            <h6 class="card-title"><i class="bi bi-book text-primary"></i> 使用文档</h6>
+                            <p class="card-text small">查看详细的使用说明和操作指南</p>
+                            <a href="https://github.com/wolfweb/wolfweb-AI.Caller" target="_blank" class="btn btn-primary btn-sm">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>查看文档
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100 border-dark">
+                        <div class="card-body">
+                            <h6 class="card-title"><i class="bi bi-github text-dark"></i> 源码仓库</h6>
+                            <p class="card-text small">访问 GitHub 仓库获取最新源码</p>
+                            <a href="https://github.com/wolfweb/wolfweb-AI.Caller" target="_blank" class="btn btn-dark btn-sm">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>访问 GitHub
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100 border-danger">
+                        <div class="card-body">
+                            <h6 class="card-title"><i class="bi bi-bug text-danger"></i> 问题反馈</h6>
+                            <p class="card-text small">报告问题或提交功能建议</p>
+                            <a href="https://github.com/wolfweb/wolfweb-AI.Caller/issues" target="_blank" class="btn btn-danger btn-sm">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>提交问题
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card h-100 border-success">
+                        <div class="card-body">
+                            <h6 class="card-title"><i class="bi bi-headset text-success"></i> 技术支持</h6>
+                            <p class="card-text small">获取专业技术支持和咨询服务</p>
+                            <a href="https://github.com/wolfweb/wolfweb-AI.Caller/discussions" target="_blank" class="btn btn-success btn-sm">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>联系支持
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 许可证和致谢 -->
     <div class="row">
-        <div class="col-md-8 offset-md-2">
-            <div class="card">
-                <div class="card-header bg-primary text-white">
-                    <h4 class="mb-0"><i class="bi bi-info-circle"></i> 关于 AI.Caller</h4>
+        <div class="col-md-6">
+            <div class="card modern-card mb-4">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-file-earmark-text"></i> 许可证</h6>
                 </div>
                 <div class="card-body">
-                    <h5>项目介绍</h5>
-                    <p>
-                        AI.Caller 是一个现代化的 SIP 电话解决方案，集成了人工智能功能，支持通过 Web 界面进行电话呼叫、管理联系人和监控通话状态。
+                    <p class="small mb-2">本项目采用 <strong>MIT 许可证</strong></p>
+                    <p class="small text-muted mb-0">
+                        <i class="bi bi-exclamation-triangle text-warning"></i>
+                        本项目仅供学习和研究使用，请遵守当地法律法规，不得用于非法用途。
                     </p>
-                    
-                    <h5>主要功能</h5>
-                    <ul>
-                        <li>SIP 电话呼叫：支持标准 SIP 协议的语音通话</li>
-                        <li>联系人管理：管理通话联系人信息</li>
-                        <li>通话监控：实时监控通话状态和质量</li>
-                        <li>通话录音：记录通话内容以供后续查阅</li>
-                        <li>挂断检测：智能检测通话结束状态</li>
-                        <li>网络监控：监控网络连接状态</li>
-                        <li>用户认证：安全的用户登录系统</li>
-                    </ul>
-                    
-                    <h5>技术架构</h5>
-                    <ul>
-                        <li>后端：.NET 8.0, ASP.NET Core MVC, Entity Framework Core</li>
-                        <li>前端：HTML/CSS/JavaScript, Bootstrap 5, SignalR</li>
-                        <li>数据库：SQLite</li>
-                        <li>核心通信协议：SIP (使用 SIPSorcery 库)</li>
-                        <li>媒体处理：FFmpeg</li>
-                    </ul>
-                    
-                    <h5>使用说明</h5>
-                    
-                    <!-- 使用说明导航标签 -->
-                    <ul class="nav nav-tabs" id="usageTab" role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link active" id="user-management-tab" data-bs-toggle="tab" data-bs-target="#user-management" type="button" role="tab">
-                                <i class="bi bi-people"></i> 用户管理
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="sip-config-tab" data-bs-toggle="tab" data-bs-target="#sip-config" type="button" role="tab">
-                                <i class="bi bi-telephone"></i> SIP账户配置
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="multi-seat-tab" data-bs-toggle="tab" data-bs-target="#multi-seat" type="button" role="tab">
-                                <i class="bi bi-diagram-3"></i> 多坐席配置
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="call-function-tab" data-bs-toggle="tab" data-bs-target="#call-function" type="button" role="tab">
-                                <i class="bi bi-phone"></i> 通话功能
-                            </button>
-                        </li>
-                    </ul>
-
-                    <!-- 使用说明内容 -->
-                    <div class="tab-content mt-3" id="usageTabContent">
-                        <!-- 用户管理 -->
-                        <div class="tab-pane fade show active" id="user-management" role="tabpanel">
-                            <h6><i class="bi bi-people text-primary"></i> 用户管理</h6>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="card border-primary mb-3">
-                                        <div class="card-header">用户注册与登录</div>
-                                        <div class="card-body">
-                                            <h6>注册新用户</h6>
-                                            <ol class="small">
-                                                <li>访问系统首页，点击"注册"</li>
-                                                <li>填写用户名和密码</li>
-                                                <li>系统会自动创建用户账户</li>
-                                            </ol>
-                                            <h6>用户登录</h6>
-                                            <ol class="small">
-                                                <li>使用用户名和密码登录系统</li>
-                                                <li>登录后可以访问个人功能和管理功能（如果是管理员）</li>
-                                            </ol>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="card border-info mb-3">
-                                        <div class="card-header">用户类型</div>
-                                        <div class="card-body">
-                                            <div class="alert alert-info p-2 mb-2">
-                                                <strong><i class="bi bi-person"></i> 普通用户</strong><br>
-                                                <small>只能使用分配给自己的SIP账户进行通话</small>
-                                            </div>
-                                            <div class="alert alert-warning p-2">
-                                                <strong><i class="bi bi-person-gear"></i> 管理员用户</strong><br>
-                                                <small>可以管理所有用户和SIP账户，具有完整的系统管理权限</small>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- SIP账户配置 -->
-                        <div class="tab-pane fade" id="sip-config" role="tabpanel">
-                            <h6><i class="bi bi-telephone text-primary"></i> SIP账户配置</h6>
-                            <div class="row">
-                                <div class="col-md-8">
-                                    <h6>添加SIP账户（管理员功能）</h6>
-                                    <ol>
-                                        <li>以管理员身份登录</li>
-                                        <li>点击导航栏"管理" → "SIP账户管理"</li>
-                                        <li>点击"添加SIP账户"按钮</li>
-                                        <li>填写SIP账户信息</li>
-                                    </ol>
-                                    
-                                    <h6>SIP账户信息说明</h6>
-                                    <table class="table table-sm table-bordered">
-                                        <thead class="table-light">
-                                            <tr>
-                                                <th>字段</th>
-                                                <th>说明</th>
-                                                <th>示例</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr>
-                                                <td>SIP用户名</td>
-                                                <td>SIP协议中的用户标识</td>
-                                                <td>1001, agent01</td>
-                                            </tr>
-                                            <tr>
-                                                <td>SIP密码</td>
-                                                <td>SIP账户的认证密码</td>
-                                                <td>password123</td>
-                                            </tr>
-                                            <tr>
-                                                <td>SIP服务器</td>
-                                                <td>SIP服务器的地址</td>
-                                                <td>192.168.1.100</td>
-                                            </tr>
-                                            <tr>
-                                                <td>状态</td>
-                                                <td>账户是否激活</td>
-                                                <td>激活/停用</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card border-success">
-                                        <div class="card-header bg-success">
-                                            <h6 class="mb-0">配置示例</h6>
-                                        </div>
-                                        <div class="card-body">
-                                            <pre class="p-2 rounded small">SIP用户名: 1001
-SIP密码: mypassword
-SIP服务器: 192.168.1.100
-状态: 激活</pre>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 多坐席配置 -->
-                        <div class="tab-pane fade" id="multi-seat" role="tabpanel">
-                            <h6><i class="bi bi-diagram-3 text-primary"></i> 多坐席配置</h6>
-                            <div class="row">
-                                <div class="col-md-4">
-                                    <div class="card border-success mb-3">
-                                        <div class="card-header bg-success text-white">
-                                            <h6 class="mb-0">一对一模式</h6>
-                                        </div>
-                                        <div class="card-body">
-                                            <p class="small">一个用户对应一个SIP账户</p>
-                                            <p class="small"><strong>适用场景:</strong> 固定坐席</p>
-                                            <hr>
-                                            <small>
-                                                <strong>配置步骤:</strong><br>
-                                                1. 创建用户账户<br>
-                                                2. 创建对应的SIP账户<br>
-                                                3. 将SIP账户分配给用户
-                                            </small>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card border-warning mb-3">
-                                        <div class="card-header bg-warning text-dark">
-                                            <h6 class="mb-0">多用户共享模式</h6>
-                                        </div>
-                                        <div class="card-body">
-                                            <p class="small">多个用户共享同一个SIP账户</p>
-                                            <p class="small"><strong>适用场景:</strong> 轮班制坐席</p>
-                                            <div class="alert alert-warning p-2">
-                                                <small><strong>注意:</strong> 同一时间只能有一个用户使用该SIP账户</small>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <div class="card border-info mb-3">
-                                        <div class="card-header bg-info text-white">
-                                            <h6 class="mb-0">用户多账户模式</h6>
-                                        </div>
-                                        <div class="card-body">
-                                            <p class="small">一个用户可以访问多个SIP账户</p>
-                                            <p class="small"><strong>适用场景:</strong> 主管或技术支持</p>
-                                            <hr>
-                                            <small>用户可以在不同SIP账户间切换</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <h6>分配SIP账户操作步骤</h6>
-                            <div class="alert alert-light">
-                                <ol class="small mb-0">
-                                    <li>管理员登录系统</li>
-                                    <li>点击"管理" → "用户管理"</li>
-                                    <li>在用户列表中找到目标用户</li>
-                                    <li>点击"分配SIP账户"按钮</li>
-                                    <li>从下拉列表中选择可用的SIP账户</li>
-                                    <li>点击"保存"完成分配</li>
-                                </ol>
-                            </div>
-                        </div>
-
-                        <!-- 通话功能 -->
-                        <div class="tab-pane fade" id="call-function" role="tabpanel">
-                            <h6><i class="bi bi-phone text-primary"></i> 通话功能</h6>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="card border-primary mb-3">
-                                        <div class="card-header">发起通话</div>
-                                        <div class="card-body">
-                                            <h6 class="card-title">通过通讯录拨打</h6>
-                                            <ol class="small">
-                                                <li>点击"通讯录"</li>
-                                                <li>选择联系人</li>
-                                                <li>点击"拨打"按钮</li>
-                                            </ol>
-                                            
-                                            <h6 class="card-title">直接拨号</h6>
-                                            <ol class="small">
-                                                <li>在主页面的拨号区域输入电话号码</li>
-                                                <li>点击"呼叫"按钮</li>
-                                            </ol>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="card border-success mb-3">
-                                        <div class="card-header">通话控制</div>
-                                        <div class="card-body">
-                                            <ul class="list-unstyled small">
-                                                <li><i class="bi bi-telephone-inbound text-success"></i> <strong>接听来电:</strong> 点击"接听"按钮</li>
-                                                <li><i class="bi bi-telephone-x text-danger"></i> <strong>挂断通话:</strong> 点击"挂断"按钮</li>
-                                                <li><i class="bi bi-pause-circle text-warning"></i> <strong>通话保持:</strong> 点击"保持"按钮（如果支持）</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <h6>常见问题排查</h6>
-                            <div class="accordion accordion-flush" id="troubleshootAccordion">
-                                <div class="accordion-item">
-                                    <h2 class="accordion-header">
-                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#sipRegisterFail">
-                                            SIP注册失败
-                                        </button>
-                                    </h2>
-                                    <div id="sipRegisterFail" class="accordion-collapse collapse" data-bs-parent="#troubleshootAccordion">
-                                        <div class="accordion-body">
-                                            <div class="alert alert-danger p-2">
-                                                <strong>症状:</strong> 用户显示"未注册"状态
-                                            </div>
-                                            <h6>解决方案:</h6>
-                                            <ul class="small">
-                                                <li>检查网络连接，确保可以访问SIP服务器</li>
-                                                <li>验证SIP服务器地址是否正确</li>
-                                                <li>检查SIP用户名和密码是否正确</li>
-                                                <li>确保防火墙允许SIP端口（通常是5060）</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="accordion-item">
-                                    <h2 class="accordion-header">
-                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cannotCall">
-                                            无法发起通话
-                                        </button>
-                                    </h2>
-                                    <div id="cannotCall" class="accordion-collapse collapse" data-bs-parent="#troubleshootAccordion">
-                                        <div class="accordion-body">
-                                            <div class="alert alert-warning p-2">
-                                                <strong>症状:</strong> 点击呼叫按钮没有反应或提示错误
-                                            </div>
-                                            <h6>检查清单:</h6>
-                                            <ul class="small">
-                                                <li>确保用户已分配有效的SIP账户</li>
-                                                <li>检查SIP账户状态是否为"激活"</li>
-                                                <li>确认拨打的号码格式正确</li>
-                                                <li>检查用户是否有拨打权限</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <h5 class="mt-4">帮助和支持</h5>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-body">
-                                    <h5 class="card-title"><i class="bi bi-book text-primary"></i> 使用文档</h5>
-                                    <p class="card-text">查看详细的使用说明和操作指南</p>
-                                    <a href="#" class="btn btn-primary">查看文档</a>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-body">
-                                    <h5 class="card-title"><i class="bi bi-github text-dark"></i> 源码仓库</h5>
-                                    <p class="card-text">访问 GitHub 仓库获取最新源码</p>
-                                    <a href="#" class="btn btn-dark">访问 GitHub</a>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-body">
-                                    <h5 class="card-title"><i class="bi bi-bug text-danger"></i> 问题反馈</h5>
-                                    <p class="card-text">报告问题或提交功能建议</p>
-                                    <a href="#" class="btn btn-danger">提交问题</a>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <div class="card h-100">
-                                <div class="card-body">
-                                    <h5 class="card-title"><i class="bi bi-headset text-success"></i> 技术支持</h5>
-                                    <p class="card-text">获取专业技术支持和咨询服务</p>
-                                    <a href="#" class="btn btn-success">联系支持</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="alert alert-info">
-                        <h5><i class="bi bi-info-circle"></i> 系统要求</h5>
-                        <ul>
-                            <li>支持现代浏览器（Chrome、Firefox、Safari、Edge等）</li>
-                            <li>需要启用JavaScript和WebSocket支持</li>
-                            <li>建议使用耳机或麦克风进行通话</li>
-                            <li>需要稳定的网络连接</li>
-                        </ul>
-                    </div>
                 </div>
-                <div class="card-footer text-muted">
-                    版本: 1.0.0
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card modern-card mb-4">
+                <div class="card-header">
+                    <h6 class="mb-0"><i class="bi bi-heart-fill text-danger"></i> 致谢</h6>
+                </div>
+                <div class="card-body">
+                    <ul class="list-unstyled small mb-0">
+                        <li><i class="bi bi-check-circle text-success"></i> <a href="https://github.com/sipsorcery-org/sipsorcery" target="_blank">SIPSorcery</a> - 优秀的 SIP 协议栈</li>
+                        <li><i class="bi bi-check-circle text-success"></i> <a href="https://github.com/k2-fsa/sherpa-onnx" target="_blank">Sherpa-ONNX</a> - 高性能语音处理库</li>
+                        <li><i class="bi bi-check-circle text-success"></i> <a href="https://ffmpeg.org/" target="_blank">FFmpeg</a> - 强大的音视频处理工具</li>
+                    </ul>
                 </div>
             </div>
         </div>
