@@ -28,6 +28,9 @@ class PhoneApp {
             statusAlert: document.getElementById('statusAlert'),
             recordingStatusAlert: document.getElementById('recordingStatusAlert'),
             recordingStatus: document.getElementById('recordingStatus'),
+            
+            // 线路选择相关元素
+            lineSelectorContainer: document.getElementById('lineSelectorContainer'),
             recordingTimer: document.getElementById('recordingTimer'),
             recordingIcon: document.getElementById('recordingIcon'),
             callerName: document.getElementById('callerName'),
@@ -53,6 +56,15 @@ class PhoneApp {
             // 初始化SignalR管理器
             this.signalRManager = new SignalRManager(this.elements, this.callStateManager, this.webRTCManager);
             await this.signalRManager.initialize();
+            
+            // 初始化线路选择器
+            if (this.elements.lineSelectorContainer) {
+                this.lineSelector = new LineSelector('lineSelectorContainer', {
+                    onLineChange: (selection) => {
+                        console.log('线路选择变化:', selection);
+                    }
+                });
+            }
 
             // 初始化录音管理器
             this.recordingManager = new SimpleRecordingManager(this.elements, this.signalRManager, this.callStateManager);
@@ -200,10 +212,21 @@ class PhoneApp {
 
             const sdpOffer = await this.webRTCManager.createPeerConnection(true, null);
 
+            // 获取线路选择参数
+            const lineSelection = this.lineSelector ? this.lineSelector.getLineSelection() : {
+                selectedLineId: null,
+                autoSelectLine: true
+            };
+
             const response = await fetch('/api/phone/call', {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ Destination: destination, Offer: sdpOffer })
+                body: JSON.stringify({ 
+                    Destination: destination, 
+                    Offer: sdpOffer,
+                    SelectedLineId: lineSelection.selectedLineId,
+                    AutoSelectLine: lineSelection.autoSelectLine
+                })
             });
 
             if (response.ok) {

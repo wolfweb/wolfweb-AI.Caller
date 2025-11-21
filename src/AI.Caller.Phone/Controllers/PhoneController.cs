@@ -34,14 +34,13 @@ namespace AI.Caller.Phone.Controllers {
 
                 CallScenario scenario = CallScenario.WebToWeb;
 
-                string sipServer = caller.SipAccount!.SipServer;
                 if(callee != null) {
-                    sipServer = callee.SipAccount!.SipServer;
+                    scenario = CallScenario.WebToWeb;
                 } else {
                     scenario = CallScenario.WebToMobile;
                 }
 
-                var ctx = await _callManager.MakeCallAsync($"sip:{request.Destination}@{sipServer}", caller, request.Offer, scenario);
+                var ctx = await _callManager.MakeCallAsync($"sip:{request.Destination}", caller, request.Offer, scenario, request.SelectedLineId, request.AutoSelectLine);
 
                 var response = new { 
                     success = true, 
@@ -98,6 +97,9 @@ namespace AI.Caller.Phone.Controllers {
     public class CallRequest {
         public string Destination { get; set; }
         public RTCSessionDescriptionInit Offer { get; set; }
+        
+        public int? SelectedLineId { get; set; }
+        public bool AutoSelectLine { get; set; } = true;
     }
 
     public class DtmfRequest {

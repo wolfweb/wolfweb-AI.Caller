@@ -47,7 +47,7 @@
                 </div>
             </div>
         </div>
-        
+
         @if (Model == null || !Model.Any())
         {
             <div class="card-body text-center py-5">
@@ -68,6 +68,8 @@
                             <tr>
                                 <th>SIP用户名</th>
                                 <th>SIP服务器</th>
+                                <th>默认线路</th>
+                                <th>可用线路数</th>
                                 <th>状态</th>
                                 <th>创建时间</th>
                                 <th>使用用户数</th>
@@ -83,6 +85,8 @@
                                         @sipAccount.SipUsername
                                     </td>
                                     <td>@sipAccount.SipServer</td>
+                                    <td>@(sipAccount.DefaultLine?.Name ?? "-")</td>
+                                    <td>@(sipAccount.AvailableLines?.Count() ?? 0)</td>
                                     <td>
                                         @if (sipAccount.IsActive)
                                         {
@@ -99,27 +103,25 @@
                                     </td>
                                     <td>
                                         <div class="btn-group btn-group-sm" role="group">
-                                            <button class="btn btn-outline-primary edit-sip-btn" 
-                                                    data-id="@sipAccount.Id"
-                                                    data-username="@sipAccount.SipUsername"
-                                                    data-server="@sipAccount.SipServer"
-                                                    data-active="@sipAccount.IsActive"
-                                                    title="编辑">
+                                            <button class="btn btn-outline-primary edit-sip-btn" data-id="@sipAccount.Id"
+                                                data-username="@sipAccount.SipUsername" data-server="@sipAccount.SipServer"
+                                                data-active="@sipAccount.IsActive" title="编辑">
                                                 <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-outline-secondary manage-lines-btn" data-id="@sipAccount.Id"
+                                                data-username="@sipAccount.SipUsername" title="管理线路">
+                                                <i class="bi bi-diagram-3"></i>
                                             </button>
                                             @if (sipAccount.Users.Count == 0)
                                             {
-                                                <button class="btn btn-outline-danger delete-sip-btn" 
-                                                        data-id="@sipAccount.Id"
-                                                        data-username="@sipAccount.SipUsername"
-                                                        title="删除">
+                                                <button class="btn btn-outline-danger delete-sip-btn" data-id="@sipAccount.Id"
+                                                    data-username="@sipAccount.SipUsername" title="删除">
                                                     <i class="bi bi-trash"></i>
                                                 </button>
                                             }
                                             else
                                             {
-                                                <button class="btn btn-outline-secondary" 
-                                                        title="该账户已被使用，无法删除" disabled>
+                                                <button class="btn btn-outline-secondary" title="该账户已被使用，无法删除" disabled>
                                                     <i class="bi bi-trash"></i>
                                                 </button>
                                             }
@@ -148,6 +150,44 @@
                 </div>
             </div>
         }
+    </div>
+</div>
+
+<!-- Manage Lines Modal -->
+<div class="modal fade" id="manageLinesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">管理账户线路 - <span id="manageLinesAccountName"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="manageLinesAlert" class="alert d-none" role="alert"></div>
+                <div id="manageLinesLoading" class="text-center py-4">
+                    <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div>
+                </div>
+                <div id="manageLinesContent" style="display:none;">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>关联</th>
+                                <th>名称</th>
+                                <th>区域</th>
+                                <th>优先级</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="manageLinesTable">
+                            <!-- filled by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -236,18 +276,143 @@
 
 @section Scripts {
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // 搜索功能
+        document.addEventListener('DOMContentLoaded', function () {
+            // Manage Lines modal handling
+            const manageModalEl = document.getElementById('manageLinesModal');
+            const manageModal = new bootstrap.Modal(manageModalEl);
+            let currentManageAccountId = null;
+
+            function showAlert(text, type = 'info') {
+                const alert = document.getElementById('manageLinesAlert');
+                alert.textContent = text;
+                alert.className = `alert alert-${type}`;
+                alert.classList.remove('d-none');
+                setTimeout(() => alert.classList.add('d-none'), 4000);
+            }
+
+            async function loadAccountLines(accountId) {
+                const loading = document.getElementById('manageLinesLoading');
+                const content = document.getElementById('manageLinesContent');
+                const table = document.getElementById('manageLinesTable');
+                loading.style.display = '';
+                content.style.display = 'none';
+                table.innerHTML = '';
+
+                try {
+                    const res = await fetch(`/api/SipLine/account/${accountId}/lines`);
+                    if (!res.ok) {
+                        const txt = await res.text();
+                        throw new Error(txt || '加载线路失败');
+                    }
+
+                    const lines = await res.json();
+
+                    // support both camelCase and PascalCase responses
+                    const get = (obj, names) => {
+                        for (const n of names) if (obj[n] !== undefined) return obj[n];
+                        return undefined;
+                    }
+
+                    lines.forEach(line => {
+                        const id = get(line, ['id', 'Id']);
+                        const name = get(line, ['name', 'Name']);
+                        const region = get(line, ['region', 'Region']) || '-';
+                        const priority = get(line, ['priority', 'Priority']) || '-';
+                        const isActive = get(line, ['isAssociated', 'IsAssociated']) ? true : false;
+                        const isDefault = get(line, ['isDefault', 'IsDefault']) ? true : false;
+
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+     <td class="align-middle text-center"><input type="checkbox" class="line-assoc-chk" data-line-id="${id}" ${isActive ? 'checked' : ''}></td>
+     <td class="align-middle">${name}</td>
+     <td class="align-middle">${region}</td>
+     <td class="align-middle">${priority}</td>
+     <td class="align-middle">${isDefault ? '<span class="badge bg-primary">默认</span>' : (get(line, ['isActive', 'IsActive']) ? '<span class="badge bg-success">激活</span>' : '<span class="badge bg-secondary">禁用</span>')}</td>
+     <td class="align-middle">
+     <button class="btn btn-sm btn-outline-primary set-default-btn" data-line-id="${id}" ${isDefault ? 'disabled' : ''}>设为默认</button>
+     </td>
+     `;
+                        table.appendChild(tr);
+                    });
+
+                    // bind events
+                    document.querySelectorAll('.line-assoc-chk').forEach(chk => {
+                        chk.addEventListener('change', async function () {
+                            const lineId = this.dataset.lineId;
+                            if (this.checked) {
+                                // associate
+                                try {
+                                    const r = await fetch(`/api/SipLine/account/${currentManageAccountId}/lines/${lineId}`, { method: 'POST' });
+                                    if (!r.ok) throw new Error(await r.text());
+                                    showAlert('已关联线路', 'success');
+                                } catch (e) {
+                                    showAlert('关联失败: ' + e.message, 'danger');
+                                    this.checked = false;
+                                }
+                            } else {
+                                // disassociate
+                                try {
+                                    const r = await fetch(`/api/SipLine/account/${currentManageAccountId}/lines/${lineId}`, { method: 'DELETE' });
+                                    if (!r.ok) throw new Error(await r.text());
+                                    showAlert('已取消关联', 'success');
+                                } catch (e) {
+                                    showAlert('取消关联失败: ' + e.message, 'danger');
+                                    this.checked = true;
+                                }
+                            }
+                        });
+                    });
+
+                    document.querySelectorAll('.set-default-btn').forEach(btn => {
+                        btn.addEventListener('click', async function () {
+                            const lineId = this.dataset.lineId;
+                            try {
+                                const r = await fetch('/api/SipLine/set-default', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ SipAccountId: parseInt(currentManageAccountId), LineId: parseInt(lineId) })
+                                });
+                                if (!r.ok) throw new Error(await r.text());
+                                showAlert('默认线路已设置', 'success');
+                                // refresh list so buttons reflect default
+                                loadAccountLines(currentManageAccountId);
+                            } catch (e) {
+                                showAlert('设置默认失败: ' + e.message, 'danger');
+                            }
+                        });
+                    });
+
+                    content.style.display = '';
+                } catch (err) {
+                    showAlert('加载线路失败: ' + err.message, 'danger');
+                } finally {
+                    loading.style.display = 'none';
+                }
+            }
+
+            // open modal when clicking manage button
+            document.querySelectorAll('.manage-lines-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    currentManageAccountId = this.dataset.id;
+                    const username = this.dataset.username;
+                    document.getElementById('manageLinesAccountName').textContent = username;
+                    document.getElementById('manageLinesAlert').classList.add('d-none');
+                    loadAccountLines(currentManageAccountId);
+                    manageModal.show();
+                });
+            });
+
+            // existing search functionality
             const searchInput = document.getElementById('searchSipAccounts');
             const sipAccountRows = document.querySelectorAll('.sip-account-row');
-            
-            searchInput.addEventListener('keyup', function() {
+
+            searchInput.addEventListener('keyup', function () {
                 const searchTerm = this.value.toLowerCase();
-                
+
                 sipAccountRows.forEach(row => {
                     const username = row.querySelector('td:first-child').textContent.toLowerCase();
                     const server = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
-                    
+
                     if (username.includes(searchTerm) || server.includes(searchTerm)) {
                         row.style.display = '';
                     } else {
@@ -255,19 +420,20 @@
                     }
                 });
             });
-            
+
+            // The rest of existing JS (add/edit/delete sip account) remains unchanged - keep bindings
             // 添加SIP账户按钮
-            document.getElementById('saveAddSipAccountBtn').addEventListener('click', async function() {
+            document.getElementById('saveAddSipAccountBtn').addEventListener('click', async function () {
                 const username = document.getElementById('addSipUsername').value;
                 const password = document.getElementById('addSipPassword').value;
                 const server = document.getElementById('addSipServer').value;
                 const isActive = document.getElementById('addIsActive').checked;
-                
+
                 if (!username || !server) {
                     alert('SIP用户名和服务器是必填项');
                     return;
                 }
-                
+
                 try {
                     const response = await fetch('/Account/AddSipAccount', {
                         method: 'POST',
@@ -281,9 +447,9 @@
                             isActive: isActive
                         })
                     });
-                    
+
                     const result = await response.json();
-                    
+
                     if (result.success) {
                         alert('SIP账户添加成功');
                         location.reload();
@@ -294,32 +460,32 @@
                     alert('添加失败: ' + error.message);
                 }
             });
-            
+
             // 编辑SIP账户按钮
             document.querySelectorAll('.edit-sip-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
+                btn.addEventListener('click', function () {
                     const id = this.dataset.id;
                     const username = this.dataset.username;
                     const server = this.dataset.server;
-                    const isActive = this.dataset.active === 'True';
-                    
+                    const isActive = this.dataset.active === 'True' || this.dataset.active === 'true';
+
                     document.getElementById('editSipAccountId').value = id;
                     document.getElementById('editSipUsername').value = username;
                     document.getElementById('editSipServer').value = server;
                     document.getElementById('editIsActive').checked = isActive;
-                    
+
                     const editModal = new bootstrap.Modal(document.getElementById('editSipAccountModal'));
                     editModal.show();
                 });
             });
-            
+
             // 保存编辑SIP账户
-            document.getElementById('saveEditSipAccountBtn').addEventListener('click', async function() {
+            document.getElementById('saveEditSipAccountBtn').addEventListener('click', async function () {
                 const id = document.getElementById('editSipAccountId').value;
                 const password = document.getElementById('editSipPassword').value;
                 const server = document.getElementById('editSipServer').value;
                 const isActive = document.getElementById('editIsActive').checked;
-                
+
                 try {
                     const response = await fetch('/Account/EditSipAccount', {
                         method: 'POST',
@@ -333,9 +499,9 @@
                             isActive: isActive
                         })
                     });
-                    
+
                     const result = await response.json();
-                    
+
                     if (result.success) {
                         alert('SIP账户更新成功');
                         location.reload();
@@ -346,13 +512,13 @@
                     alert('更新失败: ' + error.message);
                 }
             });
-            
+
             // 删除SIP账户按钮
             document.querySelectorAll('.delete-sip-btn').forEach(btn => {
-                btn.addEventListener('click', async function() {
+                btn.addEventListener('click', async function () {
                     const id = this.dataset.id;
                     const username = this.dataset.username;
-                    
+
                     if (confirm(`确定要删除SIP账户 "${username}" 吗？此操作不可恢复。`)) {
                         try {
                             const response = await fetch(`/Account/DeleteSipAccount/${id}`, {
@@ -361,9 +527,9 @@
                                     'Content-Type': 'application/json',
                                 }
                             });
-                            
+
                             const result = await response.json();
-                            
+
                             if (result.success) {
                                 alert('SIP账户删除成功');
                                 location.reload();

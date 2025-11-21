@@ -52,36 +52,36 @@ class RingtoneManager {
     /**
      * 播放来电铃音（被叫方）
      */
-    play() {
+    async play() {
         if (this.isIncomingPlaying) {
             console.warn('来电铃音已在播放中');
             return;
         }
 
-        // 如果音频对象未初始化，先初始化
+        // 如果音频对象未初始化，先初始化并等待完成
         if (!this.incomingAudio) {
-            if (!this.initialize()) {
-                console.error('无法初始化来电铃音');
+            const ok = await this.initialize();
+            if (!ok || !this.incomingAudio) {
+                console.error('无法初始化来电铃音，播放取消');
                 return;
             }
         }
 
         console.log('开始播放来电铃音');
 
-        this.incomingAudio.play()
-            .then(() => {
-                this.isIncomingPlaying = true;
-                console.log('来电铃音播放成功');
-            })
-            .catch(err => {
-                console.error('来电铃音播放失败:', err);
+        try {
+            await this.incomingAudio.play();
+            this.isIncomingPlaying = true;
+            console.log('来电铃音播放成功');
+        } catch (err) {
+            console.error('来电铃音播放失败:', err);
 
-                // 提示用户可能需要交互
-                if (err.name === 'NotAllowedError') {
-                    console.warn('浏览器阻止了自动播放，可能需要用户先与页面交互');
-                    this.showPlaybackError('来电铃音');
-                }
-            });
+            // 提示用户可能需要交互
+            if (err && err.name === 'NotAllowedError') {
+                console.warn('浏览器阻止了自动播放，可能需要用户先与页面交互');
+                this.showPlaybackError('来电铃音');
+            }
+        }
     }
 
     /**

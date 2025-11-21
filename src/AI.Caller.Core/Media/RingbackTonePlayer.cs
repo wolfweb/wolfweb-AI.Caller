@@ -55,13 +55,13 @@ public class RingbackTonePlayer : IDisposable {
     }
 
     public void Stop() {
+        _cts?.Cancel();
         if (!_isPlaying) {
             return;
         }
 
         _logger.LogInformation("停止播放回铃音");
 
-        _cts?.Cancel();
         _isPlaying = false;
 
         try {
@@ -94,7 +94,10 @@ public class RingbackTonePlayer : IDisposable {
                 foreach (var frame in toneFrames) {
                     if (ct.IsCancellationRequested)
                         break;
-
+                    if(_mediaSessionManager.MediaSession == null || _mediaSessionManager.MediaSession.IsClosed) {
+                        _cts?.Cancel();
+                        break;
+                    }
                     _mediaSessionManager.SendAudioFrame(frame);
 
                     await Task.Delay(FrameSizeMs, ct);

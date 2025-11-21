@@ -17,6 +17,8 @@ namespace AI.Caller.Phone.Models {
         public TimeSpan      Duration => DateTime.UtcNow - CreatedAt;
         
         public RingbackTonePlayer? RingbackPlayer { get; set; }
+        
+        public AI.Caller.Core.Models.SipRoutingInfo? RoutingInfo { get; set; }
     }
 
     public class Caller {

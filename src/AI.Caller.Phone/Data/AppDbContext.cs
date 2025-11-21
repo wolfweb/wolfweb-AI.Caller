@@ -9,6 +9,7 @@ public class AppDbContext : DbContext {
     public DbSet<User> Users { get; set; }
     public DbSet<Contact> Contacts { get; set; }
     public DbSet<SipAccount> SipAccounts { get; set; }
+    public DbSet<SipLine> SipLines { get; set; }
     public DbSet<Models.Recording> Recordings { get; set; }
     public DbSet<TtsTemplate> TtsTemplates { get; set; }
     public DbSet<TtsVariable> TtsVariables { get; set; }
@@ -41,7 +42,38 @@ public class AppDbContext : DbContext {
 
             entity.HasIndex(e => e.SipUsername).IsUnique().HasDatabaseName("IX_SipAccounts_SipUsername");
             entity.HasIndex(e => e.IsActive).HasDatabaseName("IX_SipAccounts_IsActive");
+            
+            entity.HasOne(e => e.DefaultLine)
+                  .WithMany()
+                  .HasForeignKey(e => e.DefaultLineId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
+
+        modelBuilder.Entity<SipLine>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ProxyServer).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.OutboundProxy).HasMaxLength(200);
+            entity.Property(e => e.Region).HasMaxLength(50);
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+            entity.Property(e => e.Priority).HasDefaultValue(0);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("datetime('now')");
+
+            entity.HasIndex(e => e.IsActive).HasDatabaseName("IX_SipLines_IsActive");
+            entity.HasIndex(e => e.Priority).HasDatabaseName("IX_SipLines_Priority");
+            entity.HasIndex(e => e.Region).HasDatabaseName("IX_SipLines_Region");
+        });
+
+        modelBuilder.Entity<SipAccount>()
+            .HasMany(e => e.AvailableLines)
+            .WithMany(e => e.SipAccounts)
+            .UsingEntity(
+                "SipAccountSipLine",
+                l => l.HasOne(typeof(SipLine)).WithMany().HasForeignKey("AvailableLinesId"),
+                r => r.HasOne(typeof(SipAccount)).WithMany().HasForeignKey("SipAccountsId"),
+                j => j.HasKey("SipAccountsId", "AvailableLinesId")
+            );
 
         modelBuilder.Entity<User>(entity => {
             entity.HasKey(e => e.Id);

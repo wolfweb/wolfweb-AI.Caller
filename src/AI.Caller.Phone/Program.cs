@@ -76,6 +76,7 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<IRingtoneService, RingtoneService>();
 
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
+            builder.Services.AddScoped<ISipLineSelector, SipLineSelector>();
 
             builder.Services.AddScoped<ICallFlowOrchestrator, CallFlowOrchestrator>();
             builder.Services.AddScoped<IVariableResolverService, VariableResolverService>();

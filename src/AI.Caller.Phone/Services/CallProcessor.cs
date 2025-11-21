@@ -73,7 +73,16 @@ public class CallProcessor : ICallProcessor {
             Action<SIPClient, HangupEventContext> callFinishedHandler = null!;
 
             var webUser = await context.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.SipAccount != null && x.SipAccount.SipUsername == callLog.PhoneNumber);
-            callContext = await callManager.MakeCallAsync($"sip:{callLog.PhoneNumber}@{agent.SipAccount!.SipServer}", agent, null, webUser != null ? CallScenario.ServerToWeb : CallScenario.ServerToMobile);
+            
+            int? selectedLineId = null;
+            bool autoSelectLine = true;
+            
+            if (callLog.BatchCallJob != null) {
+                selectedLineId = callLog.BatchCallJob.SelectedLineId;
+                autoSelectLine = callLog.BatchCallJob.AutoSelectLine;
+            }
+            
+            callContext = await callManager.MakeCallAsync($"sip:{callLog.PhoneNumber}", agent, null, webUser != null ? CallScenario.ServerToWeb : CallScenario.ServerToMobile, selectedLineId, autoSelectLine);
 
             callAnsweredHandler = async (sc) => {
                 _logger.LogInformation("Call answered for CallLogId {CallLogId}. Starting AI Customer Service.", callLogId);

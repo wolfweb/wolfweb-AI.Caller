@@ -80,6 +80,12 @@ public class BatchCallJob {
     
     [Display(Name = "任务失败原因")]
     public string? FailureReason { get; set; }
+    
+    [Display(Name = "选择的线路ID")]
+    public int? SelectedLineId { get; set; }
+    
+    [Display(Name = "是否自动选择线路")]
+    public bool AutoSelectLine { get; set; } = true;
 
     public virtual ICollection<CallLog> CallLogs { get; set; } = new List<CallLog>();
 }

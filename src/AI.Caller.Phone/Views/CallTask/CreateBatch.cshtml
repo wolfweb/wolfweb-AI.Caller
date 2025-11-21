@@ -19,6 +19,23 @@
                         <option value="">-- 请选择模板 --</option>
                     </select>
                 </div>
+                
+                <div class="form-group mb-3">
+                    <label class="control-label">线路选择</label>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="autoSelectLine" name="autoSelectLine" checked>
+                        <label class="form-check-label" for="autoSelectLine">
+                            自动选择线路
+                        </label>
+                    </div>
+                    <div class="form-group" id="lineSelectionGroup" style="display: none;">
+                        <label for="selectedLineId" class="control-label">选择线路</label>
+                        <select id="selectedLineId" name="selectedLineId" class="form-control">
+                            <option value="">请选择线路</option>
+                        </select>
+                        <div class="form-text">选择用于批量呼叫的SIP线路。如果不选择，系统将自动选择最优线路。</div>
+                    </div>
+                </div>
             
                 <div class="form-group mb-3">
                     <a id="downloadTemplateBtn" class="btn btn-info disabled" href="#">下载数据模板</a>
@@ -46,6 +63,9 @@
 @section Scripts {
     <script>
         $(document).ready(function () {
+            // 加载线路列表
+            loadAvailableLines();
+            
             $('#ttsTemplateId').change(function () {
                 var templateId = $(this).val();
                 var downloadBtn = $('#downloadTemplateBtn');
@@ -58,6 +78,31 @@
                     downloadBtn.attr('href', '#');
                 }
             });
+            
+            // 自动选择复选框变化事件
+            $('#autoSelectLine').change(function() {
+                var autoSelect = $(this).is(':checked');
+                $('#lineSelectionGroup').toggle(!autoSelect);
+            });
         });
+        
+        // 加载可用线路
+        function loadAvailableLines() {
+            $.get('/api/SipLine', function(lines) {
+                var lineSelect = $('#selectedLineId');
+                lineSelect.empty();
+                lineSelect.append('<option value="">请选择线路</option>');
+                
+                lines.forEach(function(line) {
+                    if (line.isActive) {
+                        lineSelect.append('<option value="' + line.id + '">' + 
+                            line.name + ' (' + (line.region || '未知区域') + ') - ' + 
+                            (line.description || '无描述') + '</option>');
+                    }
+                });
+            }).fail(function() {
+                console.error('加载线路列表失败');
+            });
+        }
     </script>
 }

@@ -13,7 +13,7 @@ public class CallTaskService : ICallTaskService {
         _taskQueue = taskQueue;
     }
 
-    public async Task<BatchCallJob> CreateBatchCallTaskAsync(string jobName, int templateId, string storedFilePath, string originalFileName, int createdByUserId) {
+    public async Task<BatchCallJob> CreateBatchCallTaskAsync(string jobName, int templateId, string storedFilePath, string originalFileName, int createdByUserId, int? selectedLineId = null, bool autoSelectLine = true) {
         var batchJob = new BatchCallJob {
             JobName = jobName,
             TtsTemplateId = templateId,
@@ -21,7 +21,9 @@ public class CallTaskService : ICallTaskService {
             OriginalFileName = originalFileName,
             Status = Entities.BatchJobStatus.Queued,
             CreatedAt = System.DateTime.UtcNow,
-            CreatedByUserId = createdByUserId
+            CreatedByUserId = createdByUserId,
+            SelectedLineId = selectedLineId,
+            AutoSelectLine = autoSelectLine
         };
 
         _context.BatchCallJobs.Add(batchJob);

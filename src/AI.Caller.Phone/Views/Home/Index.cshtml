@@ -1,4 +1,4 @@
-﻿﻿@using AI.Caller.Phone.Entities
+﻿@using AI.Caller.Phone.Entities
 @*
     For more information on enabling MVC for empty projects, visit https://go.microsoft.com/fwlink/?LinkID=397860
 *@
@@ -117,6 +117,9 @@
                         }
                     </div>
                     
+                    <!-- 线路选择 -->
+                    <div id="lineSelectorContainer"></div>
+                    
                     <!-- 拨号盘 -->
                     <div class="dialpad dialpad-container mb-3">
                         <div class="row g-2 mb-2">
@@ -175,6 +178,7 @@
     <script src="~/js/simple-recording-manager.js"></script>
     <script src="~/js/phone-app.js"></script>
     
+    <script src="~/js/line-selector.js"></script>
     <script>
         // 全局变量初始化
         window.isRecording = false;

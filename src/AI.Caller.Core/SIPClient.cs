@@ -15,6 +15,8 @@ namespace AI.Caller.Core {
 
         private readonly ILogger _logger;
         private readonly string _sipServer;
+        private readonly string _callServer;
+        private readonly string? _outboundProxy;
         private readonly SIPUserAgent m_userAgent;
         private readonly SIPTransport m_sipTransport;
         private readonly WebRTCSettings? _webRTCSettings;
@@ -53,12 +55,17 @@ namespace AI.Caller.Core {
             SIPTransport sipTransport,
             WebRTCSettings? webRTCSettings = null,
             INetworkMonitoringService? networkMonitoringService = null,
-            bool enableWebRtcBridging = true
+            bool enableWebRtcBridging = true,
+            SipRoutingInfo? routingInfo = null
         ) {
             _logger = logger;
             _sipServer = sipServer;
+
+            _callServer = routingInfo?.ProxyServer ?? sipServer;
+            _outboundProxy = routingInfo?.OutboundProxy;
+
             m_sipTransport = sipTransport;
-            _webRTCSettings = webRTCSettings;            
+            _webRTCSettings = webRTCSettings;
             _networkMonitoringService = networkMonitoringService;
             _enableWebRtcBridging = enableWebRtcBridging;
             _clientId = $"SIPClient_{Guid.NewGuid():N}[{sipServer}]";
@@ -79,9 +86,13 @@ namespace AI.Caller.Core {
             RegisterWithNetworkMonitoring();
         }
 
-        public async Task CallAsync(string destination, SIPFromHeader fromHeader) {            
-            SIPURI callURI = destination.Contains("@") ? SIPURI.ParseSIPURIRelaxed(destination) : SIPURI.ParseSIPURIRelaxed(destination + "@" + _sipServer);
-            
+        public string CallServer => _callServer;
+        public string SipServer => _sipServer;
+        public string? OutboundProxy => _outboundProxy;
+
+        public async Task CallAsync(string destination, SIPFromHeader fromHeader) {
+            SIPURI callURI = destination.Contains("@") ? SIPURI.ParseSIPURIRelaxed(destination) : SIPURI.ParseSIPURIRelaxed(destination + "@" + _callServer);
+
             StatusMessage?.Invoke(this, $"Starting call to {callURI}.");
 
             var dstEndpoint = await SIPDns.ResolveAsync(callURI, false, _cts.Token);
@@ -94,6 +105,22 @@ namespace AI.Caller.Core {
             StatusMessage?.Invoke(this, $"Call progressing, resolved {callURI} to {dstEndpoint}.");
             Debug.WriteLine($"DNS lookup result for {callURI}: {dstEndpoint}.");
             SIPCallDescriptor callDescriptor = new SIPCallDescriptor(null, null, callURI.ToString(), fromHeader.ToString(), null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, null, null);
+
+            if (!string.IsNullOrEmpty(_outboundProxy)) {
+                try {
+                    callDescriptor.RouteSet = $"<sip:{_outboundProxy}>";
+                    _logger.LogDebug($"Applied outbound proxy to SIPCallDescriptor.RouteSet: {_outboundProxy}");
+
+                    if (callDescriptor.CustomHeaders == null) callDescriptor.CustomHeaders = new List<string>();
+                    var routeHeader = $"Route: <sip:{_outboundProxy}>";
+                    if (!callDescriptor.CustomHeaders.Contains(routeHeader)) {
+                        callDescriptor.CustomHeaders.Add(routeHeader);
+                        _logger.LogDebug($"Appended Route header to SIPCallDescriptor.CustomHeaders for outbound proxy {_outboundProxy}");
+                    }
+                } catch (Exception ex) {
+                    _logger.LogError(ex, "Error applying outbound proxy to SIPCallDescriptor");
+                }
+            }
 
             StatusMessage?.Invoke(this, "Creating fresh MediaSessionManager for call...");
             EnsureMediaSessionInitialized();
@@ -130,7 +157,7 @@ namespace AI.Caller.Core {
 
             try {
                 var sipRequest = m_pendingIncomingCall.ClientTransaction.TransactionRequest;
-                
+
                 if (string.IsNullOrEmpty(sipRequest.Body)) {
                     _logger.LogWarning("INVITE request has no SDP body, cannot establish Early Media");
                     return false;
@@ -144,23 +171,23 @@ namespace AI.Caller.Core {
                 _logger.LogDebug("Set remote SDP from INVITE for Early Media");
 
                 var sdpAnswer = _mediaManager.MediaSession!.CreateAnswer(null);
-                
+
                 var sessionProgressResponse = SIPResponse.GetResponse(
-                    sipRequest,
-                    SIPResponseStatusCodesEnum.SessionProgress,
-                    null
+                sipRequest,
+                SIPResponseStatusCodesEnum.SessionProgress,
+                null
                 );
-                
+
                 sessionProgressResponse.Body = sdpAnswer.ToString();
                 sessionProgressResponse.Header.ContentType = SDP.SDP_MIME_CONTENTTYPE;
-                
+
                 await m_pendingIncomingCall.ClientTransaction.SendProvisionalResponse(sessionProgressResponse);
-                
+
                 await _mediaManager.MediaSession.Start();
-                
+
                 _logger.LogInformation("Sent 183 Session Progress with SDP for Early Media");
                 StatusMessage?.Invoke(this, "Early Media session established");
-                
+
                 return true;
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to send send session progress");
@@ -175,7 +202,7 @@ namespace AI.Caller.Core {
             }
 
             var sipRequest = m_pendingIncomingCall.ClientTransaction.TransactionRequest;
-            
+
             _logger.LogDebug($"*** ANSWERING CALL *** CallId: {sipRequest.Header.CallId}");
             _logger.LogDebug($"Original INVITE From: {sipRequest.Header.From}");
             _logger.LogDebug($"Original INVITE To: {sipRequest.Header.To}");
@@ -185,7 +212,7 @@ namespace AI.Caller.Core {
             _logger.LogDebug($"INVITE ReceivedFrom: {sipRequest.RemoteSIPEndPoint}");
 
             EnsureMediaSessionInitialized();
-            
+
             _mediaManager!.InitializePeerConnection();
             _mediaManager.InitializeMediaSession();
 
@@ -195,14 +222,14 @@ namespace AI.Caller.Core {
             IPAddress? publicIp = null;
             if(!string.IsNullOrEmpty(_webRTCSettings?.PublicIP)) publicIp = IPAddress.Parse(_webRTCSettings.PublicIP);
             bool result = await m_userAgent.Answer(m_pendingIncomingCall, _mediaManager.MediaSession, publicIp);
-            
+
             if (!result) {
                 _logger.LogError($"*** ANSWER FAILED *** CallId: {sipRequest.Header.CallId}");
             } else {
                 await _mediaManager.MediaSession!.Start();
                 _logger.LogDebug($"*** CALL ANSWERED *** CallId: {sipRequest.Header.CallId}");
             }
-            
+
             m_pendingIncomingCall = null;
 
             return result;
@@ -329,7 +356,7 @@ namespace AI.Caller.Core {
                 _lastRemoteSdp = sipResponse.Body;
                 _logger.LogDebug("Processed new SDP in ringing response");
             }
-            
+
             CallRinging?.Invoke(this);
         }
 
@@ -362,9 +389,9 @@ namespace AI.Caller.Core {
         private void CallFinished(SIPDialogue? dialogue) {
             try {
                 var context = CreateHangupEventContext(dialogue);
-                
+
                 m_pendingIncomingCall = null;
-                
+
                 if (_mediaManager != null) {
                     try {
                         _mediaManager.Dispose();
@@ -375,13 +402,13 @@ namespace AI.Caller.Core {
                         _mediaManager = null;
                     }
                 }
-                
+
                 _lastRemoteSdp = null;
                 _localHangupInitiated = false;
                 StatusMessage?.Invoke(this, "Call finished and MediaSessionManager disposed.");
-                
+
                 CallFinishedWithContext?.Invoke(this, context);
-                
+
             } catch (Exception ex) {
                 _logger.LogError($"Error in CallFinished : {ex.Message}");
                 StatusMessage?.Invoke(this, $"Error during call cleanup: {ex.Message}");
@@ -440,7 +467,7 @@ namespace AI.Caller.Core {
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to register SIP client {ClientId} with network monitoring service: {Message}",
-                    _clientId, ex.Message);
+                _clientId, ex.Message);
             }
         }
 
@@ -452,7 +479,7 @@ namespace AI.Caller.Core {
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "Failed to unregister SIP client {ClientId} from network monitoring service: {Message}",
-                    _clientId, ex.Message);
+                _clientId, ex.Message);
             }
         }
 
@@ -489,7 +516,7 @@ namespace AI.Caller.Core {
 
         private void OnSdpOfferGenerated(RTCSessionDescriptionInit offer) {
             try {
-                _logger.LogDebug("SDP Offer generated by MediaSessionManager, handling SIP-specific logic");                
+                _logger.LogDebug("SDP Offer generated by MediaSessionManager, handling SIP-specific logic");
                 StatusMessage?.Invoke(this, $"SDP Offer generated and ready for SIP transmission");
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error handling SDP offer generated event");
@@ -498,7 +525,7 @@ namespace AI.Caller.Core {
 
         private void OnSdpAnswerGenerated(RTCSessionDescriptionInit answer) {
             try {
-                _logger.LogDebug("SDP Answer generated by MediaSessionManager, handling SIP-specific logic");                
+                _logger.LogDebug("SDP Answer generated by MediaSessionManager, handling SIP-specific logic");
                 StatusMessage?.Invoke(this, $"SDP Answer generated and ready for SIP transmission");
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error handling SDP answer generated event");
@@ -507,7 +534,7 @@ namespace AI.Caller.Core {
 
         private void OnIceCandidateGenerated(RTCIceCandidateInit candidate) {
             try {
-                _logger.LogDebug($"ICE candidate generated by MediaSessionManager: {candidate.candidate}");                
+                _logger.LogDebug($"ICE candidate generated by MediaSessionManager: {candidate.candidate}");
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error handling ICE candidate generated event");
             }
@@ -533,4 +560,3 @@ namespace AI.Caller.Core {
         }
     }
 }
-        

@@ -1,3 +1,4 @@
+using AI.Caller.Core.Models;
 using AI.Caller.Core.Network;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -37,11 +38,11 @@ namespace AI.Caller.Core {
         private int _webRtcDisabledCount;
 
         public SIPClientPoolManager(
-            ILogger<SIPClientPoolManager> logger,
-            IOptions<WebRTCSettings> webRTCSettings, 
-            SIPTransportManager sipTransportManager,
-            IServiceScopeFactory serviceScopeFactory,
-            INetworkMonitoringService networkMonitoringService
+        ILogger<SIPClientPoolManager> logger,
+        IOptions<WebRTCSettings> webRTCSettings, 
+        SIPTransportManager sipTransportManager,
+        IServiceScopeFactory serviceScopeFactory,
+        INetworkMonitoringService networkMonitoringService
         ) {
             _logger                   = logger;
             _webRTCSettings           = webRTCSettings.Value;
@@ -51,7 +52,7 @@ namespace AI.Caller.Core {
             _networkMonitoringService = networkMonitoringService;
         }
 
-        public async Task<SIPClientHandle?> AcquireClientAsync(string sipServer, bool enableWebRtcBridging, TimeSpan? timeout = null, CancellationToken cancellationToken = default) {
+        public async Task<SIPClientHandle?> AcquireClientAsync(string sipServer, bool enableWebRtcBridging, TimeSpan? timeout, CancellationToken cancellationToken, SipRoutingInfo? routingInfo) {
             var acquireTimeout = timeout ?? _acquireTimeout;
 
             try {
@@ -62,7 +63,6 @@ namespace AI.Caller.Core {
 
                 try {
                     var targetQueue = enableWebRtcBridging ? _webRtcEnabledItems : _webRtcDisabledItems;
-                    var targetCount = enableWebRtcBridging ? _webRtcEnabledCount : _webRtcDisabledCount;
 
                     if (targetQueue.TryDequeue(out var item)) {
                         if (enableWebRtcBridging) {
@@ -76,7 +76,7 @@ namespace AI.Caller.Core {
 
                     using var scope = _serviceScopeFactory.CreateScope();
                     var logger = scope.ServiceProvider.GetRequiredService<ILogger<SIPClient>>();
-                    item = new SIPClient(sipServer, logger, _sipTransportManager.SIPTransport!, _webRTCSettings, _networkMonitoringService, enableWebRtcBridging);
+                    item = new SIPClient(sipServer, logger, _sipTransportManager.SIPTransport!, _webRTCSettings, _networkMonitoringService, enableWebRtcBridging, routingInfo);
                     _logger.LogDebug("Created new SIPClient (WebRTC bridging: {EnableBridging})", enableWebRtcBridging);
                     return new SIPClientHandle(this, item);
                 } finally {
@@ -110,4 +110,3 @@ namespace AI.Caller.Core {
         }
     }
 }
-        

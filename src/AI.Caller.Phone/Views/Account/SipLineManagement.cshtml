@@ -1,0 +1,335 @@
+﻿@using AI.Caller.Phone.Entities
+@model IEnumerable<SipLine>
+
+@{
+    ViewData["Title"] = "SIP线路管理";
+}
+
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="bi bi-diagram-3"></i> SIP线路管理</h2>
+            <p class="text-muted">管理系统中的SIP线路，配置代理、优先级和区域信息。</p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSipLineModal">
+                <i class="bi bi-plus-circle"></i> 添加线路
+            </button>
+        </div>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle-fill"></i> @TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="card">
+        <div class="card-header">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <h5 class="mb-0">线路列表</h5>
+                </div>
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" id="searchSipLines" class="form-control" placeholder="搜索线路...">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (Model == null || !Model.Any())
+        {
+            <div class="card-body text-center py-5">
+                <i class="bi bi-diagram-3 fs-1 text-muted"></i>
+                <h4 class="mt-3">暂无SIP线路</h4>
+                <p class="text-muted">系统中还没有添加任何SIP线路</p>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSipLineModal">
+                    <i class="bi bi-plus-circle"></i> 添加第一个线路
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover mb-0" id="sipLinesTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>名称</th>
+                                <th>代理服务器</th>
+                                <th>出站代理</th>
+                                <th>区域</th>
+                                <th>优先级</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in Model)
+                            {
+                                <tr class="sip-line-row">
+                                    <td>@line.Name</td>
+                                    <td>@line.ProxyServer</td>
+                                    <td>@(line.OutboundProxy ?? "-")</td>
+                                    <td>@(line.Region ?? "-")</td>
+                                    <td>@line.Priority</td>
+                                    <td>
+                                        @if (line.IsActive)
+                                        {
+                                            <span class="badge bg-success">激活</span>
+                                        }
+                                        else
+                                        {
+
+                                            <span class="badge bg-secondary">禁用</span>
+                                        }
+                                    </td>
+                                    <td>@line.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button class="btn btn-outline-primary edit-line-btn" data-id="@line.Id"
+                                                data-name="@line.Name" data-proxy="@line.ProxyServer"
+                                                data-outbound="@(line.OutboundProxy ?? "")" data-region="@(line.Region ?? "")"
+                                                data-priority="@line.Priority" data-active="@line.IsActive"
+                                                data-description="@(line.Description ?? "")" title="编辑">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger delete-line-btn" data-id="@line.Id"
+                                                data-name="@line.Name" title="删除">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- 添加线路模态框 -->
+<div class="modal fade" id="addSipLineModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">添加SIP线路</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addSipLineForm">
+                    <div class="mb-3">
+                        <label class="form-label">名称</label>
+                        <input type="text" id="addLineName" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">代理服务器</label>
+                        <input type="text" id="addProxyServer" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">出站代理</label>
+                        <input type="text" id="addOutboundProxy" class="form-control" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">区域</label>
+                        <input type="text" id="addRegion" class="form-control" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">优先级</label>
+                        <input type="number" id="addPriority" class="form-control" value="0" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">描述</label>
+                        <textarea id="addDescription" class="form-control"></textarea>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" id="addIsActive" class="form-check-input" checked />
+                        <label class="form-check-label" for="addIsActive">激活</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveAddLineBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑线路模态框 -->
+<div class="modal fade" id="editSipLineModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">编辑SIP线路</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editSipLineForm">
+                    <input type="hidden" id="editLineId" />
+                    <div class="mb-3">
+                        <label class="form-label">名称</label>
+                        <input type="text" id="editLineName" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">代理服务器</label>
+                        <input type="text" id="editProxyServer" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">出站代理</label>
+                        <input type="text" id="editOutboundProxy" class="form-control" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">区域</label>
+                        <input type="text" id="editRegion" class="form-control" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">优先级</label>
+                        <input type="number" id="editPriority" class="form-control" value="0" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">描述</label>
+                        <textarea id="editDescription" class="form-control"></textarea>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" id="editIsActive" class="form-check-input" />
+                        <label class="form-check-label" for="editIsActive">激活</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveEditLineBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const searchInput = document.getElementById('searchSipLines');
+            const rows = document.querySelectorAll('.sip-line-row');
+
+            if (searchInput) {
+                searchInput.addEventListener('keyup', function () {
+                    const term = this.value.toLowerCase();
+                    rows.forEach(r => {
+                        const text = r.textContent.toLowerCase();
+                        r.style.display = text.includes(term) ? '' : 'none';
+                    });
+                });
+            }
+
+            // Add line
+            document.getElementById('saveAddLineBtn').addEventListener('click', async function () {
+                const payload = {
+                    name: document.getElementById('addLineName').value,
+                    proxyServer: document.getElementById('addProxyServer').value,
+                    outboundProxy: document.getElementById('addOutboundProxy').value || null,
+                    isActive: document.getElementById('addIsActive').checked,
+                    priority: parseInt(document.getElementById('addPriority').value || '0'),
+                    region: document.getElementById('addRegion').value || null,
+                    description: document.getElementById('addDescription').value || null
+                };
+
+                if (!payload.name || !payload.proxyServer) {
+                    alert('名称和代理服务器为必填项');
+                    return;
+                }
+
+                try {
+                    const res = await fetch('/api/SipLine', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (res.ok) {
+                        location.reload();
+                    } else {
+                        const txt = await res.text();
+                        alert('添加失败: ' + txt);
+                    }
+                } catch (err) {
+                    alert('添加失败: ' + err.message);
+                }
+            });
+
+            // Edit button
+            document.querySelectorAll('.edit-line-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    document.getElementById('editLineId').value = this.dataset.id;
+                    document.getElementById('editLineName').value = this.dataset.name;
+                    document.getElementById('editProxyServer').value = this.dataset.proxy;
+                    document.getElementById('editOutboundProxy').value = this.dataset.outbound;
+                    document.getElementById('editRegion').value = this.dataset.region;
+                    document.getElementById('editPriority').value = this.dataset.priority;
+                    document.getElementById('editDescription').value = this.dataset.description;
+                    document.getElementById('editIsActive').checked = this.dataset.active === 'True' || this.dataset.active === 'true';
+
+                    const modal = new bootstrap.Modal(document.getElementById('editSipLineModal'));
+                    modal.show();
+                });
+            });
+
+            // Save edit
+            document.getElementById('saveEditLineBtn').addEventListener('click', async function () {
+                const id = document.getElementById('editLineId').value;
+                const payload = {
+                    name: document.getElementById('editLineName').value,
+                    proxyServer: document.getElementById('editProxyServer').value,
+                    outboundProxy: document.getElementById('editOutboundProxy').value || null,
+                    isActive: document.getElementById('editIsActive').checked,
+                    priority: parseInt(document.getElementById('editPriority').value || '0'),
+                    region: document.getElementById('editRegion').value || null,
+                    description: document.getElementById('editDescription').value || null
+                };
+
+                try {
+                    const res = await fetch('/api/SipLine/' + id, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (res.ok) {
+                        location.reload();
+                    } else {
+                        const txt = await res.text();
+                        alert('更新失败: ' + txt);
+                    }
+                } catch (err) {
+                    alert('更新失败: ' + err.message);
+                }
+            });
+
+            // Delete
+            document.querySelectorAll('.delete-line-btn').forEach(btn => {
+                btn.addEventListener('click', async function () {
+                    if (!confirm('确定要删除线路 "' + this.dataset.name + '" 吗？')) return;
+                    const id = this.dataset.id;
+
+                    try {
+                        const res = await fetch('/api/SipLine/' + id, { method: 'DELETE' });
+                        if (res.ok) {
+                            location.reload();
+                        } else {
+                            const json = await res.json().catch(() => null);
+                            alert('删除失败: ' + (json?.message || await res.text()));
+                        }
+                    } catch (err) {
+                        alert('删除失败: ' + err.message);
+                    }
+                });
+            });
+        });
+    </script>
+}

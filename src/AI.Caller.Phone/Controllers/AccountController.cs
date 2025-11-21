@@ -647,6 +647,25 @@ namespace AI.Caller.Phone.Controllers {
                 return Json(new { success = false, message = "删除联系人时发生错误: " + ex.Message });
             }
         }
+
+        [Authorize]
+        public async Task<IActionResult> SipLineManagement() {
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (currentUser == null || !currentUser.IsAdmin) {
+                TempData["ErrorMessage"] = "您没有权限访问此页面";
+                return RedirectToAction("Index", "Home");
+            }
+
+            ViewBag.IsAdmin = true;
+            var sipLines = await _context.SipLines
+                .Include(l => l.SipAccounts)
+                .OrderByDescending(l => l.Priority)
+                .ThenBy(l => l.Name)
+                .ToListAsync();
+
+            return View(sipLines ?? new List<SipLine>());
+        }
     }
 
     public class SipSettingsModel {

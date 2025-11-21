@@ -47,7 +47,7 @@ namespace AI.Caller.Phone.Controllers {
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> CreateBatch(string jobName, int ttsTemplateId, IFormFile file) {
+        public async Task<IActionResult> CreateBatch(string jobName, int ttsTemplateId, IFormFile file, int? selectedLineId, bool autoSelectLine = true) {
             if (file == null || file.Length == 0) {
                 ModelState.AddModelError("file", "Please select a file to upload.");
                 ViewData["TtsTemplateId"] = new SelectList(await _context.TtsTemplates.Where(t => t.IsActive).ToListAsync(), "Id", "Name", ttsTemplateId);
@@ -67,7 +67,7 @@ namespace AI.Caller.Phone.Controllers {
             }
 
             var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
-            await _callTaskService.CreateBatchCallTaskAsync(jobName, ttsTemplateId, filePath, file.FileName, userId);
+            await _callTaskService.CreateBatchCallTaskAsync(jobName, ttsTemplateId, filePath, file.FileName, userId, selectedLineId, autoSelectLine);
 
             return RedirectToAction(nameof(Index));
         }
