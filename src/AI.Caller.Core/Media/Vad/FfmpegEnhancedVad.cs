@@ -1,7 +1,6 @@
 using System;
 
 namespace AI.Caller.Core.Media.Vad {
-    // 使用 FFmpeg 预处理后的信号进行判决：自适应噪声底线 + 双阈值 + 去抖
     public sealed class FfmpegEnhancedVad : IVoiceActivityDetector, IDisposable {
         private readonly FfmpegVadPreprocessor _pre;
         private int _sampleRate;

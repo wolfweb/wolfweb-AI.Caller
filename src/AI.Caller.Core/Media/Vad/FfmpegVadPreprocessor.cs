@@ -1,5 +1,3 @@
-using System;
-using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
 
 namespace AI.Caller.Core.Media.Vad {
