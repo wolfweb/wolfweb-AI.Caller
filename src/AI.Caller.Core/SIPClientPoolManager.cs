@@ -3,9 +3,7 @@ using AI.Caller.Core.Network;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Org.BouncyCastle.Crypto.Agreement.Srp;
 using System.Collections.Concurrent;
-using System.Threading;
 
 namespace AI.Caller.Core {
     public class SIPClientHandle : IDisposable {
@@ -25,17 +23,14 @@ namespace AI.Caller.Core {
     public class SIPClientPoolManager {
         private readonly ILogger _logger;
         private readonly WebRTCSettings _webRTCSettings;
-        private readonly SemaphoreSlim _poolAccessSemaphore;
         private readonly SIPTransportManager _sipTransportManager;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly INetworkMonitoringService _networkMonitoringService;
 
-        private readonly ConcurrentQueue<SIPClient> _webRtcEnabledItems = new();
-        private readonly ConcurrentQueue<SIPClient> _webRtcDisabledItems = new();
+        private readonly ConcurrentDictionary<ClientPoolKey, ConcurrentQueue<SIPClient>> _pool = new();
         private readonly TimeSpan _acquireTimeout = TimeSpan.FromSeconds(30);
 
-        private int _webRtcEnabledCount;
-        private int _webRtcDisabledCount;
+        private int _totalClientsCreated;
 
         public SIPClientPoolManager(
         ILogger<SIPClientPoolManager> logger,
@@ -46,42 +41,45 @@ namespace AI.Caller.Core {
         ) {
             _logger                   = logger;
             _webRTCSettings           = webRTCSettings.Value;
-            _poolAccessSemaphore      = new(1, 1);
             _serviceScopeFactory      = serviceScopeFactory;
             _sipTransportManager      = sipTransportManager;
             _networkMonitoringService = networkMonitoringService;
         }
 
-        public async Task<SIPClientHandle?> AcquireClientAsync(string sipServer, bool enableWebRtcBridging, TimeSpan? timeout, CancellationToken cancellationToken, SipRoutingInfo? routingInfo) {
-            var acquireTimeout = timeout ?? _acquireTimeout;
+        public async Task<SIPClientHandle?> AcquireClientAsync(string sipServer, bool enableWebRtcBridging, SipRoutingInfo? routingInfo) {
+            var key = new ClientPoolKey(sipServer, enableWebRtcBridging, routingInfo);
+            SIPClient? client = null;
 
-            try {
-                if (!await _poolAccessSemaphore.WaitAsync(acquireTimeout, cancellationToken)) {
-                    _logger.LogWarning("Pool access timeout for server {SIPServer}", sipServer);
-                    return null;
-                }
-
-                try {
-                    var targetQueue = enableWebRtcBridging ? _webRtcEnabledItems : _webRtcDisabledItems;
-
-                    if (targetQueue.TryDequeue(out var item)) {
-                        if (enableWebRtcBridging) {
-                            Interlocked.Decrement(ref _webRtcEnabledCount);
-                        } else {
-                            Interlocked.Decrement(ref _webRtcDisabledCount);
-                        }
-                        _logger.LogDebug("Reused SIPClient from pool (WebRTC bridging: {EnableBridging})", enableWebRtcBridging);
-                        return new SIPClientHandle(this, item);
+            if (_pool.TryGetValue(key, out var queue)) {
+                if (queue.TryDequeue(out client)) {
+                    if (IsClientHealthy(client)) {
+                        _logger.LogDebug("Reused SIPClient from pool. Key: {Key}", key);
+                        return new SIPClientHandle(this, client);
+                    } else {
+                        _logger.LogWarning("Discarding unhealthy client from pool. Key: {Key}", key);
+                        CleanupClient(client);
+                        client = null;
                     }
-
-                    using var scope = _serviceScopeFactory.CreateScope();
-                    var logger = scope.ServiceProvider.GetRequiredService<ILogger<SIPClient>>();
-                    item = new SIPClient(sipServer, logger, _sipTransportManager.SIPTransport!, _webRTCSettings, _networkMonitoringService, enableWebRtcBridging, routingInfo);
-                    _logger.LogDebug("Created new SIPClient (WebRTC bridging: {EnableBridging})", enableWebRtcBridging);
-                    return new SIPClientHandle(this, item);
-                } finally {
-                    _poolAccessSemaphore.Release();
                 }
+            }
+            try {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var clientLogger = scope.ServiceProvider.GetRequiredService<ILogger<SIPClient>>();
+
+                client = new SIPClient(
+                    sipServer,
+                    clientLogger,
+                    _sipTransportManager.SIPTransport!,
+                    _webRTCSettings,
+                    _networkMonitoringService,
+                    enableWebRtcBridging,
+                    routingInfo
+                );
+
+                Interlocked.Increment(ref _totalClientsCreated);
+                _logger.LogDebug("Created new SIPClient. Total Created: {Count}. Key: {Key}", _totalClientsCreated, key);
+
+                return new SIPClientHandle(this, client);
             } catch (OperationCanceledException) {
                 _logger.LogDebug("Client acquisition cancelled for {SIPServer}", sipServer);
                 return null;
@@ -92,21 +90,33 @@ namespace AI.Caller.Core {
         }
 
         internal void Return(SIPClient sipClient) {
+            if (sipClient == null) return;
+
+            sipClient.Reset();
+
+            var key = new ClientPoolKey(
+                sipClient.SipServer,
+                sipClient.EnableWebRtcBridging,
+                sipClient.RoutingInfo
+            );
+
+            var queue = _pool.GetOrAdd(key, _ => new ConcurrentQueue<SIPClient>());
+            queue.Enqueue(sipClient);
+            _logger.LogDebug("Returned SIPClient to pool. Queue Size: {Count}. Key: {Key}", queue.Count, key);            
+        }
+
+        private bool IsClientHealthy(SIPClient client) {
+            return client != null;
+        }
+
+        private void CleanupClient(SIPClient client) {
             try {
-                _poolAccessSemaphore.Wait();
                 
-                if (sipClient.EnableWebRtcBridging) {
-                    _webRtcEnabledItems.Enqueue(sipClient);
-                    Interlocked.Increment(ref _webRtcEnabledCount);
-                } else {
-                    _webRtcDisabledItems.Enqueue(sipClient);
-                    Interlocked.Increment(ref _webRtcDisabledCount);
-                }
-                
-                _logger.LogDebug("Returned SIPClient to pool (WebRTC bridging: {HasBridging})", sipClient.EnableWebRtcBridging);
-            } finally {
-                _poolAccessSemaphore.Release();
+            } catch {
+
             }
         }
+
+        internal record ClientPoolKey(string SipServer, bool EnableWebRtc, SipRoutingInfo? RoutingInfo);
     }
 }

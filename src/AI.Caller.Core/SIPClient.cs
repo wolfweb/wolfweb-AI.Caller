@@ -60,6 +60,7 @@ namespace AI.Caller.Core {
         ) {
             _logger = logger;
             _sipServer = sipServer;
+            RoutingInfo = routingInfo;
 
             _callServer = routingInfo?.ProxyServer ?? sipServer;
             _outboundProxy = routingInfo?.OutboundProxy;
@@ -86,9 +87,12 @@ namespace AI.Caller.Core {
             RegisterWithNetworkMonitoring();
         }
 
+        public SipRoutingInfo? RoutingInfo { get; }
         public string CallServer => _callServer;
         public string SipServer => _sipServer;
         public string? OutboundProxy => _outboundProxy;
+        public MediaSessionManager? MediaSessionManager => _mediaManager;
+        public bool EnableWebRtcBridging => _enableWebRtcBridging;
 
         public async Task CallAsync(string destination, SIPFromHeader fromHeader) {
             SIPURI callURI = destination.Contains("@") ? SIPURI.ParseSIPURIRelaxed(destination) : SIPURI.ParseSIPURIRelaxed(destination + "@" + _callServer);
@@ -294,6 +298,14 @@ namespace AI.Caller.Core {
             }
         }
 
+        public Task SendDTMFAsync(byte tone) {
+            if (m_userAgent != null) {
+                return m_userAgent.SendDtmf(tone);
+            } else {
+                return Task.FromResult(0);
+            }
+        }
+
         public void StopAudioStreams() {
             try {
                 _mediaManager?.Cancel();
@@ -328,6 +340,27 @@ namespace AI.Caller.Core {
             Hangup();
             _mediaManager?.Cancel();
             UnregisterFromNetworkMonitoring();
+        }
+
+        internal void Reset() {
+            try {
+                if (IsCallActive) {
+                    Shutdown();
+                }
+            } catch { }
+
+            CallAnswered = null;
+            CallEnded = null;
+            CallTrying = null;
+            CallRinging = null;
+            RemotePutOnHold = null;
+            RemoteTookOffHold = null;
+            StatusMessage = null;
+            HangupInitiated = null;
+            AudioStopped = null;
+            ResourcesReleased = null;
+            CallInitiated = null;
+            CallFinishedWithContext = null;
         }
 
         private void OnCallTrying(ISIPClientUserAgent uac, SIPResponse sipResponse) {
@@ -394,6 +427,11 @@ namespace AI.Caller.Core {
 
                 if (_mediaManager != null) {
                     try {
+                        _mediaManager.SdpOfferGenerated -= OnSdpOfferGenerated;
+                        _mediaManager.SdpAnswerGenerated -= OnSdpAnswerGenerated;
+                        _mediaManager.IceCandidateGenerated -= OnIceCandidateGenerated;
+                        _mediaManager.ConnectionStateChanged -= OnConnectionStateChanged;
+
                         _mediaManager.Dispose();
                         _logger.LogDebug("MediaSessionManager disposed after call finished");
                     } catch (Exception ex) {
@@ -451,14 +489,6 @@ namespace AI.Caller.Core {
             RemoteTookOffHold?.Invoke(this);
         }
 
-        public Task SendDTMFAsync(byte tone) {
-            if (m_userAgent != null) {
-                return m_userAgent.SendDtmf(tone);
-            } else {
-                return Task.FromResult(0);
-            }
-        }
-
         private void RegisterWithNetworkMonitoring() {
             try {
                 if (_networkMonitoringService != null) {
@@ -482,13 +512,6 @@ namespace AI.Caller.Core {
                 _clientId, ex.Message);
             }
         }
-
-        public string GetClientId() {
-            return _clientId;
-        }
-
-        public MediaSessionManager? MediaSessionManager => _mediaManager;
-        public bool EnableWebRtcBridging => _enableWebRtcBridging;
 
         private HangupEventContext CreateHangupEventContext(SIPDialogue? dialogue) {
             var context = new HangupEventContext {

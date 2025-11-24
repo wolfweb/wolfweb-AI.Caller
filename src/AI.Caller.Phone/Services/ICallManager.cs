@@ -511,7 +511,7 @@ namespace AI.Caller.Phone.Services {
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
             if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
             if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
-            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true, callContext.RoutingInfo);
             if (handle == null) return false;
 
             handle.Client.Accept(sipRequest);
@@ -564,7 +564,7 @@ namespace AI.Caller.Phone.Services {
             if (sdpOffer == null) throw new ArgumentNullException(nameof(sdpOffer));
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
 
-            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true, callContext.RoutingInfo);
             if (handle == null) return false;
 
             callContext.Type = CallScenario.WebToWeb;
@@ -637,7 +637,7 @@ namespace AI.Caller.Phone.Services {
             if (sdpOffer == null) throw new ArgumentNullException(nameof(sdpOffer));
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
 
-            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true, callContext.RoutingInfo);
             if (handle == null) return false;
 
             callContext.Type = CallScenario.WebToMobile;
@@ -713,7 +713,7 @@ namespace AI.Caller.Phone.Services {
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
             var user = routingResult.TargetUser!;
 
-            var handle = await _poolManager.AcquireClientAsync(user.SipAccount!.SipServer, true, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(user.SipAccount!.SipServer, true, callContext.RoutingInfo);
             if (handle == null) return false;
 
             callContext.Type = CallScenario.MobileToWeb;
@@ -794,7 +794,7 @@ namespace AI.Caller.Phone.Services {
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
             if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
             if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
-            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, false, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, false, callContext.RoutingInfo);
             if (handle == null) return false;
 
             handle.Client.Accept(sipRequest);
@@ -835,7 +835,7 @@ namespace AI.Caller.Phone.Services {
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
 
-            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false, callContext.RoutingInfo);
             if (handle == null) return false;
 
             callContext.Type = CallScenario.ServerToWeb;
@@ -870,7 +870,7 @@ namespace AI.Caller.Phone.Services {
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
             if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
             if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
-            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true, callContext.RoutingInfo);
             if (handle == null) return false;
 
             handle.Client.Accept(sipRequest);
@@ -891,7 +891,7 @@ namespace AI.Caller.Phone.Services {
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");            
             if (sdpOffer == null) throw new ArgumentNullException(nameof(sdpOffer));
 
-            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true, callContext.RoutingInfo);
             if (handle == null) return false;
 
             callContext.Type = CallScenario.WebToServer;
@@ -939,7 +939,7 @@ namespace AI.Caller.Phone.Services {
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
             
-            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false, callContext.RoutingInfo);
             if (handle == null) return false;
 
             callContext.Type = CallScenario.ServerToMobile;
@@ -974,7 +974,7 @@ namespace AI.Caller.Phone.Services {
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
             var user = routingResult.TargetUser!;
 
-            var handle = await _poolManager.AcquireClientAsync(user.SipAccount!.SipServer, false, null, CancellationToken.None, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(user.SipAccount!.SipServer, false, callContext.RoutingInfo);
             if (handle == null) return false;
 
             callContext.Type = CallScenario.MobileToServer;
