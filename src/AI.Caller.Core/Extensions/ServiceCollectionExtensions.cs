@@ -6,6 +6,7 @@ using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using AI.Caller.Core.AI;
 
 namespace AI.Caller.Core.Extensions {
     public static class ServiceCollectionExtensions {
@@ -21,6 +22,10 @@ namespace AI.Caller.Core.Extensions {
             services.TryAddScoped<DtmfCollector>();
 
             services.TryAddTransient<IAudioBridge, AudioBridge>();
+
+            // Register local LLM PoC
+            services.TryAddScoped<ILlmService, OllamaLlmService>();
+
             return services;
         }
     }
