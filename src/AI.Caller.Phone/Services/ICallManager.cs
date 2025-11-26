@@ -136,10 +136,14 @@ namespace AI.Caller.Phone.Services {
 
             if (ctx.Callee != null && ctx.Callee.Client != null) {
                 if (ctx.Callee.User!.Id == hangupUser) {
-                    ctx.Callee.Client.Client.Hangup();
+                    if (ctx.Callee.Client.Client.IsCallActive) { 
+                        ctx.Callee.Client.Client.Hangup();
+                    } else {
+                        ctx.Callee.Client.Client.Cancel();
+                    }
                     await NotifyHangupStatusAsync("已挂断", ctx.Callee.User!.Id);
                 } else {
-                    ctx.Callee.Client.Client.Cancel();
+                    ctx.Callee.Client.Client.Hangup();
                     await NotifyHangupStatusAsync("对方已挂断", ctx.Callee.User!.Id);
                 }
                 ctx.Callee.Client.Client.Shutdown();
@@ -147,10 +151,14 @@ namespace AI.Caller.Phone.Services {
 
             if (ctx.Caller != null && ctx.Caller.Client != null) {
                 if (ctx.Caller.User!.Id == hangupUser) {
-                    ctx.Caller.Client.Client.Hangup();
+                    if (ctx.Caller.Client.Client.IsCallActive) {
+                        ctx.Caller.Client.Client.Hangup();
+                    } else {
+                        ctx.Caller.Client.Client.Cancel();
+                    }
                     await NotifyHangupStatusAsync("已挂断", ctx.Caller.User!.Id);
                 } else {
-                    ctx.Caller.Client.Client.Cancel();
+                    ctx.Caller.Client.Client.Hangup();
                     await NotifyHangupStatusAsync("对方已挂断", ctx.Caller.User!.Id);
                 }
                 ctx.Caller.Client.Client.Shutdown();
@@ -204,9 +212,9 @@ namespace AI.Caller.Phone.Services {
             var result = await callScenario.HandleInboundCallAsync(sipRequest, routingResult, ctx);
             
             if (result && ctx.Callee != null) {
-                ctx.Callee.Client!.Client.CallEnded += (client) => {
+                ctx.Callee.Client!.Client.CallEnded += (client, status) => {
                     _logger.LogInformation("被叫方CallEnded事件触发: {CallId}", ctx.CallId);
-                    _ = HandleCallEndedAsync(ctx.CallId, ctx.Callee.User?.Id ?? 0, "被叫方");
+                    _ = HandleCallEndedAsync(ctx.CallId, ctx.Callee.User?.Id ?? 0, status);
                 };
                 
                 var ringtoneService = scope.ServiceProvider.GetRequiredService<IRingtoneService>();
@@ -264,9 +272,9 @@ namespace AI.Caller.Phone.Services {
                     StartRingbackTone(ctx);
                 };
                 
-                ctx.Caller.Client.Client.CallEnded += (client) => {
+                ctx.Caller.Client.Client.CallEnded += (client, status) => {
                     _logger.LogInformation("主叫方CallEnded事件触发: {CallId}", ctx.CallId);
-                    _ = HandleCallEndedAsync(ctx.CallId, ctx.Caller.User?.Id ?? 0, "主叫方");
+                    _ = HandleCallEndedAsync(ctx.CallId, ctx.Caller.User?.Id ?? 0, status);
                 };
             }
 
@@ -378,30 +386,27 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        private async Task HandleCallEndedAsync(string callId, int userId, string role) {
+        private async Task HandleCallEndedAsync(string callId, int userId, CallFinishStatus status) {
             if (!_contexts.TryGetValue(callId, out var ctx)) {
-                _logger.LogDebug("{Role}CallEnded触发，但呼叫上下文不存在: {CallId}", role, callId);
+                _logger.LogDebug("CallEnded触发，但呼叫上下文不存在: {CallId}, {status}", callId, status);
                 return;
             }
 
-            _logger.LogInformation("{Role}呼叫结束（SIP超时/取消/失败）: {CallId}, UserId={UserId}", role, callId, userId);
+            _logger.LogInformation("呼叫结束: {CallId}, UserId={UserId}, Status={status}", callId, userId, status);
 
             try {
-                if (ctx.Callee?.User != null) {
-                    await _hubContext.Clients.User(ctx.Callee.User.Id.ToString()).SendAsync("callTimeout");
+                if (status == CallFinishStatus.RemoteHangUp) {
+                    await HangupCallAsync(callId, userId);
+                } else if(status == CallFinishStatus.Failed) {
+                    await _hubContext.Clients.User(userId.ToString()).SendAsync("callTimeout");
+                    OnHangupCall(ctx);
+                } else if(status == CallFinishStatus.Cancelled) {
+                    OnHangupCall(ctx);
                 }
-
-                if (ctx.Caller?.User != null) {
-                    await _hubContext.Clients.User(ctx.Caller.User.Id.ToString()).SendAsync("callTimeout");
-                }
-
-                OnHangupCall(ctx);
             } catch (Exception ex) {
-                _logger.LogError(ex, "处理{Role}CallEnded时发生错误: {CallId}", role, callId);
+                _logger.LogError(ex, "处理CallEnded时发生错误: {CallId}, {status}", callId, status);
             }
         }
-
-
 
         private void StartRingbackTone(CallContext ctx, string? customAudioFilePath = null) {
             try {

@@ -25,8 +25,9 @@ namespace AI.Caller.Core {
         private readonly bool _enableWebRtcBridging;
         private readonly INetworkMonitoringService? _networkMonitoringService;
 
+        public event Action<SIPClient, CallFinishStatus>? CallEnded;
         public event Action<SIPClient>? CallAnswered;
-        public event Action<SIPClient>? CallEnded;
+        public event Action<SIPClient>? CallHangup;
         public event Action<SIPClient>? CallTrying;
         public event Action<SIPClient>? CallRinging;
         public event Action<SIPClient>? RemotePutOnHold;
@@ -79,7 +80,7 @@ namespace AI.Caller.Core {
             m_userAgent.ClientCallAnswered += OnCallAnswered;
 
             m_userAgent.OnDtmfTone += OnDtmfTone;
-            m_userAgent.OnCallHungup += CallFinished;
+            m_userAgent.OnCallHungup += OnCallHungup;
             m_userAgent.OnTransferNotify += OnTransferNotify;
 
             m_userAgent.ServerCallCancelled += IncomingCallCancelled;
@@ -293,7 +294,7 @@ namespace AI.Caller.Core {
                 } catch (Exception ex) {
                     _logger.LogError($"Error in Hangup: {ex.Message}");
                 } finally {
-                    CallFinished(null);
+                    CallFinished(CallFinishStatus.Hangup);
                 }
             }
         }
@@ -353,6 +354,7 @@ namespace AI.Caller.Core {
             CallEnded = null;
             CallTrying = null;
             CallRinging = null;
+            CallHangup = null;
             RemotePutOnHold = null;
             RemoteTookOffHold = null;
             StatusMessage = null;
@@ -395,7 +397,7 @@ namespace AI.Caller.Core {
 
         private void OnCallFailed(ISIPClientUserAgent uac, string errorMessage, SIPResponse failureResponse) {
             StatusMessage?.Invoke(this, "Call failed: " + errorMessage + ".");
-            CallFinished(null);
+            CallFinished(CallFinishStatus.Failed);
             Shutdown();
         }
 
@@ -419,10 +421,15 @@ namespace AI.Caller.Core {
             CallAnswered?.Invoke(this);
         }
 
-        private void CallFinished(SIPDialogue? dialogue) {
-            try {
-                var context = CreateHangupEventContext(dialogue);
+        private void OnCallHungup(SIPDialogue dialogue) {
+            var context = CreateHangupEventContext(dialogue);
+            CallFinishedWithContext?.Invoke(this, context);
+            CallHangup?.Invoke(this);
+            CallFinished(CallFinishStatus.RemoteHangUp);
+        }
 
+        private void CallFinished(CallFinishStatus status) {
+            try {
                 m_pendingIncomingCall = null;
 
                 if (_mediaManager != null) {
@@ -444,15 +451,12 @@ namespace AI.Caller.Core {
                 _lastRemoteSdp = null;
                 _localHangupInitiated = false;
                 StatusMessage?.Invoke(this, "Call finished and MediaSessionManager disposed.");
-
-                CallFinishedWithContext?.Invoke(this, context);
-
             } catch (Exception ex) {
                 _logger.LogError($"Error in CallFinished : {ex.Message}");
                 StatusMessage?.Invoke(this, $"Error during call cleanup: {ex.Message}");
             } finally {
                 try {
-                    CallEnded?.Invoke(this);
+                    CallEnded?.Invoke(this, status);
                     _logger.LogDebug($"CallEnded event triggered ");
                 } catch (Exception ex) {
                     _logger.LogError($"Error triggering CallEnded event : {ex.Message}");
@@ -461,7 +465,7 @@ namespace AI.Caller.Core {
         }
 
         private void IncomingCallCancelled(ISIPServerUserAgent uas, SIPRequest cancelRequest) {
-            CallFinished(null);
+            CallFinished(CallFinishStatus.Cancelled);
         }
 
         private void OnTransferNotify(string sipFrag) {

@@ -26,7 +26,7 @@ public class EndToEndIntegrationTests : IDisposable {
         bool callEnded = false;
 
         callerClient.CallAnswered += (client) => callAnswered = true;
-        callerClient.CallEnded += (client) => callEnded = true;
+        callerClient.CallEnded += (client, _) => callEnded = true;
 
         try {
             var callerOffer = await callerClient.CreateOfferAsync();

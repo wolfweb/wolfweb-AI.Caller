@@ -327,7 +327,7 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        private void OnCallEnded(SIPClient sipClient) {
+        private void OnCallEnded(SIPClient sipClient, CallFinishStatus status) {
             _ = Task.Run(async () => {
                 try {
                     await StopAsync();

@@ -20,7 +20,7 @@ namespace AI.Caller.Phone.Services {
         public void OnSipCalled(int userId, SIPClient sipClient) {
             try {
                 sipClient.CallAnswered += async (client) => await OnCallAnswered(userId, client);
-                sipClient.CallEnded += async (client) => await OnCallEnded(userId, client);
+                sipClient.CallEnded += async (client, _) => await OnCallEnded(userId, client);
 
                 _logger.LogDebug($"已为SIP客户端 {userId} 订阅录音事件");
             } catch (Exception ex) {
