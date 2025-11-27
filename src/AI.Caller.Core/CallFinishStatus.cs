@@ -4,6 +4,8 @@ namespace AI.Caller.Core {
         Failed,
         Cancelled,
         Hangup,
-        RemoteHangUp
+        RemoteHangUp,
+        Rejected,
+        Busy
     }
 }

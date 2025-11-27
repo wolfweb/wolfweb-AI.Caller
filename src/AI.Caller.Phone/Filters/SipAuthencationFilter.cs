@@ -1,5 +1,4 @@
-﻿using AI.Caller.Phone.Entities;
-using AI.Caller.Phone.Models;
+﻿using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
@@ -18,7 +17,7 @@ namespace AI.Caller.Phone.Filters {
                 var userId = context.HttpContext.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
                 var user = dbContext.Users.Include(u => u.SipAccount).First(u => u.Id == userId);
                 var sipService = context.HttpContext.RequestServices.GetRequiredService<SipService>();
-                sipService.RegisterUserAsync(user);
+                _ = sipService.RegisterUserAsync(user);
             }
         }
     }

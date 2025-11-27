@@ -63,7 +63,7 @@ namespace AI.Caller.Phone.Services {
             }
 
             if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.User.Id == userId) {
-                if (ctx.Callee.Client == null) throw new Exception($"呼叫上下文呼叫未初始化:{callId}");
+                if (ctx.Callee.Client == null) throw new Exception($"呼叫上下文被叫未初始化:{callId}");
                 ctx.Callee.Client.Client.AddIceCandidate(candidate);
             }
         }
@@ -86,7 +86,7 @@ namespace AI.Caller.Phone.Services {
                     ctx.RingbackPlayer.Stop();
                     ctx.RingbackPlayer.Dispose();
                     ctx.RingbackPlayer = null;
-                } catch {}
+                } catch { }
             }
 
             if (ctx.Callee == null) throw new Exception($"呼叫上下文被叫不能是空:{callId}");
@@ -106,7 +106,7 @@ namespace AI.Caller.Phone.Services {
             }
             await ctx.Callee.Client.Client.AnswerAsync();
 
-            if (ctx.Caller != null && ctx.Caller.User!=null) {
+            if (ctx.Caller != null && ctx.Caller.User != null) {
                 await _hubContext.Clients.User(ctx.Caller.User.Id.ToString()).SendAsync("answered");
             }
         }
@@ -134,37 +134,21 @@ namespace AI.Caller.Phone.Services {
                 return;
             }
 
-            if (ctx.Callee != null && ctx.Callee.Client != null) {
-                if (ctx.Callee.User!.Id == hangupUser) {
-                    if (ctx.Callee.Client.Client.IsCallActive) { 
-                        ctx.Callee.Client.Client.Hangup();
-                    } else {
-                        ctx.Callee.Client.Client.Cancel();
-                    }
-                    await NotifyHangupStatusAsync("已挂断", ctx.Callee.User!.Id);
-                } else {
-                    ctx.Callee.Client.Client.Hangup();
-                    await NotifyHangupStatusAsync("对方已挂断", ctx.Callee.User!.Id);
-                }
-                ctx.Callee.Client.Client.Shutdown();
+            SIPClient? targetClient = null;
+
+            if (ctx.Callee != null && ctx.Callee.Client != null && ctx.Callee.User!.Id == hangupUser) {
+                targetClient = ctx.Callee.Client.Client;
+            } else if (ctx.Caller != null && ctx.Caller.Client != null && ctx.Caller.User!.Id == hangupUser) {
+                targetClient = ctx.Caller.Client.Client;
             }
 
-            if (ctx.Caller != null && ctx.Caller.Client != null) {
-                if (ctx.Caller.User!.Id == hangupUser) {
-                    if (ctx.Caller.Client.Client.IsCallActive) {
-                        ctx.Caller.Client.Client.Hangup();
-                    } else {
-                        ctx.Caller.Client.Client.Cancel();
-                    }
-                    await NotifyHangupStatusAsync("已挂断", ctx.Caller.User!.Id);
-                } else {
-                    ctx.Caller.Client.Client.Hangup();
-                    await NotifyHangupStatusAsync("对方已挂断", ctx.Caller.User!.Id);
-                }
-                ctx.Caller.Client.Client.Shutdown();
+            if (targetClient != null) {
+                _logger.LogInformation("Initiating active hangup for CallId: {CallId}, User: {UserId}", callId, hangupUser);
+                targetClient.Hangup();
+                await NotifyHangupStatusAsync("已挂断", hangupUser);
+            } else {
+                _logger.LogWarning("Could not find matching client for user {UserId} in call {CallId}", hangupUser, callId);
             }
-
-            OnHangupCall(ctx);
         }
 
         public async Task<bool> IncomingCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult) {
@@ -183,7 +167,7 @@ namespace AI.Caller.Phone.Services {
             } else {
                 ctx = new CallContext {
                     Caller = new Models.Caller {
-                        User   = routingResult.CallerUser,
+                        User = routingResult.CallerUser,
                         Number = routingResult.CallerNumber
                     }
                 };
@@ -210,25 +194,25 @@ namespace AI.Caller.Phone.Services {
             }
 
             var result = await callScenario.HandleInboundCallAsync(sipRequest, routingResult, ctx);
-            
+
             if (result && ctx.Callee != null) {
                 ctx.Callee.Client!.Client.CallEnded += (client, status) => {
-                    _logger.LogInformation("被叫方CallEnded事件触发: {CallId}", ctx.CallId);
+                    _logger.LogInformation("被叫方CallEnded事件触发: {CallId}, Status: {Status}", ctx.CallId, status);
                     _ = HandleCallEndedAsync(ctx.CallId, ctx.Callee.User?.Id ?? 0, status);
                 };
-                
+
                 var ringtoneService = scope.ServiceProvider.GetRequiredService<IRingtoneService>();
                 var ringbackTone = await ringtoneService.GetRingtoneForUserAsync(ctx.Callee.User!.Id, RingtoneType.Ringback);
-                
+
                 StartRingbackTone(ctx, ringbackTone.FilePath);
             }
-            
+
             return result;
         }
 
         public async Task<CallContext> MakeCallAsync(string destination, User caller, RTCSessionDescriptionInit? offer, CallScenario scenario, int? preferredLineId = null, bool autoSelectLine = true) {
             using var scope = _serviceScopeFactory.CreateScope();
-            
+
             if (caller.SipAccount == null) {
                 throw new Exception($"用户{caller.Username}没有有效的SIP账户");
             }
@@ -240,7 +224,7 @@ namespace AI.Caller.Phone.Services {
                 preferredLineId,
                 autoSelectLine
             );
-            
+
             var coreRoutingInfo = new AI.Caller.Core.Models.SipRoutingInfo {
                 ProxyServer = phoneRoutingInfo.ProxyServer,
                 OutboundProxy = phoneRoutingInfo.OutboundProxy
@@ -255,7 +239,7 @@ namespace AI.Caller.Phone.Services {
             };
 
             var ctx = new CallContext() {
-                Type   = scenario,
+                Type = scenario,
                 Caller = new Models.Caller {
                     User = caller
                 },
@@ -271,9 +255,9 @@ namespace AI.Caller.Phone.Services {
                     _logger.LogDebug("CallRinging事件触发，启动回铃音: {CallId}", ctx.CallId);
                     StartRingbackTone(ctx);
                 };
-                
+
                 ctx.Caller.Client.Client.CallEnded += (client, status) => {
-                    _logger.LogInformation("主叫方CallEnded事件触发: {CallId}", ctx.CallId);
+                    _logger.LogInformation("主叫方CallEnded事件触发: {CallId}, Status: {Status}", ctx.CallId, status);
                     _ = HandleCallEndedAsync(ctx.CallId, ctx.Caller.User?.Id ?? 0, status);
                 };
             }
@@ -303,11 +287,10 @@ namespace AI.Caller.Phone.Services {
                     ctx.RingbackPlayer = null;
                 } catch { }
             }
-            
+
             if (ctx.Caller != null && ctx.Caller.User != null) {
                 if (ctx.Caller.Client != null) {
                     _recordingManager.OnSipHanguped(ctx.Caller.User.Id, ctx.Caller.Client.Client);
-                    ctx.Caller.Client.Dispose();
                 }
                 _logger.LogInformation("Hangup detected. Stopping AI service for Caller User ID: {UserId}", ctx.Caller.User.Id);
                 _ = _aiManager.StopAICustomerServiceAsync(ctx.Caller.User.Id);
@@ -316,7 +299,6 @@ namespace AI.Caller.Phone.Services {
             if (ctx.Callee != null && ctx.Callee.User != null) {
                 if (ctx.Callee.Client != null) {
                     _recordingManager.OnSipHanguped(ctx.Callee.User.Id, ctx.Callee.Client.Client);
-                    ctx.Callee.Client.Dispose();
                 }
                 _logger.LogInformation("Hangup detected. Stopping AI service for Callee User ID: {UserId}", ctx.Callee.User.Id);
                 _ = _aiManager.StopAICustomerServiceAsync(ctx.Callee.User.Id);
@@ -341,12 +323,21 @@ namespace AI.Caller.Phone.Services {
                 ctx.Callee != null &&
                 ctx.Caller.Client != null &&
                 ctx.Callee.Client != null &&
-                !ctx.Caller.Client.Client.IsCallActive &&
-                !ctx.Callee.Client.Client.IsCallActive &&
-                ctx.Duration > TimeSpan.FromSeconds(30)).ToList();
+                (!ctx.Caller.Client.Client.IsCallActive || !ctx.Callee.Client.Client.IsCallActive) &&
+                ctx.Duration > TimeSpan.FromMinutes(1)).ToList();
 
             foreach (var ctx in inactiveContexts) {
-                _contexts.TryRemove(ctx.CallId, out _);
+                try {
+                    if (_contexts.TryRemove(ctx.CallId, out var item)) {
+                        if (item.Caller!.Client!.Client.IsCallActive) {
+                            item.Caller.Client.Dispose();
+                        } else if (item!.Callee!.Client!.Client.IsCallActive) {
+                            item.Callee.Client.Dispose();
+                        }
+                    }
+                }catch(Exception e) {
+                    _logger.LogError(e, "过期CallContext会话异常");
+                }
             }
 
             inactiveContexts = _contexts.Values.Where(ctx=>
@@ -392,17 +383,43 @@ namespace AI.Caller.Phone.Services {
                 return;
             }
 
-            _logger.LogInformation("呼叫结束: {CallId}, UserId={UserId}, Status={status}", callId, userId, status);
+            _logger.LogInformation("呼叫结束处理中: {CallId}, UserId={UserId}, Status={status}", callId, userId, status);
 
             try {
-                if (status == CallFinishStatus.RemoteHangUp) {
-                    await HangupCallAsync(callId, userId);
+                if (status == CallFinishStatus.RemoteHangUp || status == CallFinishStatus.Hangup) {
+                    if (ctx.Callee != null && ctx.Callee.User != null) {
+                        await NotifyHangupStatusAsync(ctx.Callee.User.Id == userId ? "已挂断" : "对方已挂断", ctx.Callee.User!.Id);
+                    }
+                    if (ctx.Caller != null && ctx.Caller.User != null) {
+                        await NotifyHangupStatusAsync(ctx.Caller.User.Id == userId ? "已挂断" : "对方已挂断", ctx.Caller.User!.Id);
+                    }
                 } else if(status == CallFinishStatus.Failed) {
-                    await _hubContext.Clients.User(userId.ToString()).SendAsync("callTimeout");
-                    OnHangupCall(ctx);
-                } else if(status == CallFinishStatus.Cancelled) {
-                    OnHangupCall(ctx);
+                    await NotifyHangupStatusAsync("呼叫失败/超时", userId, "callTimeout");
+                } else {
+                    string notifyMsg = "通话结束";
+                    switch (status) {                        
+                        case CallFinishStatus.Rejected:
+                            notifyMsg = "对方已拒绝";
+                            break;
+                        case CallFinishStatus.Busy:
+                            notifyMsg = "对方忙线中";
+                            break;
+                        case CallFinishStatus.Cancelled:
+                            notifyMsg = "已取消";
+                            break;
+                    }
+                    await NotifyHangupStatusAsync(notifyMsg, userId);
                 }
+
+                if (ctx.Callee?.Client?.Client != null) {
+                    ctx.Callee.Client.Dispose();
+                }
+
+                if (ctx.Caller?.Client?.Client != null) {
+                    ctx.Caller.Client.Dispose();
+                }
+
+                OnHangupCall(ctx);
             } catch (Exception ex) {
                 _logger.LogError(ex, "处理CallEnded时发生错误: {CallId}, {status}", callId, status);
             }

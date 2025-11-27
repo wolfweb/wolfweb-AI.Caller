@@ -11,6 +11,7 @@ using FFmpeg.AutoGen;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using NLog.Extensions.Logging;
+using System.Threading.Channels;
 
 namespace AI.Caller.Phone {
     public class Program {
@@ -40,22 +41,23 @@ namespace AI.Caller.Phone {
 
             builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
             builder.Services.Configure<TTSSettings>(builder.Configuration.GetSection("TTSSettings"));
+            builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
 
             builder.Services.AddScoped<IAICustomerServiceSettingsProvider, AICustomerServiceSettingsProvider>();
+            builder.Services.AddSingleton(_ => Channel.CreateUnbounded<User>());
+            builder.Services.AddSingleton(_ => new ApplicationContext());
 
-            builder.Services.AddSingleton<ApplicationContext>(_ => {
-                var ctx = new ApplicationContext();
-                return ctx;
-            });
-
-            builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
             builder.Services.AddHostedService<SipBackgroundTask>();
             builder.Services.AddHostedService<AISipRegistrationService>();
+            builder.Services.AddHostedService<SipRegistrationBackgroundService>();
+
             builder.Services.AddSingleton(sp => {
                 return new SIPTransportManager(builder.Configuration.GetSection("SipSettings")["ContactHost"], sp.GetRequiredService<ILogger<SIPTransportManager>>());
             });
-            builder.Services.AddSingleton<INetworkMonitoringService, NetworkMonitoringService>();
             builder.Services.AddSingleton<SIPClientPoolManager>();
+            builder.Services.AddSingleton<HangupMonitoringService>();
+            builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();
+            builder.Services.AddSingleton<INetworkMonitoringService, NetworkMonitoringService>();
             builder.Services.AddSingleton<ICallManager, CallManager>();
             builder.Services.AddSingleton<RecordingManager>();
             builder.Services.AddTransient<WebToWebScenario>();
@@ -69,8 +71,6 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
             builder.Services.AddScoped<DataMigrationService>();
-            builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();
-            builder.Services.AddSingleton<HangupMonitoringService>();
 
             builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<IRingtoneService, RingtoneService>();

@@ -85,6 +85,10 @@ namespace AI.Caller.Core {
 
             m_userAgent.ServerCallCancelled += IncomingCallCancelled;
 
+            m_userAgent.ServerCallRingTimeout += (uas) => {
+                CallFinished(CallFinishStatus.Failed);
+            };
+
             RegisterWithNetworkMonitoring();
         }
 
@@ -208,13 +212,7 @@ namespace AI.Caller.Core {
 
             var sipRequest = m_pendingIncomingCall.ClientTransaction.TransactionRequest;
 
-            _logger.LogDebug($"*** ANSWERING CALL *** CallId: {sipRequest.Header.CallId}");
-            _logger.LogDebug($"Original INVITE From: {sipRequest.Header.From}");
-            _logger.LogDebug($"Original INVITE To: {sipRequest.Header.To}");
-
-            _logger.LogDebug($"INVITE Via: {sipRequest.Header.Vias.ToString()}");
-            _logger.LogDebug($"INVITE Contact: {string.Join(",", sipRequest.Header.Contact.Select(x=>x.ToString()))}");
-            _logger.LogDebug($"INVITE ReceivedFrom: {sipRequest.RemoteSIPEndPoint}");
+            _logger.LogDebug($"*** ANSWERING CALL *** CallId: {sipRequest.Header.CallId}");            
 
             EnsureMediaSessionInitialized();
 
@@ -290,7 +288,17 @@ namespace AI.Caller.Core {
                     StatusMessage?.Invoke(this, "Hangup initiated.");
 
                     StopAudioStreams();
-                    m_userAgent.Hangup();
+
+                    if (m_userAgent.IsCallActive) {
+                        _logger.LogDebug("Call is active, sending BYE.");
+                        m_userAgent.Hangup();
+                    } else if (m_pendingIncomingCall != null) {
+                        _logger.LogDebug("Pending incoming call detected, rejecting.");
+                        Reject();
+                    } else {
+                        _logger.LogDebug("No active call and no pending incoming call, attempting CANCEL.");
+                        m_userAgent.Cancel();
+                    }
                 } catch (Exception ex) {
                     _logger.LogError($"Error in Hangup: {ex.Message}");
                 } finally {
@@ -338,7 +346,6 @@ namespace AI.Caller.Core {
 
         public void Shutdown() {
             _cts.Cancel();
-            Hangup();
             _mediaManager?.Cancel();
             UnregisterFromNetworkMonitoring();
         }
@@ -349,6 +356,18 @@ namespace AI.Caller.Core {
                     Shutdown();
                 }
             } catch { }
+
+            _mediaManager?.Cancel();
+            ReleaseMediaManager();
+
+            if (_cts.IsCancellationRequested) {
+                _cts.Dispose();
+                _cts = new CancellationTokenSource();
+            }
+
+            m_pendingIncomingCall = null;
+            _lastRemoteSdp = null;
+            _localHangupInitiated = false;
 
             CallAnswered = null;
             CallEnded = null;
@@ -395,10 +414,38 @@ namespace AI.Caller.Core {
             CallRinging?.Invoke(this);
         }
 
-        private void OnCallFailed(ISIPClientUserAgent uac, string errorMessage, SIPResponse failureResponse) {
-            StatusMessage?.Invoke(this, "Call failed: " + errorMessage + ".");
-            CallFinished(CallFinishStatus.Failed);
-            Shutdown();
+        private void OnCallFailed(ISIPClientUserAgent uac, string errorMessage, SIPResponse failureResponse) {            
+            string logMsg = "Call failed";
+            CallFinishStatus status = CallFinishStatus.Failed;
+
+            if (failureResponse != null) {
+                int code = failureResponse.StatusCode;
+
+                switch (code) {
+                    case 486:
+                    case 600:
+                        status = CallFinishStatus.Busy;
+                        logMsg = "∂‘∑Ω√¶œﬂ";
+                        break;
+                    case 603:
+                        status = CallFinishStatus.Rejected;
+                        logMsg = "∂‘∑Ωæ‹Ω”";
+                        break;
+                    case 487: 
+                        status = CallFinishStatus.Failed;
+                        logMsg = "«Î«Û±ª÷’÷π/≥¨ ±";
+                        break;
+                    default:
+                        status = CallFinishStatus.Failed;
+                        logMsg = $"∫ÙΩ– ß∞‹: {code} {failureResponse.ReasonPhrase}";
+                        break;
+                }
+            } else {
+                logMsg = $"∫ÙΩ– ß∞‹ (Õ¯¬Á/DNS): {errorMessage}";
+            }
+
+            StatusMessage?.Invoke(this, logMsg);
+            CallFinished(status);
         }
 
         private void OnCallAnswered(ISIPClientUserAgent uac, SIPResponse response) {
@@ -429,27 +476,14 @@ namespace AI.Caller.Core {
         }
 
         private void CallFinished(CallFinishStatus status) {
+            if (m_userAgent == null) return;
+
             try {
                 m_pendingIncomingCall = null;
-
-                if (_mediaManager != null) {
-                    try {
-                        _mediaManager.SdpOfferGenerated -= OnSdpOfferGenerated;
-                        _mediaManager.SdpAnswerGenerated -= OnSdpAnswerGenerated;
-                        _mediaManager.IceCandidateGenerated -= OnIceCandidateGenerated;
-                        _mediaManager.ConnectionStateChanged -= OnConnectionStateChanged;
-
-                        _mediaManager.Dispose();
-                        _logger.LogDebug("MediaSessionManager disposed after call finished");
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, "Error disposing MediaSessionManager");
-                    } finally {
-                        _mediaManager = null;
-                    }
-                }
-
+                m_userAgent.RemotePutOnHold -= OnRemotePutOnHold;
+                m_userAgent.RemoteTookOffHold -= OnRemoteTookOffHold;
+                ReleaseMediaManager();
                 _lastRemoteSdp = null;
-                _localHangupInitiated = false;
                 StatusMessage?.Invoke(this, "Call finished and MediaSessionManager disposed.");
             } catch (Exception ex) {
                 _logger.LogError($"Error in CallFinished : {ex.Message}");
@@ -457,9 +491,27 @@ namespace AI.Caller.Core {
             } finally {
                 try {
                     CallEnded?.Invoke(this, status);
-                    _logger.LogDebug($"CallEnded event triggered ");
+                    _logger.LogDebug($"CallEnded event triggered with status: {status}");
                 } catch (Exception ex) {
                     _logger.LogError($"Error triggering CallEnded event : {ex.Message}");
+                }
+            }
+        }
+
+        private void ReleaseMediaManager() {
+            if (_mediaManager != null) {
+                try {
+                    _mediaManager.SdpOfferGenerated -= OnSdpOfferGenerated;
+                    _mediaManager.SdpAnswerGenerated -= OnSdpAnswerGenerated;
+                    _mediaManager.IceCandidateGenerated -= OnIceCandidateGenerated;
+                    _mediaManager.ConnectionStateChanged -= OnConnectionStateChanged;
+
+                    _mediaManager.Dispose();
+                    _logger.LogDebug("MediaSessionManager disposed after call finished");
+                } catch (Exception ex) {
+                    _logger.LogError(ex, "Error disposing MediaSessionManager");
+                } finally {
+                    _mediaManager = null;
                 }
             }
         }

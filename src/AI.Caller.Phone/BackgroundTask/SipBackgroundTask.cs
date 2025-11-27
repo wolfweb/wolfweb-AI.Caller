@@ -1,5 +1,6 @@
 ﻿using AI.Caller.Core;
 using AI.Caller.Core.Media;
+using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.SignalR;

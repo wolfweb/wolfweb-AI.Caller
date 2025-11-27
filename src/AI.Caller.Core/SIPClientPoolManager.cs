@@ -111,9 +111,9 @@ namespace AI.Caller.Core {
 
         private void CleanupClient(SIPClient client) {
             try {
-                
-            } catch {
-
+                client.Shutdown();
+            } catch(Exception ex) {
+                _logger.LogError(ex, "Error shutting down unhealthy client");
             }
         }
 
