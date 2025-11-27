@@ -281,29 +281,27 @@ namespace AI.Caller.Core {
         }
 
         public void Hangup() {
-            if (m_userAgent.IsCallActive) {
-                try {
-                    _localHangupInitiated = true;
-                    HangupInitiated?.Invoke(this);
-                    StatusMessage?.Invoke(this, "Hangup initiated.");
+            try {
+                _localHangupInitiated = true;
+                HangupInitiated?.Invoke(this);
+                StatusMessage?.Invoke(this, "Hangup initiated.");
 
-                    StopAudioStreams();
+                StopAudioStreams();
 
-                    if (m_userAgent.IsCallActive) {
-                        _logger.LogDebug("Call is active, sending BYE.");
-                        m_userAgent.Hangup();
-                    } else if (m_pendingIncomingCall != null) {
-                        _logger.LogDebug("Pending incoming call detected, rejecting.");
-                        Reject();
-                    } else {
-                        _logger.LogDebug("No active call and no pending incoming call, attempting CANCEL.");
-                        m_userAgent.Cancel();
-                    }
-                } catch (Exception ex) {
-                    _logger.LogError($"Error in Hangup: {ex.Message}");
-                } finally {
-                    CallFinished(CallFinishStatus.Hangup);
+                if (m_userAgent.IsCallActive) {
+                    _logger.LogDebug("Call is active, sending BYE.");
+                    m_userAgent.Hangup();
+                } else if (m_pendingIncomingCall != null) {
+                    _logger.LogDebug("Pending incoming call detected, rejecting.");
+                    Reject();
+                } else {
+                    _logger.LogDebug("No active call and no pending incoming call, attempting CANCEL.");
+                    m_userAgent.Cancel();
                 }
+            } catch (Exception ex) {
+                _logger.LogError($"Error in Hangup: {ex.Message}");
+            } finally {
+                CallFinished(CallFinishStatus.Hangup);
             }
         }
 
