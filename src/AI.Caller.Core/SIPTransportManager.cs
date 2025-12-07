@@ -104,7 +104,7 @@ namespace AI.Caller.Core {
                 SIPResponse notAllowedResponse = SIPResponse.GetResponse(sipRequest, SIPResponseStatusCodesEnum.MethodNotAllowed, null);
                 await SIPTransport.SendResponseAsync(notAllowedResponse);
             } else if (sipRequest.Method == SIPMethodsEnum.ACK) {
-                _logger.LogDebug($"*** ACK MESSAGE RECEIVED *** CallId: {sipRequest.Header.CallId}, From: {sipRequest.Header.From?.FromURI?.User}, To: {sipRequest.Header.To?.ToURI?.User}");
+                _logger.LogDebug($"*** ACK MESSAGE RECEIVED *** CallId: {sipRequest.Header.CallId}, From: {sipRequest.Header.From?.FromURI?.User}, To: {sipRequest.Header.To?.ToURI?.User}, Via: {sipRequest.Header.Vias}");
             } else if (sipRequest.Method == SIPMethodsEnum.BYE) {
                 _logger.LogDebug($"*** BYE MESSAGE RECEIVED *** CallId: {sipRequest.Header.CallId}, From: {sipRequest.Header.From?.FromURI?.User}, To: {sipRequest.Header.To?.ToURI?.User}");
             } else if (sipRequest.Header.From != null &&

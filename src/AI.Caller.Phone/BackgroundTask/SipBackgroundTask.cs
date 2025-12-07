@@ -12,6 +12,9 @@ namespace AI.Caller.Phone.BackgroundTask {
         private readonly ICallManager _callManager;
         private readonly SIPTransportManager _sipTransportManager;
         private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly HashSet<string> _processedInvites = new();
+        private readonly object _inviteLock = new();
+        
         public SipBackgroundTask(
             ILogger<SipBackgroundTask> logger,
             IHubContext<WebRtcHub> hubContext,
@@ -42,6 +45,9 @@ namespace AI.Caller.Phone.BackgroundTask {
 
         public Task StopAsync(CancellationToken cancellationToken) {
             _sipTransportManager.Shutdown();
+            lock (_inviteLock) {
+                _processedInvites.Clear();
+            }
             return Task.CompletedTask;
         }
 
@@ -53,6 +59,14 @@ namespace AI.Caller.Phone.BackgroundTask {
                 if(string.IsNullOrEmpty(toUser)) {
                     _logger.LogWarning($"收到无效呼叫 - CallId: {callId}, From: {fromUser}, To: {toUser}, Method: {sipRequest.Method}");
                     return false;
+                }
+
+                lock (_inviteLock) {
+                    if (_processedInvites.Contains(callId)) {
+                        _logger.LogDebug($"忽略重复的INVITE - CallId: {callId}, From: {fromUser}, To: {toUser}");
+                        return true;
+                    }
+                    _processedInvites.Add(callId);
                 }
 
                 _logger.LogDebug($"收到呼叫 - CallId: {callId}, From: {fromUser}, To: {toUser}, Method: {sipRequest.Method}");
@@ -78,6 +92,9 @@ namespace AI.Caller.Phone.BackgroundTask {
                 return handleResult;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"处理来电时发生错误 - CallId: {sipRequest.Header.CallId}");
+                lock (_inviteLock) {
+                    _processedInvites.Remove(sipRequest.Header.CallId);
+                }
                 return false;
             }
         }

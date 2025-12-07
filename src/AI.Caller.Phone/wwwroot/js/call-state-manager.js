@@ -100,9 +100,7 @@ class CallStateManager {
             console.warn(`Button ${buttonName} not found`);
             return;
         }
-
-        console.log(`Updating button ${buttonName}: shouldShow=${shouldShow}, button=`, button);
-        
+                                                                                                           
         if (shouldShow) {
             this.showButton(button);
         } else {

@@ -690,6 +690,7 @@ namespace AI.Caller.Phone.Services {
         private readonly ConcurrentDictionary<uint, (byte[] Data, uint RtpTimestamp, int PayloadType)> _receivedBuffer;
         private readonly ConcurrentDictionary<uint, (byte[] Data, uint RtpTimestamp, int PayloadType)> _sentBuffer;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim _finalizeLock = new SemaphoreSlim(1, 1);
 
         private const int _bufferSize = 200;
 
@@ -880,9 +881,11 @@ namespace AI.Caller.Phone.Services {
         public async Task FinalizeAsync() {
             if (_disposed) return;
 
+            await _finalizeLock.WaitAsync();
             try {
+                if (_disposed) return;
                 _logger.LogInformation("Finalizing AudioRecorder...");
-                _audioChannel.Writer.TryComplete(); 
+                _audioChannel.Writer.TryComplete();
 
                 await _processingTask;
                 long audioDataSize = _totalSamplesWritten * _channels * (_bitsPerSample / 8);
@@ -894,6 +897,9 @@ namespace AI.Caller.Phone.Services {
                 _logger.LogInformation($"AudioRecorder finalized, total data size: {audioDataSize} bytes");
             } catch (Exception ex) {
                 _logger.LogError(ex, $"完成录音文件时发生错误, FilePath: {_filePath}");
+                throw;
+            } finally {
+                _finalizeLock.Release();
             }
         }
 
@@ -919,14 +925,24 @@ namespace AI.Caller.Phone.Services {
         }
 
         public void Dispose() {
-            if (!_disposed) {
+            if (_disposed) return;
+            _finalizeLock.Wait(TimeSpan.FromSeconds(10));
+            try {
+                if (_disposed) return;
                 _disposed = true;
-                _cts?.Dispose();
-                _fileStream?.Dispose();
-                _muLawProcessorRecv?.Dispose();
-                _aLawProcessorRecv?.Dispose();
-                _muLawProcessorSent?.Dispose();
-                _aLawProcessorSent?.Dispose();
+
+                try { _cts?.Dispose(); } catch { }
+                try { _fileStream?.Dispose(); } catch { }
+                try { _muLawProcessorRecv?.Dispose(); } catch { }
+                try { _aLawProcessorRecv?.Dispose(); } catch { }
+                try { _muLawProcessorSent?.Dispose(); } catch { }
+                try { _aLawProcessorSent?.Dispose(); } catch { }
+                try { _semaphore?.Dispose(); } catch { }
+                try { _finalizeLock?.Dispose(); } catch { }
+            } finally {
+                if (!_disposed) {
+                    _finalizeLock.Release();
+                }
             }
         }
     }

@@ -92,7 +92,7 @@ public class CallProcessor : ICallProcessor {
                     var batchCall = await context.BatchCallJobs.FindAsync(callLog.BatchCallJobId);
                     var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
 
-                    var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sipClient!, ttsTemplate?.SpeechRate);
+                    var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate?.SpeechRate);
                     
                     if (ttsTemplate?.PlayCount > 1) {
                         for (var i = 0; i < ttsTemplate.PlayCount - 1; i++) {
@@ -104,7 +104,7 @@ public class CallProcessor : ICallProcessor {
                                 await Task.Delay(actualWaitTime);
                             }
                             
-                            ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sipClient!, ttsTemplate.SpeechRate);
+                            ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate.SpeechRate);
                         }
                     }
 
@@ -117,7 +117,7 @@ public class CallProcessor : ICallProcessor {
                             await Task.Delay(actualWaitTime);
                         }
                         
-                        await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sipClient!, ttsTemplate.SpeechRate);
+                        await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sc, ttsTemplate.SpeechRate);
                     }
 
                     await ttsPlayer.StopPlayoutAsync(agent);
