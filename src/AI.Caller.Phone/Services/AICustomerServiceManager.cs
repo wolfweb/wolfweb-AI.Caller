@@ -7,7 +7,7 @@ namespace AI.Caller.Phone.Services {
     /// <summary>
     /// AI客服管理器，负责管理AI自动应答实例的生命周期
     /// </summary>
-    public class AICustomerServiceManager : IDisposable {
+    public partial class AICustomerServiceManager : IDisposable {
         private readonly ILogger _logger;
         private readonly IServiceProvider _serviceProvider;
         private readonly IAIAutoResponderFactory _autoResponderFactory;
@@ -17,17 +17,25 @@ namespace AI.Caller.Phone.Services {
         public AICustomerServiceManager(
             ILogger<AICustomerServiceManager> logger,
             IServiceProvider serviceProvider,
-            IAIAutoResponderFactory autoResponderFactory
+            IAIAutoResponderFactory autoResponderFactory,
+            IMonitoringService monitoringService,
+            IPlaybackControlService playbackControlService
             ) {
             _logger = logger;
             _serviceProvider = serviceProvider;
             _autoResponderFactory = autoResponderFactory;
+            _monitoringService = monitoringService;
+            _playbackControlService = playbackControlService;
         }
 
         /// <summary>
         /// 为用户启动AI客服会话
         /// </summary>
-        public async Task<bool> StartAICustomerServiceAsync(User user, SIPClient sipClient, string scriptText) {
+        /// <param name="user">用户</param>
+        /// <param name="sipClient">SIP客户端</param>
+        /// <param name="scriptText">脚本文本</param>
+        /// <param name="callId">通话ID（可选，用于关联DTMF记录）</param>
+        public async Task<bool> StartAICustomerServiceAsync(User user, SIPClient sipClient, string scriptText, string? callId = null) {
             try {
                 if (_activeSessions.ContainsKey(user.Id)) {
                     _logger.LogWarning($"AI customer service already active for user {user.Username}");
@@ -51,6 +59,21 @@ namespace AI.Caller.Phone.Services {
                 }
 
                 var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
+                
+                // 设置DTMF输入服务（如果需要收集DTMF）
+                try {
+                    var dtmfInputService = _serviceProvider.GetService<IDtmfInputService>();
+                    if (dtmfInputService != null) {
+                        autoResponder.SetDtmfInputService(dtmfInputService);
+                        if (!string.IsNullOrEmpty(callId)) {
+                            autoResponder.SetCallContext(callId);
+                            _logger.LogDebug("已设置CallContext: {CallId}", callId);
+                        }
+                    }
+                } catch (Exception ex) {
+                    _logger.LogWarning(ex, "设置DtmfInputService失败，DTMF输入将不会保存到数据库");
+                }
+                
                 Action<byte[]> audioGeneratedHandler = (audioFrame) => {
                     sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
                 };
@@ -174,5 +197,8 @@ namespace AI.Caller.Phone.Services {
         public string ScriptText { get; set; } = string.Empty;
         public DateTime StartTime { get; set; }
         public Action<byte[]>? AudioGeneratedHandler { get; set; }
+        public string? CallId { get; set; }  // 通话ID
+        public int? ScenarioRecordingId { get; set; }  // 场景录音ID
+        public ScenarioRecording? ScenarioRecording { get; set; }  // 场景录音对象
     }
 }

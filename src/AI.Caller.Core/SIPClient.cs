@@ -39,6 +39,7 @@ namespace AI.Caller.Core {
         public event Action<SIPClient>? ResourcesReleased;
         public event Action<SIPClient, string>? CallInitiated;
         public event Action<SIPClient, HangupEventContext>? CallFinishedWithContext;
+        public event Action<SIPClient, byte>? DtmfToneReceived;
 
         public SIPDialogue Dialogue => m_userAgent.Dialogue;
         public bool IsCallActive => m_userAgent.IsCallActive;
@@ -423,23 +424,23 @@ namespace AI.Caller.Core {
                     case 486:
                     case 600:
                         status = CallFinishStatus.Busy;
-                        logMsg = "∂‘∑Ω√¶œﬂ";
+                        logMsg = "ÂØπÊñπÂøôÁ∫ø";
                         break;
                     case 603:
                         status = CallFinishStatus.Rejected;
-                        logMsg = "∂‘∑Ωæ‹Ω”";
+                        logMsg = "ÂØπÊñπÊãíÊé•";
                         break;
                     case 487: 
                         status = CallFinishStatus.Failed;
-                        logMsg = "«Î«Û±ª÷’÷π/≥¨ ±";
+                        logMsg = "ËØ∑Ê±ÇË¢´ÁªàÊ≠¢/Ë∂ÖÊó∂";
                         break;
                     default:
                         status = CallFinishStatus.Failed;
-                        logMsg = $"∫ÙΩ– ß∞‹: {code} {failureResponse.ReasonPhrase}";
+                        logMsg = $"ÂëºÂè´Â§±Ë¥•: {code} {failureResponse.ReasonPhrase}";
                         break;
                 }
             } else {
-                logMsg = $"∫ÙΩ– ß∞‹ (Õ¯¬Á/DNS): {errorMessage}";
+                logMsg = $"ÂëºÂè´Â§±Ë¥• (ÁΩëÁªú/DNS): {errorMessage}";
             }
 
             StatusMessage?.Invoke(this, logMsg);
@@ -532,7 +533,9 @@ namespace AI.Caller.Core {
         }
 
         private void OnDtmfTone(byte dtmfKey, int duration) {
+            _logger.LogDebug($"DTMF tone received: key={dtmfKey}, duration={duration}ms");
             StatusMessage?.Invoke(this, $"DTMF event from remote call party {dtmfKey} duration {duration}.");
+            DtmfToneReceived?.Invoke(this, dtmfKey);
         }
 
         private void OnRemotePutOnHold() {

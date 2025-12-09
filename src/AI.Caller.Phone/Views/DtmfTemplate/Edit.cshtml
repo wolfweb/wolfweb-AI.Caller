@@ -1,0 +1,141 @@
+@model AI.Caller.Phone.Entities.DtmfInputTemplate
+
+@{
+    ViewData["Title"] = "编辑DTMF模板";
+}
+
+<div class="container">
+    <h2>编辑DTMF模板</h2>
+    <hr />
+
+    <form asp-action="Edit" method="post">
+        <input type="hidden" asp-for="Id" />
+        <input type="hidden" asp-for="CreatedAt" />
+        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label asp-for="Name" class="form-label"></label>
+                    <input asp-for="Name" class="form-control" required />
+                    <span asp-validation-for="Name" class="text-danger"></span>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="ValidatorType" class="form-label"></label>
+                    <select asp-for="ValidatorType" class="form-select" asp-items="Html.GetEnumSelectList<AI.Caller.Phone.Entities.DtmfInputType>()"></select>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="MinLength" class="form-label"></label>
+                        <input asp-for="MinLength" class="form-control" type="number" min="1" />
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="MaxLength" class="form-label"></label>
+                        <input asp-for="MaxLength" class="form-control" type="number" min="1" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="TerminationKey" class="form-label"></label>
+                        <input asp-for="TerminationKey" class="form-control" maxlength="1" />
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="BackspaceKey" class="form-label"></label>
+                        <input asp-for="BackspaceKey" class="form-control" maxlength="1" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="TimeoutSeconds" class="form-label"></label>
+                        <input asp-for="TimeoutSeconds" class="form-control" type="number" min="5" />
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="MaxRetries" class="form-label"></label>
+                        <input asp-for="MaxRetries" class="form-control" type="number" min="1" max="5" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label asp-for="PromptText" class="form-label"></label>
+                    <textarea asp-for="PromptText" class="form-control" rows="2"></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="SuccessText" class="form-label"></label>
+                    <textarea asp-for="SuccessText" class="form-control" rows="2"></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="ErrorText" class="form-label"></label>
+                    <textarea asp-for="ErrorText" class="form-control" rows="2"></textarea>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="TimeoutText" class="form-label"></label>
+                    <textarea asp-for="TimeoutText" class="form-control" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-save"></i> 保存
+            </button>
+            <a asp-action="Index" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> 返回列表
+            </a>
+            <button type="button" class="btn btn-info" onclick="testValidation()">
+                <i class="bi bi-check-circle"></i> 测试验证
+            </button>
+        </div>
+    </form>
+
+    <!-- 测试验证区域 -->
+    <div class="card mt-3">
+        <div class="card-header">
+            <h5>测试验证</h5>
+        </div>
+        <div class="card-body">
+            <div class="input-group mb-3">
+                <input type="text" id="testInput" class="form-control" placeholder="输入测试数据" />
+                <button class="btn btn-outline-secondary" type="button" onclick="testValidation()">验证</button>
+            </div>
+            <div id="testResult"></div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+    <script>
+        function testValidation() {
+            const input = document.getElementById('testInput').value;
+            const templateId = @Model.Id;
+
+            fetch('/DtmfTemplate/TestValidation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ templateId, input })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultDiv = document.getElementById('testResult');
+                if (data.success) {
+                    if (data.isValid) {
+                        resultDiv.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 验证通过</div>';
+                    } else {
+                        resultDiv.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> 验证失败: ${data.errorMessage}</div>`;
+                    }
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-danger">测试失败: ${data.message}</div>`;
+                }
+            });
+        }
+    </script>
+}

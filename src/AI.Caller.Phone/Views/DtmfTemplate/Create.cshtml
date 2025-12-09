@@ -1,0 +1,105 @@
+@model AI.Caller.Phone.Entities.DtmfInputTemplate
+
+@{
+    ViewData["Title"] = "创建DTMF模板";
+}
+
+<div class="container">
+    <h2>创建DTMF模板</h2>
+    <hr />
+
+    <form asp-action="Create" method="post">
+        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label asp-for="Name" class="form-label"></label>
+                    <input asp-for="Name" class="form-control" required />
+                    <span asp-validation-for="Name" class="text-danger"></span>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="ValidatorType" class="form-label"></label>
+                    <select asp-for="ValidatorType" class="form-select" asp-items="Html.GetEnumSelectList<AI.Caller.Phone.Entities.DtmfInputType>()"></select>
+                    <small class="text-muted">选择输入验证类型</small>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="MinLength" class="form-label"></label>
+                        <input asp-for="MinLength" class="form-control" type="number" min="1" />
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="MaxLength" class="form-label"></label>
+                        <input asp-for="MaxLength" class="form-control" type="number" min="1" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="TerminationKey" class="form-label"></label>
+                        <input asp-for="TerminationKey" class="form-control" maxlength="1" />
+                        <small class="text-muted">默认: #</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="BackspaceKey" class="form-label"></label>
+                        <input asp-for="BackspaceKey" class="form-control" maxlength="1" />
+                        <small class="text-muted">默认: *</small>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="TimeoutSeconds" class="form-label"></label>
+                        <input asp-for="TimeoutSeconds" class="form-control" type="number" min="5" />
+                        <small class="text-muted">秒</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label asp-for="MaxRetries" class="form-label"></label>
+                        <input asp-for="MaxRetries" class="form-control" type="number" min="1" max="5" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label asp-for="PromptText" class="form-label"></label>
+                    <textarea asp-for="PromptText" class="form-control" rows="2"></textarea>
+                    <small class="text-muted">提示用户输入的语音文本</small>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="SuccessText" class="form-label"></label>
+                    <textarea asp-for="SuccessText" class="form-control" rows="2"></textarea>
+                    <small class="text-muted">输入成功后的提示</small>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="ErrorText" class="form-label"></label>
+                    <textarea asp-for="ErrorText" class="form-control" rows="2"></textarea>
+                    <small class="text-muted">输入错误时的提示</small>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="TimeoutText" class="form-label"></label>
+                    <textarea asp-for="TimeoutText" class="form-control" rows="2"></textarea>
+                    <small class="text-muted">输入超时时的提示</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-save"></i> 创建
+            </button>
+            <a asp-action="Index" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> 返回列表
+            </a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}

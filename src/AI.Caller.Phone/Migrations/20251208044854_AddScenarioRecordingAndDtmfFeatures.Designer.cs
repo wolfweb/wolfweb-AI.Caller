@@ -3,6 +3,7 @@ using System;
 using AI.Caller.Phone;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AI.Caller.Phone.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251208044854_AddScenarioRecordingAndDtmfFeatures")]
+    partial class AddScenarioRecordingAndDtmfFeatures
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.9");
@@ -120,62 +123,28 @@ namespace AI.Caller.Phone.Migrations
                     b.Property<int?>("BatchCallJobId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("CallId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("CallScenario")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("CalleeNumber")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("CalleeUserId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("CallerNumber")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("CallerUserId")
-                        .HasColumnType("INTEGER");
-
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("Direction")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<TimeSpan?>("Duration")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("EndTime")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("FailureReason")
                         .HasColumnType("TEXT");
-
-                    b.Property<int?>("FinishStatus")
-                        .HasColumnType("INTEGER");
 
                     b.Property<int>("InitiationType")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("PhoneNumber")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RecordingFilePath")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ResolvedContent")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("ScenarioRecordingId")
                         .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("StartTime")
-                        .HasColumnType("TEXT");
 
                     b.Property<int>("Status")
                         .HasColumnType("INTEGER");
@@ -184,28 +153,7 @@ namespace AI.Caller.Phone.Migrations
 
                     b.HasIndex("BatchCallJobId");
 
-                    b.HasIndex("CallId")
-                        .HasDatabaseName("IX_CallLogs_CallId");
-
-                    b.HasIndex("CallScenario")
-                        .HasDatabaseName("IX_CallLogs_CallScenario");
-
-                    b.HasIndex("CalleeUserId")
-                        .HasDatabaseName("IX_CallLogs_CalleeUserId");
-
-                    b.HasIndex("CallerUserId")
-                        .HasDatabaseName("IX_CallLogs_CallerUserId");
-
-                    b.HasIndex("Direction")
-                        .HasDatabaseName("IX_CallLogs_Direction");
-
                     b.HasIndex("ScenarioRecordingId");
-
-                    b.HasIndex("StartTime")
-                        .HasDatabaseName("IX_CallLogs_StartTime");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("IX_CallLogs_Status");
 
                     b.ToTable("CallLogs");
                 });
@@ -1066,26 +1014,12 @@ namespace AI.Caller.Phone.Migrations
                         .HasForeignKey("BatchCallJobId")
                         .OnDelete(DeleteBehavior.Cascade);
 
-                    b.HasOne("AI.Caller.Phone.Entities.User", "CalleeUser")
-                        .WithMany()
-                        .HasForeignKey("CalleeUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("AI.Caller.Phone.Entities.User", "CallerUser")
-                        .WithMany()
-                        .HasForeignKey("CallerUserId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("AI.Caller.Phone.Entities.ScenarioRecording", "ScenarioRecording")
                         .WithMany()
                         .HasForeignKey("ScenarioRecordingId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("BatchCallJob");
-
-                    b.Navigation("CalleeUser");
-
-                    b.Navigation("CallerUser");
 
                     b.Navigation("ScenarioRecording");
                 });

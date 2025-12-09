@@ -1,0 +1,71 @@
+@model IEnumerable<AI.Caller.Phone.Entities.DtmfInputTemplate>
+
+@{
+    ViewData["Title"] = "DTMF模板管理";
+}
+
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col">
+            <h2>DTMF模板管理</h2>
+        </div>
+        <div class="col text-end">
+            <a asp-action="Create" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> 创建模板
+            </a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>名称</th>
+                        <th>验证类型</th>
+                        <th>长度范围</th>
+                        <th>超时(秒)</th>
+                        <th>最大重试</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model)
+                    {
+                        <tr>
+                            <td>@item.Id</td>
+                            <td>@item.Name</td>
+                            <td>
+                                <span class="badge bg-info">@item.ValidatorType</span>
+                            </td>
+                            <td>@item.MinLength - @item.MaxLength</td>
+                            <td>@item.TimeoutSeconds</td>
+                            <td>@item.MaxRetries</td>
+                            <td>@item.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>
+                                <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-pencil"></i> 编辑
+                                </a>
+                                <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-info">
+                                    <i class="bi bi-eye"></i> 详情
+                                </a>
+                                <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-trash"></i> 删除
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (!Model.Any())
+            {
+                <div class="alert alert-info text-center">
+                    <i class="bi bi-info-circle"></i> 暂无DTMF模板，请点击"创建模板"按钮添加。
+                </div>
+            }
+        </div>
+    </div>
+</div>

@@ -1,0 +1,87 @@
+@model IEnumerable<AI.Caller.Phone.Entities.MonitoringSession>
+
+@{
+    ViewData["Title"] = "监听会话管理";
+}
+
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col">
+            <h2>监听会话管理</h2>
+        </div>
+        <div class="col text-end">
+            <a asp-action="ActiveCalls" class="btn btn-primary">
+                <i class="bi bi-telephone"></i> 查看活跃通话
+            </a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5>我的监听会话</h5>
+        </div>
+        <div class="card-body">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>会话ID</th>
+                        <th>通话ID</th>
+                        <th>监听者</th>
+                        <th>开始时间</th>
+                        <th>结束时间</th>
+                        <th>是否接入</th>
+                        <th>接入原因</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var session in Model)
+                    {
+                        <tr>
+                            <td>@session.Id</td>
+                            <td>@session.CallId</td>
+                            <td>@session.MonitorUserName</td>
+                            <td>@session.StartTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td>
+                                @if (session.EndTime.HasValue)
+                                {
+                                    @session.EndTime.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+                                }
+                                else
+                                {
+                                    <span class="badge bg-success">进行中</span>
+                                }
+                            </td>
+                            <td>
+                                @if (session.InterventionTime.HasValue)
+                                {
+                                    <span class="badge bg-warning">已接入</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">仅监听</span>
+                                }
+                            </td>
+                            <td>@session.InterventionReason</td>
+                            <td>
+                                @if (!session.EndTime.HasValue)
+                                {
+                                    <a asp-action="Monitor" asp-route-userId="@session.CallId" asp-route-callId="@session.CallId" class="btn btn-sm btn-primary">
+                                        <i class="bi bi-eye"></i> 继续监听
+                                    </a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+            @if (!Model.Any())
+            {
+                <div class="alert alert-info text-center">
+                    <i class="bi bi-info-circle"></i> 暂无监听会话记录
+                </div>
+            }
+        </div>
+    </div>
+</div>

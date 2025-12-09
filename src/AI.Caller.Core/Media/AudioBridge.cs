@@ -3,7 +3,7 @@ using AI.Caller.Core.Media.Encoders;
 using Microsoft.Extensions.Logging;
 
 namespace AI.Caller.Core {
-    public sealed class AudioBridge : IAudioBridge {
+    public sealed partial class AudioBridge : IAudioBridge {
         private readonly ILogger _logger;
         private readonly object _lock = new();
         private readonly G711Codec _g711Codec;
@@ -61,6 +61,8 @@ namespace AI.Caller.Core {
 
                 ProcessAudioFrames(processedData, frame => {
                     IncomingAudioReceived?.Invoke(frame);
+                    // 广播到监听者
+                    BroadcastIncomingAudioToMonitors(frame);
                 });
 
             } catch (Exception ex) {

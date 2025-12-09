@@ -1,0 +1,564 @@
+@using AI.Caller.Phone.Entities
+@{
+    ViewData["Title"] = "监听通话";
+    var targetUserId = ViewBag.TargetUserId;
+    var callId = ViewBag.CallId;
+    var targetUserName = ViewBag.TargetUserName;
+    var scenarioSegments = ViewBag.ScenarioSegments as List<ScenarioRecordingSegment> ?? new List<ScenarioRecordingSegment>();
+    var scenarioName = ViewBag.ScenarioName as string;
+    var hasScenario = scenarioSegments.Any();
+}
+
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col">
+            <h2>监听通话 - @targetUserName</h2>
+            <p class="text-muted">通话ID: @callId</p>
+        </div>
+        <div class="col text-end">
+            <button id="startMonitorBtn" class="btn btn-success" onclick="startMonitoring()">
+                <i class="bi bi-play-circle"></i> 开始监听
+            </button>
+            <button id="stopMonitorBtn" class="btn btn-danger" onclick="stopMonitoring()" style="display:none;">
+                <i class="bi bi-stop-circle"></i> 停止监听
+            </button>
+            <a asp-action="Index" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> 返回
+            </a>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- 音频播放区域 -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5>音频监听</h5>
+                </div>
+                <div class="card-body text-center">
+                    <div id="audioStatus" class="mb-3">
+                        <i class="bi bi-volume-mute" style="font-size: 3rem;"></i>
+                        <p class="mt-2">点击"开始监听"以接收音频</p>
+                    </div>
+                    <audio id="monitoringAudio" controls style="width: 100%; display:none;"></audio>
+                </div>
+            </div>
+
+            <!-- 播放控制 -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5>播放控制</h5>
+                </div>
+                <div class="card-body">
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-outline-primary" onclick="pausePlayback()">
+                            <i class="bi bi-pause"></i> 暂停播放
+                        </button>
+                        <button class="btn btn-outline-success" onclick="resumePlayback()">
+                            <i class="bi bi-play"></i> 恢复播放
+                        </button>
+                    </div>
+                    <div id="playbackState" class="mt-3">
+                        <span class="badge bg-secondary">状态: 未知</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制面板 -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>人工接入</h5>
+                </div>
+                <div class="card-body">
+                    <div id="interventionPanel">
+                        <div class="mb-3">
+                            <label class="form-label">接入原因</label>
+                            <select id="interventionReason" class="form-select">
+                                <option value="客户要求">客户要求</option>
+                                <option value="AI无法处理">AI无法处理</option>
+                                <option value="紧急情况">紧急情况</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+                        <div class="mb-3" id="resumeDelayPanel" style="display:none;">
+                            <label class="form-label">退出后延迟恢复（秒）</label>
+                            <input type="number" id="resumeDelay" class="form-control" value="2" min="0" max="30" step="1">
+                            <small class="text-muted">退出接入后等待多久恢复AI播放</small>
+                        </div>
+                        <button id="interventBtn" class="btn btn-warning w-100 mb-2" onclick="intervent()">
+                            <i class="bi bi-person-fill"></i> 人工接入
+                        </button>
+                        <button id="exitInterventBtn" class="btn btn-info w-100" onclick="showExitDialog()" style="display:none;">
+                            <i class="bi bi-box-arrow-right"></i> 退出接入
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 场景片段列表 -->
+            @if (hasScenario)
+            {
+                <div class="card mt-3" id="segmentListCard" style="display:none;">
+                    <div class="card-header">
+                        <h5 class="mb-0">场景片段列表</h5>
+                        @if (!string.IsNullOrEmpty(scenarioName))
+                        {
+                            <small class="text-muted">场景: @scenarioName</small>
+                        }
+                    </div>
+                    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                        <div class="list-group list-group-flush">
+                            @foreach (var segment in scenarioSegments)
+                            {
+                                var typeIcon = segment.SegmentType switch {
+                                    SegmentType.Recording => "bi-mic-fill",
+                                    SegmentType.TTS => "bi-chat-text",
+                                    SegmentType.DtmfInput => "bi-telephone-fill",
+                                    SegmentType.Condition => "bi-shuffle",
+                                    SegmentType.Silence => "bi-pause-circle",
+                                    _ => "bi-question-circle"
+                                };
+                                var typeName = segment.SegmentType switch {
+                                    SegmentType.Recording => "录音",
+                                    SegmentType.TTS => "TTS",
+                                    SegmentType.DtmfInput => "DTMF输入",
+                                    SegmentType.Condition => "条件分支",
+                                    SegmentType.Silence => "静音",
+                                    _ => "未知"
+                                };
+                                var displayText = segment.SegmentType switch {
+                                    SegmentType.Recording => segment.FilePath ?? "录音文件",
+                                    SegmentType.TTS => segment.TtsText ?? "TTS文本",
+                                    SegmentType.DtmfInput => "收集DTMF输入",
+                                    SegmentType.Condition => segment.ConditionExpression ?? "条件判断",
+                                    SegmentType.Silence => $"静音 {segment.Duration ?? 0}ms",
+                                    _ => "未知片段"
+                                };
+                                
+                                <div class="list-group-item p-2">
+                                    <div class="d-flex align-items-start">
+                                        <div class="form-check me-2">
+                                            <input class="form-check-input segment-checkbox" type="checkbox" 
+                                                   value="@segment.Id" id="segment_@segment.Id">
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex align-items-center mb-1">
+                                                <span class="badge bg-secondary me-2">@segment.SegmentOrder</span>
+                                                <i class="bi @typeIcon me-1"></i>
+                                                <small class="text-muted">@typeName</small>
+                                            </div>
+                                            <div class="small text-truncate" style="max-width: 250px;" title="@displayText">
+                                                @displayText
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                        <div class="mt-2 text-center">
+                            <button class="btn btn-sm btn-outline-primary" onclick="selectAllSegments()">全选</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="clearAllSegments()">清空</button>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <!-- 监听信息 -->
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h5>监听信息</h5>
+                </div>
+                <div class="card-body">
+                    <div id="monitoringInfo">
+                        <p><strong>会话ID:</strong> <span id="sessionId">-</span></p>
+                        <p><strong>监听时长:</strong> <span id="duration">00:00:00</span></p>
+                        <p><strong>状态:</strong> <span id="status" class="badge bg-secondary">未开始</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/@@microsoft/signalr@latest/dist/browser/signalr.min.js"></script>
+    <script>
+        const targetUserId = @targetUserId;
+        const callId = '@callId';
+        const hasScenario = @(hasScenario ? "true" : "false");
+        let connection = null;
+        let sessionId = null;
+        let startTime = null;
+        let durationInterval = null;
+
+        // 音频相关变量
+        let audioContext = null;
+        let audioQueue = [];
+        let isPlaying = false;
+        let nextPlayTime = 0;
+        let audioFrameCount = 0;
+
+        // 初始化Web Audio API
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 8000  // G.711采样率
+                });
+                console.log("Web Audio API已初始化，采样率:", audioContext.sampleRate);
+            }
+            return audioContext;
+        }
+
+
+
+        // 播放音频队列
+        function playAudioQueue() {
+            if (audioQueue.length === 0) {
+                isPlaying = false;
+                return;
+            }
+
+            isPlaying = true;
+            const pcmData = audioQueue.shift();
+
+            try {
+                // 创建AudioBuffer
+                const audioBuffer = audioContext.createBuffer(
+                    1,  // 单声道
+                    pcmData.length,
+                    8000  // 采样率
+                );
+
+                // 填充数据（归一化到[-1, 1]）
+                const channelData = audioBuffer.getChannelData(0);
+                for (let i = 0; i < pcmData.length; i++) {
+                    channelData[i] = pcmData[i] / 32768.0;
+                }
+
+                // 创建音频源
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContext.destination);
+
+                // 计算播放时间
+                const currentTime = audioContext.currentTime;
+                if (nextPlayTime < currentTime) {
+                    nextPlayTime = currentTime;
+                }
+
+                source.start(nextPlayTime);
+                nextPlayTime += audioBuffer.duration;
+
+                // 播放完成后继续播放队列
+                source.onended = () => {
+                    playAudioQueue();
+                };
+            } catch (err) {
+                console.error("播放音频失败:", err);
+                isPlaying = false;
+            }
+        }
+
+        // 初始化SignalR连接
+        async function initConnection() {
+            connection = new signalR.HubConnectionBuilder()
+                .withUrl("/webrtc")
+                .withAutomaticReconnect()
+                .build();
+
+            // 监听音频数据（服务端已解码为PCM）
+            connection.on("monitoringAudio", (base64Audio) => {
+                try {
+                    audioFrameCount++;
+                    
+                    // Base64解码PCM数据
+                    const binaryString = atob(base64Audio);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+
+                    // 转换为Int16Array（16位PCM）
+                    const pcmData = new Int16Array(bytes.buffer);
+
+                    // 添加到播放队列
+                    audioQueue.push(pcmData);
+
+                    // 开始播放
+                    if (!isPlaying) {
+                        playAudioQueue();
+                    }
+
+                    // 每100帧更新一次状态
+                    if (audioFrameCount % 100 === 0) {
+                        console.log(`已接收 ${audioFrameCount} 帧音频，队列长度: ${audioQueue.length}`);
+                    }
+                } catch (err) {
+                    console.error("处理音频数据失败:", err);
+                }
+            });
+
+            // 监听其他事件
+            connection.on("interventionStarted", (data) => {
+                console.log("接入开始:", data);
+                updateStatus("已接入", "bg-warning");
+                showToast("人工接入已开始", "info");
+            });
+
+            connection.on("interventionEnded", (data) => {
+                console.log("接入结束:", data);
+                updateStatus("监听中", "bg-success");
+                showToast("人工接入已结束", "info");
+            });
+
+            connection.on("playbackPaused", (data) => {
+                console.log("播放暂停:", data);
+                showToast("播放已暂停", "info");
+            });
+
+            connection.on("playbackResumed", (data) => {
+                console.log("播放恢复:", data);
+                showToast("播放已恢复", "info");
+            });
+
+            try {
+                await connection.start();
+                console.log("SignalR连接成功");
+            } catch (err) {
+                console.error("SignalR连接失败:", err);
+                showToast("SignalR连接失败: " + err, "error");
+            }
+        }
+
+        // 开始监听
+        async function startMonitoring() {
+            try {
+                // 初始化音频上下文（需要用户交互）
+                initAudioContext();
+                
+                const result = await connection.invoke("StartMonitoringAsync", targetUserId, callId);
+                if (result.success) {
+                    sessionId = result.sessionId;
+                    document.getElementById('sessionId').textContent = sessionId;
+                    document.getElementById('startMonitorBtn').style.display = 'none';
+                    document.getElementById('stopMonitorBtn').style.display = 'inline-block';
+                    
+                    // 更新音频状态显示
+                    document.getElementById('audioStatus').innerHTML = `
+                        <i class="bi bi-volume-up" style="font-size: 3rem; color: green;"></i>
+                        <p class="mt-2">正在接收音频...</p>
+                        <p class="text-muted">已接收 <span id="frameCount">0</span> 帧</p>
+                    `;
+                    
+                    updateStatus("监听中", "bg-success");
+                    
+                    startTime = new Date();
+                    durationInterval = setInterval(updateDuration, 1000);
+                    
+                    // 定期更新帧计数
+                    setInterval(() => {
+                        const frameCountEl = document.getElementById('frameCount');
+                        if (frameCountEl) {
+                            frameCountEl.textContent = audioFrameCount;
+                        }
+                    }, 1000);
+                    
+                    showToast(result.message, "success");
+                } else {
+                    showToast(result.message, "error");
+                }
+            } catch (err) {
+                console.error("开始监听失败:", err);
+                showToast("开始监听失败: " + err, "error");
+            }
+        }
+
+        // 停止监听
+        async function stopMonitoring() {
+            try {
+                const result = await connection.invoke("StopMonitoringAsync", targetUserId, sessionId, callId);
+                if (result.success) {
+                    document.getElementById('startMonitorBtn').style.display = 'inline-block';
+                    document.getElementById('stopMonitorBtn').style.display = 'none';
+                    
+                    // 更新音频状态显示
+                    document.getElementById('audioStatus').innerHTML = `
+                        <i class="bi bi-volume-mute" style="font-size: 3rem;"></i>
+                        <p class="mt-2">监听已停止</p>
+                        <p class="text-muted">共接收 ${audioFrameCount} 帧音频</p>
+                    `;
+                    
+                    updateStatus("已停止", "bg-secondary");
+                    
+                    if (durationInterval) {
+                        clearInterval(durationInterval);
+                    }
+                    
+                    // 清空音频队列
+                    audioQueue = [];
+                    isPlaying = false;
+                    
+                    showToast(result.message, "success");
+                } else {
+                    showToast(result.message, "error");
+                }
+            } catch (err) {
+                console.error("停止监听失败:", err);
+                showToast("停止监听失败: " + err, "error");
+            }
+        }
+
+
+
+        // 全选片段
+        function selectAllSegments() {
+            document.querySelectorAll('.segment-checkbox').forEach(cb => cb.checked = true);
+        }
+
+        // 清空选择
+        function clearAllSegments() {
+            document.querySelectorAll('.segment-checkbox').forEach(cb => cb.checked = false);
+        }
+
+        // 获取选中的片段ID列表
+        function getSelectedSegmentIds() {
+            const checkboxes = document.querySelectorAll('.segment-checkbox:checked');
+            return Array.from(checkboxes).map(cb => parseInt(cb.value));
+        }
+
+        // 人工接入
+        async function intervent() {
+            const reason = document.getElementById('interventionReason').value;
+            try {
+                const result = await connection.invoke("InterventAsync", targetUserId, sessionId, reason, callId);
+                if (result.success) {
+                    document.getElementById('interventBtn').style.display = 'none';
+                    document.getElementById('exitInterventBtn').style.display = 'block';
+                    
+                    // 显示延迟恢复控制面板
+                    document.getElementById('resumeDelayPanel').style.display = 'block';
+                    
+                    // 显示场景片段列表（如果有）
+                    if (hasScenario) {
+                        document.getElementById('segmentListCard').style.display = 'block';
+                    }
+                    
+                    showToast(result.message, "success");
+                } else {
+                    showToast(result.message, "error");
+                }
+            } catch (err) {
+                console.error("人工接入失败:", err);
+                showToast("人工接入失败: " + err, "error");
+            }
+        }
+
+        // 显示退出接入对话框
+        function showExitDialog() {
+            const selectedIds = getSelectedSegmentIds();
+            const delaySeconds = parseInt(document.getElementById('resumeDelay').value) || 2;
+            
+            let message = selectedIds.length > 0 
+                ? `确定退出接入吗？\n将跳过 ${selectedIds.length} 个选中的片段。`
+                : '确定退出接入吗？\nAI将继续播放所有剩余片段。';
+            
+            message += `\n\n将在 ${delaySeconds} 秒后恢复AI播放。`;
+            
+            if (confirm(message)) {
+                exitIntervention(selectedIds, delaySeconds);
+            }
+        }
+
+        // 退出接入
+        async function exitIntervention(skipSegmentIds = null, delaySeconds = 2) {
+            try {
+                // 隐藏延迟控制面板
+                document.getElementById('resumeDelayPanel').style.display = 'none';
+                
+                // 显示倒计时提示
+                showToast(`退出接入成功，${delaySeconds} 秒后恢复AI播放...`, "info");
+                
+                // 延迟指定秒数后恢复播放
+                await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
+                
+                const result = await connection.invoke("ExitInterventionAsync", targetUserId, callId, skipSegmentIds, true);
+                if (result.success) {
+                    document.getElementById('interventBtn').style.display = 'block';
+                    document.getElementById('exitInterventBtn').style.display = 'none';
+                    document.getElementById('segmentListCard').style.display = 'none';
+                    
+                    if (skipSegmentIds && skipSegmentIds.length > 0) {
+                        showToast(`AI播放已恢复，跳过 ${skipSegmentIds.length} 个片段`, "success");
+                    } else {
+                        showToast("AI播放已恢复", "success");
+                    }
+                } else {
+                    showToast(result.message, "error");
+                }
+            } catch (err) {
+                console.error("退出接入失败:", err);
+                showToast("退出接入失败: " + err, "error");
+            }
+        }
+
+        // 暂停播放
+        async function pausePlayback() {
+            try {
+                const result = await connection.invoke("PausePlaybackAsync", callId);
+                showToast(result.message, result.success ? "success" : "error");
+            } catch (err) {
+                console.error("暂停播放失败:", err);
+                showToast("暂停播放失败: " + err, "error");
+            }
+        }
+
+        // 恢复播放
+        async function resumePlayback() {
+            try {
+                const result = await connection.invoke("ResumePlaybackAsync", callId);
+                showToast(result.message, result.success ? "success" : "error");
+            } catch (err) {
+                console.error("恢复播放失败:", err);
+                showToast("恢复播放失败: " + err, "error");
+            }
+        }
+
+        // Toast提示函数
+        function showToast(message, type) {
+            // 简单的控制台输出，可以后续集成Bootstrap Toast
+            const icon = type === "success" ? "✓" : type === "error" ? "✗" : "ℹ";
+            console.log(`${icon} ${message}`);
+            
+            // 可选：使用浏览器通知
+            if (type === "error") {
+                // 仅错误时使用alert，其他使用控制台
+                console.error(message);
+            }
+        }
+
+        // 更新状态显示
+        function updateStatus(text, badgeClass) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = text;
+            statusEl.className = 'badge ' + badgeClass;
+        }
+
+        // 更新监听时长
+        function updateDuration() {
+            if (!startTime) return;
+            const now = new Date();
+            const diff = Math.floor((now - startTime) / 1000);
+            const hours = Math.floor(diff / 3600).toString().padStart(2, '0');
+            const minutes = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
+            const seconds = (diff % 60).toString().padStart(2, '0');
+            document.getElementById('duration').textContent = `${hours}:${minutes}:${seconds}`;
+        }
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            initConnection();
+        });
+    </script>
+}

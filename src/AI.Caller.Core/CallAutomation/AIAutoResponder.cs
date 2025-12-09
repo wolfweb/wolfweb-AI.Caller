@@ -8,7 +8,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 
 namespace AI.Caller.Core {
-    public sealed class AIAutoResponder : IAsyncDisposable {
+    public sealed partial class AIAutoResponder : IAsyncDisposable {
         private readonly ILogger _logger;
         private readonly ITTSEngine _tts;
         private readonly MediaProfile _profile;

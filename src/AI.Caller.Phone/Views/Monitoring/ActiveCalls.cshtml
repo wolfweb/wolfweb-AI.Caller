@@ -1,0 +1,100 @@
+@{
+    ViewData["Title"] = "活跃通话列表";
+}
+
+<div class="container-fluid">
+    <h2>活跃通话列表</h2>
+    <hr />
+
+    <div class="card">
+        <div class="card-body">
+            <table class="table table-hover" id="activeCallsTable">
+                <thead>
+                    <tr>
+                        <th>用户ID</th>
+                        <th>用户名</th>
+                        <th>场景</th>
+                        <th>开始时间</th>
+                        <th>监听状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- 动态加载 -->
+                </tbody>
+            </table>
+            <div id="noCallsMessage" class="alert alert-info text-center" style="display:none;">
+                <i class="bi bi-info-circle"></i> 当前没有活跃的AI客服通话
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // 加载活跃通话列表
+        function loadActiveCalls() {
+            const tbody = document.querySelector('#activeCallsTable tbody');
+            const noCallsMessage = document.getElementById('noCallsMessage');
+            
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center">加载中...</td></tr>';
+            noCallsMessage.style.display = 'none';
+            
+            fetch('/Monitoring/GetActiveCalls')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        tbody.innerHTML = '';
+                        
+                        if (data.sessions.length === 0) {
+                            noCallsMessage.style.display = 'block';
+                        } else {
+                            data.sessions.forEach(session => {
+                                const row = document.createElement('tr');
+                                
+                                // 格式化时长
+                                const duration = Math.floor(session.duration);
+                                const minutes = Math.floor(duration / 60);
+                                const seconds = duration % 60;
+                                const durationStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                                
+                                // 监听状态
+                                const monitorStatus = session.isMonitored 
+                                    ? `<span class="badge badge-warning">监听中 (${session.monitorCount})</span>`
+                                    : `<span class="badge badge-secondary">未监听</span>`;
+                                
+                                row.innerHTML = `
+                                    <td>${session.userId}</td>
+                                    <td>${session.userName || '未知'}</td>
+                                    <td>${session.callId}</td>
+                                    <td>${new Date(session.startTime).toLocaleString('zh-CN')}<br/>
+                                        <small class="text-muted">通话时长: ${durationStr}</small>
+                                    </td>
+                                    <td>${monitorStatus}</td>
+                                    <td>
+                                        <a href="/Monitoring/Monitor?userId=${session.userId}&callId=${session.callId}" 
+                                           class="btn btn-sm btn-primary">
+                                            <i class="fas fa-headphones"></i> 监听
+                                        </a>
+                                    </td>
+                                `;
+                                tbody.appendChild(row);
+                            });
+                        }
+                    } else {
+                        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">加载失败: ${data.message}</td></tr>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('加载活跃通话失败:', error);
+                    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">加载失败，请刷新重试</td></tr>';
+                });
+        }
+
+        // 页面加载时获取数据
+        document.addEventListener('DOMContentLoaded', loadActiveCalls);
+
+        // 每10秒刷新一次
+        setInterval(loadActiveCalls, 10000);
+    </script>
+}

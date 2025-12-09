@@ -1,0 +1,71 @@
+@model AI.Caller.Phone.Entities.ScenarioRecording
+
+@{
+    ViewData["Title"] = "删除场景录音";
+}
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="card card-danger">
+                <div class="card-header">
+                    <h3 class="card-title">删除场景录音</h3>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-danger">
+                        <h5><i class="icon fas fa-exclamation-triangle"></i> 警告！</h5>
+                        您确定要删除这个场景录音吗？此操作无法撤销。
+                    </div>
+
+                    <dl class="row">
+                        <dt class="col-sm-3">场景名称</dt>
+                        <dd class="col-sm-9">@Model.Name</dd>
+
+                        <dt class="col-sm-3">描述</dt>
+                        <dd class="col-sm-9">@(Model.Description ?? "无")</dd>
+
+                        <dt class="col-sm-3">状态</dt>
+                        <dd class="col-sm-9">
+                            @if (Model.IsActive)
+                            {
+                                <span class="badge badge-success">启用</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-secondary">禁用</span>
+                            }
+                        </dd>
+
+                        <dt class="col-sm-3">片段数量</dt>
+                        <dd class="col-sm-9">@Model.Segments.Count 个</dd>
+
+                        <dt class="col-sm-3">创建时间</dt>
+                        <dd class="col-sm-9">@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+                        <dt class="col-sm-3">更新时间</dt>
+                        <dd class="col-sm-9">@Model.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                    </dl>
+
+                    @if (Model.Segments.Any())
+                    {
+                        <div class="alert alert-warning">
+                            <i class="fas fa-info-circle"></i> 
+                            删除此场景将同时删除 <strong>@Model.Segments.Count</strong> 个关联的片段。
+                        </div>
+                    }
+                </div>
+                <div class="card-footer">
+                    <form asp-action="Delete" method="post">
+                        <input type="hidden" asp-for="Id" />
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fas fa-trash"></i> 确认删除
+                        </button>
+                        <a asp-action="Index" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> 取消
+                        </a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -88,6 +88,15 @@ namespace AI.Caller.Phone {
             builder.Services.AddTransient<ICallProcessor, CallProcessor>();
             builder.Services.AddScoped<IBatchProcessor, BatchProcessor>();
 
+            // 场景录音、DTMF和监听服务
+            builder.Services.AddScoped<IScenarioRecordingService, ScenarioRecordingService>();
+            builder.Services.AddScoped<IDtmfInputService, DtmfInputService>();
+            builder.Services.AddScoped<IMonitoringService, MonitoringService>();
+            builder.Services.AddScoped<IPlaybackControlService, PlaybackControlService>();
+            
+            // 音频转换服务
+            builder.Services.AddScoped<AI.Caller.Core.Media.Interfaces.IAudioConverter, AI.Caller.Core.Media.AudioConverter>();
+
             builder.Services.AddAIAutoResponder();
             builder.Services.AddSingleton<AICustomerServiceManager>();
             builder.Services.AddAuthentication(options => {

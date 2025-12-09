@@ -1,0 +1,629 @@
+@model AI.Caller.Phone.Entities.ScenarioRecording
+
+@{
+    ViewData["Title"] = "编辑场景录音";
+}
+
+<div class="container-fluid">
+    <h2>编辑场景录音</h2>
+    <hr />
+
+    <div class="row">
+        <div class="col-md-4">
+            <form asp-action="Edit" method="post">
+                <input type="hidden" asp-for="Id" />
+                <input type="hidden" asp-for="CreatedAt" />
+                <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+
+                <div class="mb-3">
+                    <label asp-for="Name" class="form-label"></label>
+                    <input asp-for="Name" class="form-control" required />
+                    <span asp-validation-for="Name" class="text-danger"></span>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="Description" class="form-label"></label>
+                    <textarea asp-for="Description" class="form-control" rows="3"></textarea>
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input asp-for="IsActive" class="form-check-input" type="checkbox" />
+                    <label asp-for="IsActive" class="form-check-label"></label>
+                </div>
+
+                <div class="mb-3">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save"></i> 保存
+                    </button>
+                    <a asp-action="Index" class="btn btn-secondary">
+                        <i class="bi bi-arrow-left"></i> 返回
+                    </a>
+                </div>
+            </form>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">场景片段</h5>
+                    <button type="button" class="btn btn-sm btn-success" onclick="addSegment()">
+                        <i class="bi bi-plus"></i> 添加片段
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="segments-container" class="sortable-list">
+                        @foreach (var segment in Model.Segments.OrderBy(s => s.SegmentOrder))
+                        {
+                            <div class="segment-item card mb-2" data-segment-id="@segment.Id">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between">
+                                        <div>
+                                            <span class="badge bg-primary">@segment.SegmentType</span>
+                                            <strong>片段 @segment.SegmentOrder</strong>
+                                        </div>
+                                        <div>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="editSegment(@segment.Id)">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger" onclick="deleteSegment(@segment.Id)">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                            <span class="handle" style="cursor: move;">
+                                                <i class="bi bi-grip-vertical"></i>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    @if (segment.SegmentType == AI.Caller.Phone.Entities.SegmentType.Recording)
+                                    {
+                                        <div class="mt-2">
+                                            <small>文件: @segment.FilePath</small>
+                                        </div>
+                                    }
+                                    else if (segment.SegmentType == AI.Caller.Phone.Entities.SegmentType.TTS)
+                                    {
+                                        <div class="mt-2">
+                                            <small>文本: @segment.TtsText</small>
+                                        </div>
+                                    }
+                                    else if (segment.SegmentType == AI.Caller.Phone.Entities.SegmentType.DtmfInput)
+                                    {
+                                        <div class="mt-2">
+                                            <small>DTMF模板: @segment.DtmfTemplate?.Name</small>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    @if (!Model.Segments.Any())
+                    {
+                        <div class="alert alert-info text-center">
+                            <i class="bi bi-info-circle"></i> 暂无片段，请点击"添加片段"按钮。
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑片段模态框 -->
+<div class="modal fade" id="segmentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">片段配置</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="segmentForm">
+                    <input type="hidden" id="segmentId" />
+                    <input type="hidden" id="scenarioId" value="@Model.Id" />
+
+                    <div class="mb-3">
+                        <label class="form-label">片段类型</label>
+                        <select id="segmentType" class="form-select" onchange="onSegmentTypeChange()">
+                            <option value="0">录音</option>
+                            <option value="1">TTS</option>
+                            <option value="2">DTMF输入</option>
+                            <option value="3">条件分支</option>
+                            <option value="4">静音</option>
+                        </select>
+                    </div>
+
+                    <div id="recordingFields" class="segment-fields">
+                        <div class="mb-3">
+                            <label class="form-label">录音文件</label>
+                            <div class="input-group">
+                                <input type="text" id="filePath" class="form-control" 
+                                       placeholder="选择录音方式..." readonly />
+                                <button type="button" class="btn btn-outline-secondary" 
+                                        onclick="showFileUpload()">
+                                    <i class="bi bi-upload"></i> 上传文件
+                                </button>
+                                <button type="button" class="btn btn-outline-primary" 
+                                        onclick="toggleRecordingPanel()">
+                                    <i class="bi bi-mic-fill"></i> 在线录制
+                                </button>
+                            </div>
+                            <small class="text-muted">
+                                可以上传已有录音文件，或使用在线录制功能
+                            </small>
+                        </div>
+
+                        <!-- 文件上传区域 -->
+                        <div id="fileUploadArea" class="collapse">
+                            <div class="card bg-light mb-3">
+                                <div class="card-body">
+                                    <input type="file" id="audioFileInput" 
+                                           accept="audio/*" class="form-control" />
+                                    <small class="text-muted">
+                                        支持格式: MP3, WAV, OGG, M4A
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 在线录音面板 -->
+                        <div id="onlineRecordingPanel" class="collapse">
+                            <div class="card border-primary mb-3">
+                                <div class="card-header bg-primary text-white">
+                                    <i class="bi bi-mic-fill me-2"></i>在线录音
+                                </div>
+                                <div class="card-body">
+                                    <!-- 录音控制按钮 -->
+                                    <div class="d-flex gap-2 mb-3">
+                                        <button type="button" id="startRecordBtn" class="btn btn-success">
+                                            <i class="bi bi-mic-fill"></i> 开始录音
+                                        </button>
+                                        <button type="button" id="pauseRecordBtn" class="btn btn-warning" disabled>
+                                            <i class="bi bi-pause-fill"></i> 暂停
+                                        </button>
+                                        <button type="button" id="stopRecordBtn" class="btn btn-danger" disabled>
+                                            <i class="bi bi-stop-fill"></i> 停止
+                                        </button>
+                                        <button type="button" id="resetRecordBtn" class="btn btn-secondary" disabled>
+                                            <i class="bi bi-arrow-clockwise"></i> 重录
+                                        </button>
+                                    </div>
+
+                                    <!-- 录音状态 -->
+                                    <div class="alert alert-info mb-3">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <i class="bi bi-info-circle me-2"></i>
+                                                <span id="recordStatus">就绪</span>
+                                            </div>
+                                            <div>
+                                                <strong id="recordDuration">00:00</strong>
+                                                <small class="text-muted ms-2">/ 最长 5:00</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 波形显示 -->
+                                    <div class="mb-3">
+                                        <canvas id="waveformCanvas" 
+                                                width="500" height="80" 
+                                                class="border rounded bg-white"
+                                                style="width: 100%;"></canvas>
+                                    </div>
+
+                                    <!-- 试听播放器 -->
+                                    <div id="previewSection" class="mb-3" style="display: none;">
+                                        <label class="form-label">
+                                            <i class="bi bi-play-circle me-1"></i>试听录音
+                                        </label>
+                                        <audio id="previewAudio" controls class="w-100"></audio>
+                                    </div>
+
+                                    <!-- 上传按钮 -->
+                                    <div class="d-grid">
+                                        <button type="button" id="uploadRecordBtn" class="btn btn-primary" disabled>
+                                            <i class="bi bi-cloud-upload-fill"></i> 保存到服务器
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="ttsFields" class="segment-fields" style="display:none;">
+                        <div class="mb-3">
+                            <label class="form-label">TTS文本</label>
+                            <textarea id="ttsText" class="form-control" rows="3"></textarea>
+                            <small class="text-muted">支持变量: {变量名}</small>
+                        </div>
+                    </div>
+
+                    <div id="dtmfFields" class="segment-fields" style="display:none;">
+                        <div class="mb-3">
+                            <label class="form-label">DTMF模板</label>
+                            <select id="dtmfTemplateId" class="form-select">
+                                @foreach (var template in ViewBag.DtmfTemplates as SelectList)
+                                {
+                                    <option value="@template.Value">@template.Text</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">变量名</label>
+                            <input type="text" id="dtmfVariableName" class="form-control" />
+                        </div>
+                    </div>
+
+                    <div id="conditionFields" class="segment-fields" style="display:none;">
+                        <div class="mb-3">
+                            <label class="form-label">条件表达式</label>
+                            <input type="text" id="conditionExpression" class="form-control" />
+                            <small class="text-muted">例如: {变量名} == "值"</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">条件为真时跳转片段ID</label>
+                            <input type="number" id="nextSegmentIdOnTrue" class="form-control" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">条件为假时跳转片段ID</label>
+                            <input type="number" id="nextSegmentIdOnFalse" class="form-control" />
+                        </div>
+                    </div>
+
+                    <div id="silenceFields" class="segment-fields" style="display:none;">
+                        <div class="mb-3">
+                            <label class="form-label">静音时长(毫秒)</label>
+                            <input type="number" id="silenceDurationMs" class="form-control" value="1000" />
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveSegment()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    
+    <!-- PhoneApp 命名空间 -->
+    <script src="~/js/phone-namespace.js" asp-append-version="true"></script>
+    
+    <!-- AudioRecorder 类 -->
+    <script src="~/js/audio-recorder.js" asp-append-version="true"></script>
+    
+    <script>
+        // 初始化拖拽排序
+        const sortable = new Sortable(document.getElementById('segments-container'), {
+            handle: '.handle',
+            animation: 150,
+            onEnd: function (evt) {
+                const segmentIds = Array.from(document.querySelectorAll('.segment-item'))
+                    .map(item => parseInt(item.dataset.segmentId));
+                reorderSegments(segmentIds);
+            }
+        });
+
+        function onSegmentTypeChange() {
+            const type = parseInt(document.getElementById('segmentType').value);
+            document.querySelectorAll('.segment-fields').forEach(el => el.style.display = 'none');
+            
+            switch(type) {
+                case 0: document.getElementById('recordingFields').style.display = 'block'; break;
+                case 1: document.getElementById('ttsFields').style.display = 'block'; break;
+                case 2: document.getElementById('dtmfFields').style.display = 'block'; break;
+                case 3: document.getElementById('conditionFields').style.display = 'block'; break;
+                case 4: document.getElementById('silenceFields').style.display = 'block'; break;
+            }
+        }
+
+        function addSegment() {
+            document.getElementById('segmentId').value = '';
+            document.getElementById('segmentForm').reset();
+            onSegmentTypeChange();
+            new bootstrap.Modal(document.getElementById('segmentModal')).show();
+        }
+
+        function editSegment(segmentId) {
+            // 加载片段数据
+            fetch(`/ScenarioRecording/GetSegment?segmentId=${segmentId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const segment = data.segment;
+                        
+                        // 填充表单
+                        document.getElementById('segmentId').value = segment.id;
+                        document.getElementById('segmentType').value = segment.segmentType;
+                        
+                        // 根据类型显示对应字段
+                        onSegmentTypeChange();
+                        
+                        // 填充各类型的字段
+                        if (segment.filePath) {
+                            document.getElementById('filePath').value = segment.filePath;
+                        }
+                        if (segment.ttsText) {
+                            document.getElementById('ttsText').value = segment.ttsText;
+                        }
+                        if (segment.dtmfTemplateId) {
+                            document.getElementById('dtmfTemplateId').value = segment.dtmfTemplateId;
+                        }
+                        if (segment.dtmfVariableName) {
+                            document.getElementById('dtmfVariableName').value = segment.dtmfVariableName;
+                        }
+                        if (segment.conditionExpression) {
+                            document.getElementById('conditionExpression').value = segment.conditionExpression;
+                        }
+                        if (segment.nextSegmentIdOnTrue) {
+                            document.getElementById('nextSegmentIdOnTrue').value = segment.nextSegmentIdOnTrue;
+                        }
+                        if (segment.nextSegmentIdOnFalse) {
+                            document.getElementById('nextSegmentIdOnFalse').value = segment.nextSegmentIdOnFalse;
+                        }
+                        if (segment.duration) {
+                            document.getElementById('silenceDurationMs').value = segment.duration;
+                        }
+                        
+                        // 显示模态框
+                        new bootstrap.Modal(document.getElementById('segmentModal')).show();
+                    } else {
+                        alert('加载片段失败: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('加载片段失败:', error);
+                    alert('加载片段失败，请重试');
+                });
+        }
+
+        function saveSegment() {
+            const segmentId = document.getElementById('segmentId').value;
+            const isUpdate = segmentId && segmentId !== '0';
+            
+            const segmentData = {
+                id: parseInt(segmentId) || 0,
+                scenarioRecordingId: parseInt(document.getElementById('scenarioId').value),
+                segmentType: parseInt(document.getElementById('segmentType').value),
+                segmentOrder: isUpdate ? 0 : (document.querySelectorAll('.segment-item').length + 1),
+                filePath: document.getElementById('filePath').value,
+                ttsText: document.getElementById('ttsText').value,
+                dtmfTemplateId: document.getElementById('dtmfTemplateId').value ? parseInt(document.getElementById('dtmfTemplateId').value) : null,
+                dtmfVariableName: document.getElementById('dtmfVariableName').value,
+                conditionExpression: document.getElementById('conditionExpression').value,
+                nextSegmentIdOnTrue: document.getElementById('nextSegmentIdOnTrue').value ? parseInt(document.getElementById('nextSegmentIdOnTrue').value) : null,
+                nextSegmentIdOnFalse: document.getElementById('nextSegmentIdOnFalse').value ? parseInt(document.getElementById('nextSegmentIdOnFalse').value) : null,
+                duration: document.getElementById('silenceDurationMs').value ? parseInt(document.getElementById('silenceDurationMs').value) : null
+            };
+
+            const url = isUpdate ? '/ScenarioRecording/UpdateSegment' : '/ScenarioRecording/AddSegment';
+            
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(segmentData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('保存失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('保存失败:', error);
+                alert('保存失败，请重试');
+            });
+        }
+
+        function deleteSegment(segmentId) {
+            if (!confirm('确定要删除此片段吗？')) return;
+
+            fetch('/ScenarioRecording/DeleteSegment?segmentId=' + segmentId, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert('删除失败: ' + data.message);
+                }
+            });
+        }
+
+        function reorderSegments(segmentIds) {
+            const scenarioId = parseInt(document.getElementById('scenarioId').value);
+            
+            fetch(`/ScenarioRecording/ReorderSegments?scenarioId=${scenarioId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(segmentIds)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    alert('重新排序失败: ' + data.message);
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('重新排序失败:', error);
+                alert('重新排序失败，请重试');
+                location.reload();
+            });
+        }
+
+        // ==================== 在线录音功能 ====================
+        
+        let audioRecorder = null;
+        
+        /**
+         * 切换录音面板显示
+         */
+        function toggleRecordingPanel() {
+            const panel = document.getElementById('onlineRecordingPanel');
+            const uploadArea = document.getElementById('fileUploadArea');
+            
+            if (panel.classList.contains('show')) {
+                panel.classList.remove('show');
+            } else {
+                panel.classList.add('show');
+                uploadArea.classList.remove('show'); // 隐藏上传区域
+                
+                // 初始化录音器（如果还没初始化）
+                if (!audioRecorder) {
+                    audioRecorder = new PhoneApp.AudioRecorder();
+                    if (audioRecorder.initialize()) {
+                        initRecorderEvents();
+                    }
+                }
+            }
+        }
+        
+        /**
+         * 显示文件上传区域
+         */
+        function showFileUpload() {
+            const uploadArea = document.getElementById('fileUploadArea');
+            const panel = document.getElementById('onlineRecordingPanel');
+            
+            uploadArea.classList.add('show');
+            panel.classList.remove('show'); // 隐藏录音面板
+        }
+        
+        /**
+         * 初始化录音器事件
+         */
+        function initRecorderEvents() {
+            // 开始录音
+            document.getElementById('startRecordBtn').onclick = async () => {
+                try {
+                    await audioRecorder.startRecording();
+                } catch (error) {
+                    console.error('录音失败:', error);
+                    alert('无法访问麦克风: ' + error.message);
+                }
+            };
+            
+            // 暂停录音
+            document.getElementById('pauseRecordBtn').onclick = () => {
+                audioRecorder.pauseRecording();
+            };
+            
+            // 停止录音
+            document.getElementById('stopRecordBtn').onclick = () => {
+                audioRecorder.stopRecording();
+            };
+            
+            // 重新录制
+            document.getElementById('resetRecordBtn').onclick = () => {
+                audioRecorder.resetRecording();
+            };
+            
+            // 上传录音
+            document.getElementById('uploadRecordBtn').onclick = async () => {
+                const fileName = `recording_${Date.now()}.webm`;
+                const result = await audioRecorder.uploadRecording(fileName);
+                
+                if (result && result.success) {
+                    // 自动填充FilePath
+                    document.getElementById('filePath').value = result.filePath;
+                    alert('录音保存成功！');
+                    
+                    // 关闭录音面板
+                    document.getElementById('onlineRecordingPanel').classList.remove('show');
+                    
+                    // 重置录音器
+                    audioRecorder.resetRecording();
+                } else {
+                    alert('保存失败，请重试');
+                }
+            };
+        }
+        
+        /**
+         * 文件上传处理
+         */
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileInput = document.getElementById('audioFileInput');
+            if (fileInput) {
+                fileInput.addEventListener('change', async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    
+                    // 验证文件类型
+                    const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a'];
+                    if (!allowedTypes.includes(file.type)) {
+                        alert('不支持的音频格式，请选择 MP3, WAV, OGG 或 M4A 文件');
+                        fileInput.value = '';
+                        return;
+                    }
+                    
+                    // 验证文件大小（10MB）
+                    if (file.size > 10 * 1024 * 1024) {
+                        alert('文件大小不能超过 10MB');
+                        fileInput.value = '';
+                        return;
+                    }
+                    
+                    try {
+                        // 创建 FormData
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        formData.append('fileName', file.name);
+                        
+                        // 显示上传中状态
+                        const uploadArea = document.getElementById('fileUploadArea');
+                        const originalHTML = uploadArea.innerHTML;
+                        uploadArea.innerHTML = `
+                            <div class="card bg-light mb-3">
+                                <div class="card-body text-center">
+                                    <div class="spinner-border text-primary mb-2" role="status">
+                                        <span class="visually-hidden">上传中...</span>
+                                    </div>
+                                    <p class="mb-0">正在上传文件...</p>
+                                </div>
+                            </div>
+                        `;
+                        
+                        // 上传文件
+                        const response = await fetch('/ScenarioRecording/UploadOnlineRecording', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            // 填充文件路径
+                            document.getElementById('filePath').value = result.filePath;
+                            alert('文件上传成功！');
+                            
+                            // 关闭上传区域
+                            document.getElementById('fileUploadArea').classList.remove('show');
+                        } else {
+                            alert('上传失败: ' + result.message);
+                        }
+                        
+                        // 恢复原始HTML
+                        uploadArea.innerHTML = originalHTML;
+                        
+                    } catch (error) {
+                        console.error('上传失败:', error);
+                        alert('上传失败: ' + error.message);
+                        
+                        // 恢复上传区域
+                        document.getElementById('fileUploadArea').classList.remove('show');
+                    }
+                    
+                    // 清空文件输入
+                    fileInput.value = '';
+                });
+            }
+        });
+    </script>
+}

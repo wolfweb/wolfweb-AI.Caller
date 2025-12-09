@@ -19,6 +19,14 @@ public class AppDbContext : DbContext {
     public DbSet<Ringtone> Ringtones { get; set; }
     public DbSet<UserRingtoneSettings> UserRingtoneSettings { get; set; }
     public DbSet<SystemRingtoneSettings> SystemRingtoneSettings { get; set; }
+    
+    // 新增：场景录音和DTMF功能
+    public DbSet<ScenarioRecording> ScenarioRecordings { get; set; }
+    public DbSet<ScenarioRecordingSegment> ScenarioRecordingSegments { get; set; }
+    public DbSet<DtmfInputTemplate> DtmfInputTemplates { get; set; }
+    public DbSet<DtmfInputRecord> DtmfInputRecords { get; set; }
+    public DbSet<MonitoringSession> MonitoringSessions { get; set; }
+    public DbSet<PlaybackControl> PlaybackControls { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
         base.OnConfiguring(optionsBuilder);
@@ -158,12 +166,29 @@ public class AppDbContext : DbContext {
 
         modelBuilder.Entity<CallLog>(entity => {
             entity.HasKey(e => e.Id);
-            entity.Property(e => e.PhoneNumber).IsRequired();
 
             entity.HasOne(e => e.BatchCallJob)
                   .WithMany(j => j.CallLogs)
                   .HasForeignKey(e => e.BatchCallJobId)
                   .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.CallerUser)
+                  .WithMany()
+                  .HasForeignKey(e => e.CallerUserId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.CalleeUser)
+                  .WithMany()
+                  .HasForeignKey(e => e.CalleeUserId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.CallId).HasDatabaseName("IX_CallLogs_CallId");
+            entity.HasIndex(e => e.CallScenario).HasDatabaseName("IX_CallLogs_CallScenario");
+            entity.HasIndex(e => e.Direction).HasDatabaseName("IX_CallLogs_Direction");
+            entity.HasIndex(e => e.CallerUserId).HasDatabaseName("IX_CallLogs_CallerUserId");
+            entity.HasIndex(e => e.CalleeUserId).HasDatabaseName("IX_CallLogs_CalleeUserId");
+            entity.HasIndex(e => e.StartTime).HasDatabaseName("IX_CallLogs_StartTime");
+            entity.HasIndex(e => e.Status).HasDatabaseName("IX_CallLogs_Status");
         });
 
         modelBuilder.Entity<Ringtone>(entity => {
@@ -226,6 +251,99 @@ public class AppDbContext : DbContext {
             entity.HasOne(e => e.UpdatedByUser)
                   .WithMany()
                   .HasForeignKey(e => e.UpdatedBy)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // 新增：场景录音配置
+        modelBuilder.Entity<ScenarioRecording>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.Category).HasMaxLength(50);
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("datetime('now')");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("datetime('now')");
+
+            entity.HasIndex(e => e.IsActive).HasDatabaseName("IX_ScenarioRecordings_IsActive");
+            entity.HasIndex(e => e.Category).HasDatabaseName("IX_ScenarioRecordings_Category");
+        });
+
+        modelBuilder.Entity<ScenarioRecordingSegment>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("datetime('now')");
+
+            entity.HasOne(e => e.ScenarioRecording)
+                  .WithMany(s => s.Segments)
+                  .HasForeignKey(e => e.ScenarioRecordingId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.DtmfTemplate)
+                  .WithMany()
+                  .HasForeignKey(e => e.DtmfTemplateId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.ScenarioRecordingId).HasDatabaseName("IX_ScenarioRecordingSegments_ScenarioRecordingId");
+            entity.HasIndex(e => e.SegmentOrder).HasDatabaseName("IX_ScenarioRecordingSegments_SegmentOrder");
+        });
+
+        // DTMF配置
+        modelBuilder.Entity<DtmfInputTemplate>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ValidatorType).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.PromptText).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("datetime('now')");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("datetime('now')");
+
+            entity.HasIndex(e => e.InputType).HasDatabaseName("IX_DtmfInputTemplates_InputType");
+        });
+
+        modelBuilder.Entity<DtmfInputRecord>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CallId).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.InputValue).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.InputTime).HasDefaultValueSql("datetime('now')");
+
+            entity.HasOne(e => e.Segment)
+                  .WithMany()
+                  .HasForeignKey(e => e.SegmentId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.Template)
+                  .WithMany()
+                  .HasForeignKey(e => e.TemplateId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.CallId).HasDatabaseName("IX_DtmfInputRecords_CallId");
+            entity.HasIndex(e => e.InputTime).HasDatabaseName("IX_DtmfInputRecords_InputTime");
+        });
+
+        // 监听会话配置
+        modelBuilder.Entity<MonitoringSession>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CallId).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.StartTime).HasDefaultValueSql("datetime('now')");
+
+            entity.HasIndex(e => e.CallId).HasDatabaseName("IX_MonitoringSessions_CallId");
+            entity.HasIndex(e => e.MonitorUserId).HasDatabaseName("IX_MonitoringSessions_MonitorUserId");
+            entity.HasIndex(e => e.IsActive).HasDatabaseName("IX_MonitoringSessions_IsActive");
+        });
+
+        // 播放控制配置
+        modelBuilder.Entity<PlaybackControl>(entity => {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CallId).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("datetime('now')");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("datetime('now')");
+
+            entity.HasIndex(e => e.CallId).IsUnique().HasDatabaseName("IX_PlaybackControls_CallId");
+        });
+
+        // CallLog关联配置
+        modelBuilder.Entity<CallLog>(entity => {
+            entity.HasOne(e => e.ScenarioRecording)
+                  .WithMany()
+                  .HasForeignKey(e => e.ScenarioRecordingId)
                   .OnDelete(DeleteBehavior.SetNull);
         });
     }

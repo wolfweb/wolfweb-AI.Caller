@@ -25,7 +25,7 @@ namespace AI.Caller.Phone.Services {
         Task<CallContext> MakeCallAsync(string destination, User caller, RTCSessionDescriptionInit? offer, CallScenario scenario, int? preferredLineId = null, bool autoSelectLine = true);
     }
 
-    public class CallManager : ICallManager, IDisposable {
+    public partial class CallManager : ICallManager, IDisposable {
         private readonly ILogger _logger;
         private readonly Timer _monitoringTimer;
         private readonly ConcurrentDictionary<string, CallContext> _contexts;
@@ -195,6 +195,11 @@ namespace AI.Caller.Phone.Services {
 
             var result = await callScenario.HandleInboundCallAsync(sipRequest, routingResult, ctx);
 
+            // 创建来电CallLog记录
+            if (result) {
+                _ = CreateInboundCallLogAsync(ctx, routingResult);
+            }
+
             if (result && ctx.Callee != null) {
                 ctx.Callee.Client!.Client.CallEnded += (client, status) => {
                     _logger.LogInformation("被叫方CallEnded事件触发: {CallId}, Status: {Status}", ctx.CallId, status);
@@ -236,6 +241,7 @@ namespace AI.Caller.Phone.Services {
                 CallScenario.ServerToWeb => scope.ServiceProvider.GetRequiredService<ServerToWebScenario>(),
                 CallScenario.WebToServer => scope.ServiceProvider.GetRequiredService<WebToServerScenario>(),
                 CallScenario.ServerToMobile => scope.ServiceProvider.GetRequiredService<ServerToMobileScenario>(),
+                _ => throw new ArgumentException($"不支持的通话场景: {scenario}")
             };
 
             var ctx = new CallContext() {
@@ -249,6 +255,9 @@ namespace AI.Caller.Phone.Services {
 
             var result = await callScenario.HandleOutboundCallAsync(destination, caller, offer, ctx);
             if (!result) throw new Exception($"呼叫失败");
+
+            // 创建外呼CallLog记录
+            _ = CreateOutboundCallLogAsync(ctx, caller, destination);
 
             if (ctx.Caller?.Client?.Client != null) {
                 ctx.Caller.Client.Client.CallRinging += (client) => {
@@ -384,6 +393,9 @@ namespace AI.Caller.Phone.Services {
             }
 
             _logger.LogInformation("呼叫结束处理中: {CallId}, UserId={UserId}, Status={status}", callId, userId, status);
+
+            // 更新CallLog记录
+            _ = UpdateCallLogOnEndAsync(callId, status);
 
             try {
                 if (status == CallFinishStatus.RemoteHangUp || status == CallFinishStatus.Hangup) {
