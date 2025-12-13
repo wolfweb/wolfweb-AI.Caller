@@ -76,6 +76,7 @@
                                 <th>显示名称</th>
                                 <th>邮箱</th>
                                 <th>SIP账户</th>
+                                <th>AI状态</th>
                                 <th>状态</th>
                                 <th>操作</th>
                             </tr>
@@ -89,7 +90,7 @@
                                         @user.Username
                                     </td>
                                     <td>@(user.DisplayName ?? "-")</td>
-                                    <td>@(user.Email ?? "-")</td>
+                                    <td>@(user.Email ?? "-")</td>                                    
                                     <td>
                                         @if (user.SipAccount != null)
                                         {
@@ -98,6 +99,15 @@
                                         else
                                         {
                                             <span class="badge bg-warning">未分配</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (user.EnableAI)
+                                        {
+                                            <span class="badge bg-success">启用</span>
+                                        } else
+                                        {
+                                            <span class="badge bg-secondary">禁用</span>
                                         }
                                     </td>
                                     <td>

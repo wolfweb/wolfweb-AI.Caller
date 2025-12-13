@@ -205,11 +205,12 @@ namespace AI.Caller.Phone.Services {
                     _logger.LogInformation("被叫方CallEnded事件触发: {CallId}, Status: {Status}", ctx.CallId, status);
                     _ = HandleCallEndedAsync(ctx.CallId, ctx.Callee.User?.Id ?? 0, status);
                 };
+                if (!aiSettings.Enabled) {
+                    var ringtoneService = scope.ServiceProvider.GetRequiredService<IRingtoneService>();
+                    var ringbackTone = await ringtoneService.GetRingtoneForUserAsync(ctx.Callee.User!.Id, RingtoneType.Ringback);
 
-                var ringtoneService = scope.ServiceProvider.GetRequiredService<IRingtoneService>();
-                var ringbackTone = await ringtoneService.GetRingtoneForUserAsync(ctx.Callee.User!.Id, RingtoneType.Ringback);
-
-                StartRingbackTone(ctx, ringbackTone.FilePath);
+                    StartRingbackTone(ctx, ringbackTone.FilePath);
+                }
             }
 
             return result;
@@ -263,6 +264,17 @@ namespace AI.Caller.Phone.Services {
                 ctx.Caller.Client.Client.CallRinging += (client) => {
                     _logger.LogDebug("CallRinging事件触发，启动回铃音: {CallId}", ctx.CallId);
                     StartRingbackTone(ctx);
+                };
+
+                ctx.Caller.Client.Client.CallAnswered += (client) => {
+                    _logger.LogInformation("CallAnswered事件触发，停止回铃音: {CallId}", ctx.CallId);
+                    if (ctx.RingbackPlayer != null) {
+                        try {
+                            ctx.RingbackPlayer.Stop();
+                            ctx.RingbackPlayer.Dispose();
+                            ctx.RingbackPlayer = null;
+                        } catch { }
+                    }
                 };
 
                 ctx.Caller.Client.Client.CallEnded += (client, status) => {

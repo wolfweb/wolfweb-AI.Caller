@@ -91,7 +91,6 @@ body {
 .nav-link {
   color: var(--text-secondary) !important;
   font-weight: 500;
-  padding: 10px 16px !important;
   border-radius: 0;
   /* 无圆角 */
   transition: all 0.3s ease;
@@ -953,32 +952,6 @@ body {
   background: rgba(21, 25, 50, 0.5);
 }
 
-/* ==================== 空状态样式 ==================== */
-.empty-state {
-  padding: 3rem 1rem;
-  text-align: center;
-}
-
-.empty-icon {
-  font-size: 4rem;
-  color: var(--primary);
-  opacity: 0.6;
-  margin-bottom: 1rem;
-  display: inline-block;
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
-.empty-state h6 {
-  color: var(--text-secondary);
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-}
-
-.empty-state p {
-  color: var(--text-tertiary);
-  font-size: 0.9rem;
-}
-
 /* ==================== 加载动画 ==================== */
 .loading-spinner {
   display: inline-block;
@@ -1662,32 +1635,6 @@ small,
 
 .search-box .form-control {
   border-left: none;
-}
-
-/* 空状态样式 */
-.empty-state-large {
-  text-align: center;
-  padding: 4rem 2rem;
-}
-
-.empty-icon {
-  font-size: 5rem;
-  color: var(--primary);
-  opacity: 0.5;
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
-.empty-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.empty-description {
-  font-size: 1rem;
-  color: var(--text-secondary);
-  max-width: 500px;
-  margin: 0 auto;
 }
 
 /* 现代卡片样式 */

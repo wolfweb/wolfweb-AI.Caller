@@ -84,7 +84,6 @@ main {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 12px;
   margin: 0 4px;
-  padding: 10px 16px !important;
   position: relative;
   overflow: hidden;
 }

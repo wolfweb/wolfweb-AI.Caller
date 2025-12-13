@@ -193,19 +193,6 @@
     display: block !important;
 }
 
-/* 空状态样式 */
-.empty-state {
-    text-align: center;
-    padding: 3rem 1rem;
-    color: #6c757d;
-}
-
-.empty-state i {
-    font-size: 4rem;
-    margin-bottom: 1rem;
-    opacity: 0.5;
-}
-
 /* 分页样式 */
 .pagination-sm .page-link {
     padding: 0.25rem 0.5rem;
