@@ -13,7 +13,7 @@ public unsafe class AudioConverter : IAudioConverter {
     private readonly ILogger _logger;
     private bool _disposed;
 
-    public AudioConverter(ILogger logger) {
+    public AudioConverter(ILogger<AudioConverter> logger) {
         _logger = logger;
     }
 

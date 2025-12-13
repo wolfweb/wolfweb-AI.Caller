@@ -4,73 +4,84 @@
     ViewData["Title"] = "模板详情";
 }
 <div class="container mt-5">
-    <h1>@ViewData["Title"]</h1>
+    <div class="row align-items-center">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-voicemail"></i>
+            </div>
+            <div class="col-auto">
+                <h2>@ViewData["Title"]</h2>
+            </div>
+        </div>
+        <div class="col-auto">
+            <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary">编辑</a>
+            <button type="button" id="testTtsBtn" class="btn btn-info">播放测试</button>
+            <a asp-action="Index" class="btn btn-outline-secondary glass-effect"><i class="bi bi-arrow-left"></i>返回列表</a>
+        </div>
+    </div>
+    <hr />
 
-    <div>
-        <h4>TtsTemplate</h4>
-        <hr />
-        <dl class="row">
-            <dt class = "col-sm-2">
-                @Html.DisplayNameFor(model => model.Name)
-            </dt>
-            <dd class = "col-sm-10">
-                @Html.DisplayFor(model => model.Name)
-            </dd>
-            <dt class = "col-sm-2">
-                @Html.DisplayNameFor(model => model.Content)
-            </dt>
-            <dd class = "col-sm-10">
-                @Html.DisplayFor(model => model.Content)
-            </dd>
-            <dt class = "col-sm-2">
-                @Html.DisplayNameFor(model => model.IsActive)
-            </dt>
-            <dd class = "col-sm-10">
-                @Html.DisplayFor(model => model.IsActive)
-            </dd>
-            <dt class = "col-sm-2">
-                @Html.DisplayNameFor(model => model.PlayCount)
-            </dt>
-            <dd class = "col-sm-10">
-                @Html.DisplayFor(model => model.PlayCount)
-            </dd>
-            <dt class = "col-sm-2">
-                @Html.DisplayNameFor(model => model.HangupAfterPlay)
-            </dt>
-            <dd class = "col-sm-10">
-                @Html.DisplayFor(model => model.HangupAfterPlay)
-            </dd>
-            <dt class = "col-sm-2">
-                @Html.DisplayNameFor(model => model.PauseBetweenPlaysInSeconds)
-            </dt>
-            <dd class = "col-sm-10">
-                @Html.DisplayFor(model => model.PauseBetweenPlaysInSeconds)
-            </dd>
-            <dt class = "col-sm-2">
-                @Html.DisplayNameFor(model => model.EndingSpeech)
-            </dt>
-            <dd class = "col-sm-10">
-                @Html.DisplayFor(model => model.EndingSpeech)
-            </dd>
-            <dt class = "col-sm-2">
-                @Html.DisplayNameFor(model => model.SpeechRate)
-            </dt>
-            <dd class = "col-sm-10">
-                @Html.DisplayFor(model => model.SpeechRate)
-            </dd>
-            <dt class = "col-sm-2">
-                变量
-            </dt>
-            <dd class = "col-sm-10">
-                @(Model.Variables.Any() ? string.Join(", ", Model.Variables.Select(v => v.Name)) : "无")
-            </dd>
-        </dl>
-    </div>
-    <div>
-        <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary">编辑</a>
-        <button type="button" id="testTtsBtn" class="btn btn-info">播放测试</button>
-        <a asp-action="Index" class="btn btn-secondary">返回列表</a>
-    </div>
+    <div class="card">
+        <div class="card-body">
+            <h4>TtsTemplate</h4>
+            <dl class="row">
+                <dt class = "col-sm-2">
+                    @Html.DisplayNameFor(model => model.Name)
+                </dt>
+                <dd class = "col-sm-10">
+                    @Html.DisplayFor(model => model.Name)
+                </dd>
+                <dt class = "col-sm-2">
+                    @Html.DisplayNameFor(model => model.Content)
+                </dt>
+                <dd class = "col-sm-10">
+                    @Html.DisplayFor(model => model.Content)
+                </dd>
+                <dt class = "col-sm-2">
+                    @Html.DisplayNameFor(model => model.IsActive)
+                </dt>
+                <dd class = "col-sm-10">
+                    @Html.DisplayFor(model => model.IsActive)
+                </dd>
+                <dt class = "col-sm-2">
+                    @Html.DisplayNameFor(model => model.PlayCount)
+                </dt>
+                <dd class = "col-sm-10">
+                    @Html.DisplayFor(model => model.PlayCount)
+                </dd>
+                <dt class = "col-sm-2">
+                    @Html.DisplayNameFor(model => model.HangupAfterPlay)
+                </dt>
+                <dd class = "col-sm-10">
+                    @Html.DisplayFor(model => model.HangupAfterPlay)
+                </dd>
+                <dt class = "col-sm-2">
+                    @Html.DisplayNameFor(model => model.PauseBetweenPlaysInSeconds)
+                </dt>
+                <dd class = "col-sm-10">
+                    @Html.DisplayFor(model => model.PauseBetweenPlaysInSeconds)
+                </dd>
+                <dt class = "col-sm-2">
+                    @Html.DisplayNameFor(model => model.EndingSpeech)
+                </dt>
+                <dd class = "col-sm-10">
+                    @Html.DisplayFor(model => model.EndingSpeech)
+                </dd>
+                <dt class = "col-sm-2">
+                    @Html.DisplayNameFor(model => model.SpeechRate)
+                </dt>
+                <dd class = "col-sm-10">
+                    @Html.DisplayFor(model => model.SpeechRate)
+                </dd>
+                <dt class = "col-sm-2">
+                    变量
+                </dt>
+                <dd class = "col-sm-10">
+                    @(Model.Variables.Any() ? string.Join(", ", Model.Variables.Select(v => v.Name)) : "无")
+                </dd>
+            </dl>
+        </div>
+    </div>    
 </div>
 
 @section Scripts {

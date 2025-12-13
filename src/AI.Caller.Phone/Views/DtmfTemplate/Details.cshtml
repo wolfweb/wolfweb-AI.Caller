@@ -4,8 +4,8 @@
     ViewData["Title"] = "DTMF模板详情";
 }
 
-<div class="container-fluid">
-    <div class="row">
+<div class="container mt-4">
+    <div class="row align-items-center">
         <div class="col-12">
             <div class="card">
                 <div class="card-header">
@@ -14,7 +14,7 @@
                         <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-sm btn-primary">
                             <i class="fas fa-edit"></i> 编辑
                         </a>
-                        <a asp-action="Index" class="btn btn-sm btn-secondary">
+                        <a asp-action="Index" class="btn btn-sm btn-secondary glass-effect">
                             <i class="fas fa-arrow-left"></i> 返回列表
                         </a>
                     </div>
@@ -143,10 +143,7 @@
                     </a>
                     <a asp-action="Delete" asp-route-id="@Model.Id" class="btn btn-danger">
                         <i class="fas fa-trash"></i> 删除
-                    </a>
-                    <a asp-action="Index" class="btn btn-secondary">
-                        <i class="fas fa-arrow-left"></i> 返回列表
-                    </a>
+                    </a>                    
                 </div>
             </div>
         </div>

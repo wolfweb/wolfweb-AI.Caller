@@ -6,12 +6,13 @@
 }
 
 <div class="container mt-4">
-    <div class="row mb-4">
+    <div class="row align-items-center">
         <div class="col">
             <h2><i class="bi bi-person-lines-fill"></i> 通讯录管理</h2>
             <p class="text-muted">管理系统中所有用户的通讯录</p>
         </div>
     </div>
+    <hr />
 
     @if (TempData["SuccessMessage"] != null)
     {
@@ -30,7 +31,7 @@
 
     <div class="card">
         <div class="card-header">
-            <div class="row align-items-center">
+            <div class="row align-items-center mt-0">
                 <div class="col-md-6">
                     <h5 class="mb-0">通讯录列表</h5>
                 </div>
@@ -67,7 +68,7 @@
                         <tbody>
                             @foreach (var contact in Model)
                             {
-                                <tr class="contact-row">
+                                <tr>
                                     <td>
                                         <i class="bi bi-person-circle text-primary me-2"></i>
                                         @contact.Name

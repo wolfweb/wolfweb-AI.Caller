@@ -5,8 +5,20 @@
     var allVariables = (MultiSelectList)ViewBag.AllVariables;
 }
 <div class="container mt-5">
-    <h1>@ViewData["Title"]</h1>
-
+    <div class="row align-items-center">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-voicemail"></i>
+            </div>
+            <div class="col-auto">
+                <h2>@ViewData["Title"]</h2>
+            </div>
+        </div>
+        <div class="col-auto">
+            <button type="button" id="testTtsBtn" class="btn btn-info">播放测试</button>
+            <a asp-action="Index" class="btn btn-outline-secondary glass-effect"><i class="bi bi-arrow-left"></i>返回列表</a>
+        </div>
+    </div>
     <hr />
     <form asp-action="Edit" method="post">
         <div class="row">
@@ -90,10 +102,8 @@
             </div>
         </div>
         <div class="form-group mt-3">
-            <input type="submit" value="保存" class="btn btn-primary" />
-            <button type="button" id="testTtsBtn" class="btn btn-info">播放测试</button>
-            <a asp-action="Index" class="btn btn-secondary">返回列表</a>
-        </div>
+            <input type="submit" value="保存" class="btn btn-primary" />            
+        </div>        
     </form>
 </div>
 

@@ -42,8 +42,13 @@ public class BatchCallJob {
     public BatchJobStatus Status { get; set; } = BatchJobStatus.Queued;
 
     [Display(Name = "使用的TTS模板ID")]
-    [Required]
-    public int TtsTemplateId { get; set; }
+    public int? TtsTemplateId { get; set; }
+
+    public virtual TtsTemplate TtsTemplate { get; set; }
+
+    [Display(Name = "使用的场景录音ID")]
+    public int? ScenarioRecordingId { get; set; }
+    public virtual ScenarioRecording? ScenarioRecording { get; set; }
 
     [Display(Name = "原始文件名")]
     [Required]

@@ -4,9 +4,28 @@
     ViewData["Title"] = "删除模板";
 }
 <div class="container mt-5">
-    <h1>@ViewData["Title"]</h1>
+    <div class="row align-items-center">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-voicemail"></i>
+            </div>
+            <div class="col-auto">
+                <h2>@ViewData["Title"]</h2>
+            </div>
+        </div>
+        <div class="col-auto">
+            <a asp-action="Index" class="btn btn-outline-secondary glass-effect">
+                <i class="bi bi-arrow-left"></i>返回列表
+            </a>
+        </div>
+    </div>
+    <hr />
 
-    <h3>您确定要删除这个模板吗?</h3>
+    <div class="alert alert-danger">
+        <h5><i class="icon fas fa-exclamation-triangle"></i> 警告！</h5>
+        您确定要删除这个模板吗?
+    </div>
+
     <div>
         <h4>TtsTemplate</h4>
         <hr />
@@ -27,8 +46,7 @@
     
         <form asp-action="Delete">
             <input type="hidden" asp-for="Id" />
-            <input type="submit" value="删除" class="btn btn-danger" /> |
-            <a asp-action="Index">返回列表</a>
+            <input type="submit" value="删除" class="btn btn-danger" />
         </form>
     </div>
 </div>

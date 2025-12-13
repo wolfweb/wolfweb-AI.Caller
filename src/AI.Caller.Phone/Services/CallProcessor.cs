@@ -90,43 +90,66 @@ public class CallProcessor : ICallProcessor {
                 
                 try {
                     var batchCall = await context.BatchCallJobs.FindAsync(callLog.BatchCallJobId);
-                    var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
-
-                    var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate?.SpeechRate);
                     
-                    if (ttsTemplate?.PlayCount > 1) {
-                        for (var i = 0; i < ttsTemplate.PlayCount - 1; i++) {
+                    if (batchCall != null && batchCall.ScenarioRecordingId.HasValue) {
+                        // Scenario Recording Mode
+                        _logger.LogInformation("Executing Scenario Recording {ScenarioId} for CallLogId {CallLogId}", batchCall.ScenarioRecordingId, callLogId);
+                        
+                        var aiManager = scope.ServiceProvider.GetRequiredService<AICustomerServiceManager>();
+                        var scenarioService = scope.ServiceProvider.GetRequiredService<IScenarioRecordingService>();
+                        
+                        var scenario = await scenarioService.GetScenarioRecordingAsync(batchCall.ScenarioRecordingId.Value);
+                        if (scenario == null) {
+                            throw new InvalidOperationException($"Scenario Recording with ID {batchCall.ScenarioRecordingId} not found.");
+                        }
+
+                        var variables = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(callLog.ResolvedContent) 
+                                        ?? new Dictionary<string, string>();
+
+                        // Start the scenario service
+                        await aiManager.StartScenarioServiceAsync(agent, sc, scenario, variables, callContext.CallId);
+                        
+                    } else {
+                        // Legacy TTS Template Mode
+                        var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
+
+                        var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate?.SpeechRate);
+                        
+                        if (ttsTemplate?.PlayCount > 1) {
+                            for (var i = 0; i < ttsTemplate.PlayCount - 1; i++) {
+                                var desiredPause = TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds);
+                                var actualWaitTime = desiredPause - ttsGenerationTime;
+                                
+                                if (actualWaitTime > TimeSpan.Zero) {
+                                    _logger.LogInformation("Waiting {WaitTime}ms before next play for CallLogId {CallLogId}", actualWaitTime.TotalMilliseconds, callLogId);
+                                    await Task.Delay(actualWaitTime);
+                                }
+                                
+                                ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate.SpeechRate);
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(ttsTemplate?.EndingSpeech)) {
                             var desiredPause = TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds);
                             var actualWaitTime = desiredPause - ttsGenerationTime;
                             
                             if (actualWaitTime > TimeSpan.Zero) {
-                                _logger.LogInformation("Waiting {WaitTime}ms before next play for CallLogId {CallLogId}", actualWaitTime.TotalMilliseconds, callLogId);
+                                _logger.LogInformation("Waiting {WaitTime}ms before ending speech for CallLogId {CallLogId}", actualWaitTime.TotalMilliseconds, callLogId);
                                 await Task.Delay(actualWaitTime);
                             }
                             
-                            ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate.SpeechRate);
+                            await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sc, ttsTemplate.SpeechRate);
                         }
+
+                        await ttsPlayer.StopPlayoutAsync(agent);
+                        await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
                     }
 
-                    if (!string.IsNullOrEmpty(ttsTemplate?.EndingSpeech)) {
-                        var desiredPause = TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds);
-                        var actualWaitTime = desiredPause - ttsGenerationTime;
-                        
-                        if (actualWaitTime > TimeSpan.Zero) {
-                            _logger.LogInformation("Waiting {WaitTime}ms before ending speech for CallLogId {CallLogId}", actualWaitTime.TotalMilliseconds, callLogId);
-                            await Task.Delay(actualWaitTime);
-                        }
-                        
-                        await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sc, ttsTemplate.SpeechRate);
-                    }
-
-                    await ttsPlayer.StopPlayoutAsync(agent);
+                    tcs.TrySetResult(new CallResult { Status = CallOutcome.Completed });
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Error starting AI Customer Service after call answered for CallLogId {CallLogId}.", callLogId);
                     tcs.TrySetResult(new CallResult { Status = CallOutcome.Failed, FailureReason = ex.Message });
-                } finally {
                     await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
-                    tcs.TrySetResult(new CallResult { Status = CallOutcome.Completed });
                 }
             };
 

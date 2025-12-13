@@ -4,8 +4,22 @@
     ViewData["Title"] = "创建DTMF模板";
 }
 
-<div class="container">
-    <h2>创建DTMF模板</h2>
+<div class="container mt-4">
+    <div class="row align-items-center">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-table"></i>
+            </div>
+            <div class="col-auto">
+                <h2>创建DTMF模板</h2>
+            </div>
+        </div>
+        <div class="col-auto">
+            <a asp-action="Index" class="btn btn-secondary glass-effect">
+                <i class="bi bi-arrow-left"></i> 返回
+            </a>
+        </div>
+    </div>
     <hr />
 
     <form asp-action="Create" method="post">
@@ -92,10 +106,7 @@
         <div class="mb-3">
             <button type="submit" class="btn btn-primary">
                 <i class="bi bi-save"></i> 创建
-            </button>
-            <a asp-action="Index" class="btn btn-secondary">
-                <i class="bi bi-arrow-left"></i> 返回列表
-            </a>
+            </button>            
         </div>
     </form>
 </div>

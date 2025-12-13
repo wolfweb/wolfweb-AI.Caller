@@ -213,53 +213,6 @@ body {
   padding: 1rem 1.5rem;
 }
 
-/* ==================== 按钮样式 ==================== */
-.btn {
-  border: none;
-  border-radius: 0;
-  /* 无圆角 */
-  font-weight: 600;
-  padding: 12px 24px;
-  text-transform: none;
-  letter-spacing: 0.3px;
-  font-size: 0.95rem;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-/* 霓虹按钮效果 */
-.btn-neon {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-  box-shadow: 0 4px 15px var(--primary-glow);
-  color: white;
-}
-
-.btn-neon::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-  transition: left 0.5s;
-}
-
-.btn-neon:hover::before {
-  left: 100%;
-}
-
-.btn-neon:hover {
-  box-shadow: 0 6px 25px var(--primary-glow);
-  transform: translateY(-2px);
-  color: white;
-}
-
-.btn-neon:active {
-  transform: translateY(0);
-}
-
 /* 成功按钮 */
 .btn-success {
   background: linear-gradient(135deg, var(--success) 0%, #059669 100%);
@@ -308,7 +261,6 @@ body {
 
 /* 轮廓按钮 */
 .btn-outline-primary {
-  border: 2px solid var(--primary);
   color: var(--primary);
   background: transparent;
 }
@@ -320,7 +272,6 @@ body {
 }
 
 .btn-outline-secondary {
-  border: 2px solid var(--text-secondary);
   color: var(--text-secondary);
   background: transparent;
 }
@@ -586,7 +537,6 @@ body {
   overflow: hidden;
   box-shadow: var(--shadow-md);
   margin-bottom: 0;
-  border: 1px solid var(--border-color);
   color: var(--text-primary);
 }
 
@@ -994,7 +944,6 @@ body {
 }
 
 .modal-body {
-  padding: 2rem;
   color: var(--text-primary);
 }
 
@@ -1643,83 +1592,6 @@ small,
   opacity: 0.7;
 }
 
-/* 联系人操作按钮 */
-.contact-actions {
-  flex-shrink: 0;
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.contact-actions .btn-group-vertical {
-  display: flex;
-  flex-direction: row;
-  gap: 0.5rem;
-}
-
-.contact-actions .btn-group {
-  display: flex;
-  flex-direction: row;
-  gap: 0.5rem;
-}
-
-.contact-actions .btn {
-  min-width: 70px;
-  font-size: 0.9rem;
-  padding: 0.5rem 1rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  white-space: nowrap;
-}
-
-.contact-actions .btn i {
-  font-size: 1rem;
-}
-
-/* 拨打按钮特殊样式 */
-.call-contact-btn {
-  background: linear-gradient(135deg, var(--success) 0%, #059669 100%) !important;
-  border: none !important;
-  color: white !important;
-  box-shadow: 0 2px 8px var(--success-glow);
-  font-weight: 600;
-}
-
-.call-contact-btn:hover {
-  box-shadow: 0 4px 15px var(--success-glow);
-  transform: translateY(-2px);
-}
-
-/* 编辑和删除按钮 */
-.contact-actions .btn-outline-primary {
-  border: 2px solid var(--primary);
-  color: var(--primary);
-  background: transparent;
-  min-width: 45px;
-  padding: 0.5rem 0.75rem;
-}
-
-.contact-actions .btn-outline-primary:hover {
-  background: var(--primary);
-  color: white;
-  box-shadow: 0 2px 8px var(--primary-glow);
-}
-
-.contact-actions .btn-outline-danger {
-  border: 2px solid var(--danger);
-  color: var(--danger);
-  background: transparent;
-  min-width: 45px;
-  padding: 0.5rem 0.75rem;
-}
-
-.contact-actions .btn-outline-danger:hover {
-  background: var(--danger);
-  color: white;
-  box-shadow: 0 2px 8px var(--danger-glow);
-}
-
 /* 隐藏状态（搜索时使用） */
 .contact-card.hidden,
 .contact-row.hidden {
@@ -1746,10 +1618,6 @@ small,
 }
 
 /* 页面头部样式 */
-.page-header {
-  margin-bottom: 2rem;
-}
-
 .page-icon {
   width: 60px;
   height: 60px;
@@ -1842,7 +1710,6 @@ small,
   align-items: center;
   gap: 0.5rem;
   font-weight: 600;
-  padding: 0.75rem 1.5rem;
   transition: all 0.3s ease;
 }
 
@@ -1875,22 +1742,7 @@ small,
     flex: 1 1 100%;
     margin-bottom: 0.75rem;
   }
-  
-  .contact-actions {
-    flex: 1 1 100%;
-    justify-content: flex-end;
-  }
-  
-  .contact-actions .btn-group-vertical {
-    flex-direction: row;
-    width: 100%;
-  }
-  
-  .contact-actions .btn {
-    flex: 1;
-    min-width: auto;
-  }
-  
+    
   .page-icon {
     width: 50px;
     height: 50px;
@@ -1920,56 +1772,7 @@ small,
   .contact-phone {
     font-size: 0.85rem;
   }
-  
-  .contact-actions .btn {
-    font-size: 0.85rem;
-    padding: 0.4rem 0.75rem;
-  }
 }
-
-
-/* ==================== 强制按钮组无圆角 ==================== */
-/* 覆盖 Bootstrap 默认的按钮组圆角样式 */
-.btn-group > .btn,
-.btn-group-vertical > .btn,
-.btn-group > .btn:first-child,
-.btn-group > .btn:last-child,
-.btn-group > .btn:not(:first-child):not(:last-child),
-.btn-group-vertical > .btn:first-child,
-.btn-group-vertical > .btn:last-child,
-.btn-group-vertical > .btn:not(:first-child):not(:last-child) {
-  border-radius: 0 !important;
-}
-
-/* 联系人操作按钮强制无圆角 */
-.contact-actions .btn,
-.contact-actions .btn-group .btn,
-.contact-actions .btn-group-vertical .btn,
-.contact-actions .btn-group-sm .btn {
-  border-radius: 0 !important;
-}
-
-
-/* ==================== 统一联系人按钮大小 ==================== */
-.contact-actions .btn,
-.contact-actions .btn-success,
-.contact-actions .btn-outline-primary,
-.contact-actions .btn-outline-danger {
-  min-width: 70px !important;
-  height: 38px !important;
-  font-size: 0.9rem !important;
-  padding: 0.5rem 1rem !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  line-height: 1 !important;
-}
-
-.contact-actions .btn i {
-  font-size: 0.9rem !important;
-  margin-right: 0.25rem !important;
-}
-
 
 /* ==================== 表单页面统一样式 ==================== */
 /* 表单组间距 */

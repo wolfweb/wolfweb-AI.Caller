@@ -4,16 +4,31 @@
     ViewData["Title"] = "场景录音管理";
 }
 
-<div class="container-fluid">
-    <div class="row mb-3">
-        <div class="col">
-            <h2>场景录音管理</h2>
+<div class="container mt-4">
+    <div class="row align-items-center">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-patch-check"></i>
+            </div>
+            <div class="col-auto">
+                <h2>场景录音管理</h2>
+            </div>
         </div>
         <div class="col text-end">
             <a asp-action="Create" class="btn btn-primary">
                 <i class="bi bi-plus-circle"></i> 创建场景
             </a>
         </div>
+    </div>
+    <hr />
+
+    <div class="alert alert-info mb-4">
+        <h5><i class="bi bi-info-circle"></i> 说明</h5>
+        <p class="mb-0">
+            1. 创建场景录音后，请点击"详情"或"编辑"添加录音片段、TTS片段或DTMF交互。<br />
+            2. 如果场景中包含TTS片段且使用了变量（如 <code>{Name}</code>），请下载Excel模板。<br />
+            3. 在"批量外呼任务"中创建任务时，选择此场景并上传填充好的Excel文件。
+        </p>
     </div>
 
     <div class="card">
@@ -50,15 +65,20 @@
                             </td>
                             <td>@item.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                             <td>
-                                <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary">
-                                    <i class="bi bi-pencil"></i> 编辑
-                                </a>
-                                <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-info">
-                                    <i class="bi bi-eye"></i> 详情
-                                </a>
-                                <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger">
-                                    <i class="bi bi-trash"></i> 删除
-                                </a>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="/api/scenarios/@item.Id/excel-template" class="btn btn-outline-secondary" title="下载数据模板">
+                                        <i class="bi bi-file-earmark-excel"></i>
+                                    </a>
+                                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-outline-primary">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-outline-info">
+                                        <i class="bi bi-eye"></i>
+                                    </a>
+                                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-outline-danger">
+                                        <i class="bi bi-trash"></i>
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                     }

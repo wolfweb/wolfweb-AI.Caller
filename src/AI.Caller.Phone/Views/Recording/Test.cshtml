@@ -3,55 +3,62 @@
 }
 
 <div class="container mt-4">
-    <div class="row justify-content-center">
-        <div class="col-md-8">
+    <div class="row align-items-center">
+        <div class="col d-flex">
+			<div class="page-icon me-3">
+				<i class="bi bi-bug"></i>
+            </div>
+            <div class="col-auto">
+				<h2 class="mb-0">录音功能测试</h2>
+            </div>
+        </div>
+        <div class="col-auto">
+            <a href="@Url.Action("Index")" class="btn btn-outline-secondary glass-effect">
+                <i class="bi bi-arrow-left"></i> 返回
+            </a>
+        </div>
+    </div>
+    <hr />
+    <div class="card">
+        <div class="card-body">
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i>
+                这是一个测试页面，用于验证录音功能是否正常工作。
+            </div>
+
+            <!-- 测试按钮 -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <button id="testAutoRecordingBtn" class="btn btn-primary w-100 mb-2">
+                        <i class="bi bi-gear"></i> 测试自动录音设置
+                    </button>
+                    <button id="testStartRecordingBtn" class="btn btn-success w-100 mb-2">
+                        <i class="bi bi-record-circle"></i> 测试开始录音
+                    </button>
+                    <button id="testStopRecordingBtn" class="btn btn-danger w-100 mb-2">
+                        <i class="bi bi-stop-circle"></i> 测试停止录音
+                    </button>
+                </div>
+                <div class="col-md-6">
+                    <button id="testGetRecordingsBtn" class="btn btn-info w-100 mb-2">
+                        <i class="bi bi-list"></i> 测试获取录音列表
+                    </button>
+                    <button id="testDeleteRecordingBtn" class="btn btn-warning w-100 mb-2">
+                        <i class="bi bi-trash"></i> 测试删除录音
+                    </button>
+                    <button id="clearLogBtn" class="btn btn-secondary w-100 mb-2">
+                        <i class="bi bi-x-circle"></i> 清空日志
+                    </button>
+                </div>
+            </div>
+
+            <!-- 测试结果显示 -->
             <div class="card">
-                <div class="card-header bg-info text-white">
-                    <h5 class="mb-0">
-                        <i class="bi bi-bug"></i> 录音功能测试
-                    </h5>
+                <div class="card-header">
+                    <h6 class="mb-0">测试结果</h6>
                 </div>
                 <div class="card-body">
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i>
-                        这是一个测试页面，用于验证录音功能是否正常工作。
-                    </div>
-
-                    <!-- 测试按钮 -->
-                    <div class="row mb-4">
-                        <div class="col-md-6">
-                            <button id="testAutoRecordingBtn" class="btn btn-primary w-100 mb-2">
-                                <i class="bi bi-gear"></i> 测试自动录音设置
-                            </button>
-                            <button id="testStartRecordingBtn" class="btn btn-success w-100 mb-2">
-                                <i class="bi bi-record-circle"></i> 测试开始录音
-                            </button>
-                            <button id="testStopRecordingBtn" class="btn btn-danger w-100 mb-2">
-                                <i class="bi bi-stop-circle"></i> 测试停止录音
-                            </button>
-                        </div>
-                        <div class="col-md-6">
-                            <button id="testGetRecordingsBtn" class="btn btn-info w-100 mb-2">
-                                <i class="bi bi-list"></i> 测试获取录音列表
-                            </button>
-                            <button id="testDeleteRecordingBtn" class="btn btn-warning w-100 mb-2">
-                                <i class="bi bi-trash"></i> 测试删除录音
-                            </button>
-                            <button id="clearLogBtn" class="btn btn-secondary w-100 mb-2">
-                                <i class="bi bi-x-circle"></i> 清空日志
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- 测试结果显示 -->
-                    <div class="card">
-                        <div class="card-header">
-                            <h6 class="mb-0">测试结果</h6>
-                        </div>
-                        <div class="card-body">
-                            <pre id="testResults" class="test-results-pre"></pre>
-                        </div>
-                    </div>
+                    <pre id="testResults" class="test-results-pre"></pre>
                 </div>
             </div>
         </div>

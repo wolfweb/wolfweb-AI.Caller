@@ -4,32 +4,45 @@
     ViewData["Title"] = "创建新变量";
 }
 
-<h1>@ViewData["Title"]</h1>
+<div class="container mt-4">
+    <div class="row align-items-center">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-opencollective"></i>
+            </div>
+            <div class="col-auto">
+                <h2>@ViewData["Title"]</h2>
+            </div>
+        </div>
+        <div class="col-auto">
+            <a asp-action="Index" class="btn btn-outline-secondary glass-effect"><i class="bi bi-arrow-left"></i>返回列表</a>
+        </div>
+    </div>
+    <hr />
 
-<h4>TTS变量</h4>
-<hr />
-<div class="row">
-    <div class="col-md-6">
-        <form asp-action="Create">
-            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
-            <div class="mb-3">
-                <label asp-for="Name" class="form-label"></label>
-                <input asp-for="Name" class="form-control" />
-                <span asp-validation-for="Name" class="text-danger"></span>
-                <div class="form-text">在模板中使用的占位符，不含大括号, e.g., 'CustomerName'</div>
-            </div>
-            <div class="mb-3">
-                <label asp-for="Description" class="form-label"></label>
-                <input asp-for="Description" class="form-control" />
-                <span asp-validation-for="Description" class="text-danger"></span>
-            </div>
-            <div class="form-group mt-3">
-                <input type="submit" value="创建" class="btn btn-primary" />
-                <a asp-action="Index" class="btn btn-secondary">返回列表</a>
-            </div>
-        </form>
+    <div class="card">
+        <div class="card-body">
+            <form asp-action="Create">
+                <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                <div class="mb-3">
+                    <label asp-for="Name" class="form-label"></label>
+                    <input asp-for="Name" class="form-control" />
+                    <span asp-validation-for="Name" class="text-danger"></span>
+                    <div class="form-text">在模板中使用的占位符，不含大括号, e.g., 'CustomerName'</div>
+                </div>
+                <div class="mb-3">
+                    <label asp-for="Description" class="form-label"></label>
+                    <input asp-for="Description" class="form-control" />
+                    <span asp-validation-for="Description" class="text-danger"></span>
+                </div>
+                <div class="form-group mt-3">
+                    <input type="submit" value="创建" class="btn btn-primary" />
+                </div>
+            </form>
+        </div>
     </div>
 </div>
+
 
 @section Scripts {
     @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}

@@ -4,169 +4,165 @@
     ViewData["Title"] = "场景录音详情";
 }
 
-<div class="container-fluid">
-    <div class="row">
+<div class="container mt-4">
+    <div class="row align-items-center">
         <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">场景录音详情</h3>
-                    <div class="card-tools">
-                        <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-sm btn-primary">
-                            <i class="fas fa-edit"></i> 编辑
-                        </a>
-                        <a asp-action="Index" class="btn btn-sm btn-secondary">
-                            <i class="fas fa-arrow-left"></i> 返回列表
-                        </a>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <dl class="row">
-                        <dt class="col-sm-3">场景名称</dt>
-                        <dd class="col-sm-9">@Model.Name</dd>
-
-                        <dt class="col-sm-3">描述</dt>
-                        <dd class="col-sm-9">@(Model.Description ?? "无")</dd>
-
-                        <dt class="col-sm-3">状态</dt>
-                        <dd class="col-sm-9">
-                            @if (Model.IsActive)
-                            {
-                                <span class="badge badge-success">启用</span>
-                            }
-                            else
-                            {
-                                <span class="badge badge-secondary">禁用</span>
-                            }
-                        </dd>
-
-                        <dt class="col-sm-3">创建时间</dt>
-                        <dd class="col-sm-9">@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
-
-                        <dt class="col-sm-3">更新时间</dt>
-                        <dd class="col-sm-9">@Model.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
-
-                        <dt class="col-sm-3">片段数量</dt>
-                        <dd class="col-sm-9">@Model.Segments.Count 个</dd>
-                    </dl>
-
-                    @if (Model.Segments.Any())
-                    {
-                        <hr />
-                        <h4>场景片段</h4>
-                        <div class="table-responsive">
-                            <table class="table table-bordered table-striped">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 60px;">顺序</th>
-                                        <th style="width: 100px;">类型</th>
-                                        <th>内容</th>
-                                        <th style="width: 120px;">时长/配置</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach (var segment in Model.Segments.OrderBy(s => s.SegmentOrder))
-                                    {
-                                        <tr>
-                                            <td class="text-center">@segment.SegmentOrder</td>
-                                            <td>
-                                                @switch (segment.SegmentType)
-                                                {
-                                                    case AI.Caller.Phone.Entities.SegmentType.Recording:
-                                                        <span class="badge badge-primary">录音</span>
-                                                        break;
-                                                    case AI.Caller.Phone.Entities.SegmentType.TTS:
-                                                        <span class="badge badge-info">TTS</span>
-                                                        break;
-                                                    case AI.Caller.Phone.Entities.SegmentType.Silence:
-                                                        <span class="badge badge-secondary">静音</span>
-                                                        break;
-                                                    case AI.Caller.Phone.Entities.SegmentType.DtmfInput:
-                                                        <span class="badge badge-warning">DTMF输入</span>
-                                                        break;
-                                                    case AI.Caller.Phone.Entities.SegmentType.Condition:
-                                                        <span class="badge badge-success">条件分支</span>
-                                                        break;
-                                                }
-                                            </td>
-                                            <td>
-                                                @switch (segment.SegmentType)
-                                                {
-                                                    case AI.Caller.Phone.Entities.SegmentType.Recording:
-                                                        <div>
-                                                            <strong>文件:</strong> @segment.FilePath<br />
-                                                            @if (!string.IsNullOrEmpty(segment.TtsVariables))
-                                                            {
-                                                                <small class="text-muted">变量: @segment.TtsVariables</small>
-                                                            }
-                                                        </div>
-                                                        break;
-                                                    case AI.Caller.Phone.Entities.SegmentType.TTS:
-                                                        <div>
-                                                            <strong>文本:</strong> @segment.TtsText<br />
-                                                            @if (!string.IsNullOrEmpty(segment.TtsVariables))
-                                                            {
-                                                                <small class="text-muted">变量: @segment.TtsVariables</small>
-                                                            }
-                                                        </div>
-                                                        break;
-                                                    case AI.Caller.Phone.Entities.SegmentType.Silence:
-                                                        <span class="text-muted">静音片段</span>
-                                                        break;
-                                                    case AI.Caller.Phone.Entities.SegmentType.DtmfInput:
-                                                        <div>
-                                                            <strong>模板ID:</strong> @segment.DtmfTemplateId<br />
-                                                            @if (!string.IsNullOrEmpty(segment.DtmfVariableName))
-                                                            {
-                                                                <small class="text-success">保存到变量: @segment.DtmfVariableName</small>
-                                                            }
-                                                        </div>
-                                                        break;
-                                                    case AI.Caller.Phone.Entities.SegmentType.Condition:
-                                                        <div>
-                                                            <strong>条件:</strong> @segment.ConditionExpression<br />
-                                                            <small class="text-info">
-                                                                真: 跳转到 @segment.NextSegmentIdOnTrue?.ToString() ?? "下一个"<br />
-                                                                假: 跳转到 @segment.NextSegmentIdOnFalse?.ToString() ?? "下一个"
-                                                            </small>
-                                                        </div>
-                                                        break;
-                                                }
-                                            </td>
-                                            <td>
-                                                @if (segment.Duration.HasValue)
-                                                {
-                                                    <span>@segment.Duration.Value 毫秒</span>
-                                                }
-                                                else
-                                                {
-                                                    <span class="text-muted">-</span>
-                                                }
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle"></i> 该场景还没有添加任何片段
-                        </div>
-                    }
-                </div>
-                <div class="card-footer">
-                    <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary">
-                        <i class="fas fa-edit"></i> 编辑
-                    </a>
-                    <a asp-action="Delete" asp-route-id="@Model.Id" class="btn btn-danger">
-                        <i class="fas fa-trash"></i> 删除
-                    </a>
-                    <a asp-action="Index" class="btn btn-secondary">
-                        <i class="fas fa-arrow-left"></i> 返回列表
-                    </a>
-                </div>
+        </div>
+    </div>
+    <div class="row mb-3">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-patch-check"></i>
             </div>
+            <div class="col-auto">
+                <h2>场景录音详情</h2>
+            </div>
+        </div>
+        <div class="col-auto">
+            <a asp-action="Index" class="btn btn-sm btn-secondary glass-effect">
+                <i class="fas fa-arrow-left"></i> 返回列表
+            </a>
+        </div>
+    </div>
+    <hr />
+
+    <div class="card">        
+        <div class="card-body">
+            <dl class="row">
+                <dt class="col-sm-3">场景名称</dt>
+                <dd class="col-sm-9">@Model.Name</dd>
+
+                <dt class="col-sm-3">描述</dt>
+                <dd class="col-sm-9">@(Model.Description ?? "无")</dd>
+
+                <dt class="col-sm-3">状态</dt>
+                <dd class="col-sm-9">
+                    @(Model.IsActive?"启用":"禁用")
+                </dd>
+
+                <dt class="col-sm-3">创建时间</dt>
+                <dd class="col-sm-9">@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+                <dt class="col-sm-3">更新时间</dt>
+                <dd class="col-sm-9">@Model.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+                <dt class="col-sm-3">片段数量</dt>
+                <dd class="col-sm-9">@Model.Segments.Count 个</dd>
+            </dl>
+
+            @if (Model.Segments.Any())
+            {
+                <hr />
+                <h4>场景片段</h4>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped">
+                        <thead>
+                            <tr>
+                                <th style="width: 60px;">顺序</th>
+                                <th style="width: 100px;">类型</th>
+                                <th>内容</th>
+                                <th style="width: 120px;">时长/配置</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var segment in Model.Segments.OrderBy(s => s.SegmentOrder))
+                            {
+                                <tr>
+                                    <td class="text-center">@segment.SegmentOrder</td>
+                                    <td>
+                                        @switch (segment.SegmentType)
+                                        {
+                                            case AI.Caller.Phone.Entities.SegmentType.Recording:
+                                                <span class="badge badge-primary">录音</span>
+                                                break;
+                                            case AI.Caller.Phone.Entities.SegmentType.TTS:
+                                                <span class="badge badge-info">TTS</span>
+                                                break;
+                                            case AI.Caller.Phone.Entities.SegmentType.Silence:
+                                                <span class="badge badge-secondary">静音</span>
+                                                break;
+                                            case AI.Caller.Phone.Entities.SegmentType.DtmfInput:
+                                                <span class="badge badge-warning">DTMF输入</span>
+                                                break;
+                                            case AI.Caller.Phone.Entities.SegmentType.Condition:
+                                                <span class="badge badge-success">条件分支</span>
+                                                break;
+                                        }
+                                    </td>
+                                    <td>
+                                        @switch (segment.SegmentType)
+                                        {
+                                            case AI.Caller.Phone.Entities.SegmentType.Recording:
+                                                <div>
+                                                    <strong>文件:</strong> @segment.FilePath<br />
+                                                    @if (!string.IsNullOrEmpty(segment.TtsVariables))
+                                                    {
+                                                        <small class="text-muted">变量: @segment.TtsVariables</small>
+                                                    }
+                                                </div>
+                                                break;
+                                            case AI.Caller.Phone.Entities.SegmentType.TTS:
+                                                <div>
+                                                    <strong>文本:</strong> @segment.TtsText<br />
+                                                    @if (!string.IsNullOrEmpty(segment.TtsVariables))
+                                                    {
+                                                        <small class="text-muted">变量: @segment.TtsVariables</small>
+                                                    }
+                                                </div>
+                                                break;
+                                            case AI.Caller.Phone.Entities.SegmentType.Silence:
+                                                <span class="text-muted">静音片段</span>
+                                                break;
+                                            case AI.Caller.Phone.Entities.SegmentType.DtmfInput:
+                                                <div>
+                                                    <strong>模板ID:</strong> @segment.DtmfTemplateId<br />
+                                                    @if (!string.IsNullOrEmpty(segment.DtmfVariableName))
+                                                    {
+                                                        <small class="text-success">保存到变量: @segment.DtmfVariableName</small>
+                                                    }
+                                                </div>
+                                                break;
+                                            case AI.Caller.Phone.Entities.SegmentType.Condition:
+                                                <div>
+                                                    <strong>条件:</strong> @segment.ConditionExpression<br />
+                                                    <small class="text-info">
+                                                        真: 跳转到 @segment.NextSegmentIdOnTrue?.ToString() ?? "下一个"<br />
+                                                        假: 跳转到 @segment.NextSegmentIdOnFalse?.ToString() ?? "下一个"
+                                                    </small>
+                                                </div>
+                                                break;
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (segment.Duration.HasValue)
+                                        {
+                                            <span>@segment.Duration.Value 毫秒</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i> 该场景还没有添加任何片段
+                </div>
+            }
+        </div>
+        <div class="card-footer">
+            <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary">
+                <i class="fas fa-edit"></i> 编辑
+            </a>
+            <a asp-action="Delete" asp-route-id="@Model.Id" class="btn btn-danger">
+                <i class="fas fa-trash"></i> 删除
+            </a>
         </div>
     </div>
 </div>

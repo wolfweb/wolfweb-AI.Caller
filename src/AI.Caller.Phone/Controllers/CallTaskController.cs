@@ -24,13 +24,19 @@ namespace AI.Caller.Phone.Controllers {
         }
 
         public async Task<IActionResult> Index() {
-            var batchJobs = await _context.BatchCallJobs.OrderByDescending(j => j.CreatedAt).ToListAsync();
+            var batchJobs = await _context.BatchCallJobs
+                .Include(j => j.TtsTemplate)
+                .Include(j => j.ScenarioRecording)
+                .OrderByDescending(j => j.CreatedAt)
+                .ToListAsync();
             return View(batchJobs);
         }
 
         public async Task<IActionResult> Details(int id) {
             var batchJob = await _context.BatchCallJobs
                 .Include(j => j.CallLogs)
+                .Include(j => j.TtsTemplate)
+                .Include(j => j.ScenarioRecording)
                 .FirstOrDefaultAsync(j => j.Id == id);
 
             if (batchJob == null) {
@@ -42,15 +48,24 @@ namespace AI.Caller.Phone.Controllers {
 
         public async Task<IActionResult> CreateBatch() {
             ViewData["TtsTemplateId"] = new SelectList(await _context.TtsTemplates.Where(t => t.IsActive).ToListAsync(), "Id", "Name");
+            ViewData["ScenarioRecordingId"] = new SelectList(await _context.ScenarioRecordings.Where(s => s.IsActive).ToListAsync(), "Id", "Name");
             return View();
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> CreateBatch(string jobName, int ttsTemplateId, IFormFile file, int? selectedLineId, bool autoSelectLine = true) {
+        public async Task<IActionResult> CreateBatch(string jobName, int? ttsTemplateId, int? scenarioRecordingId, IFormFile file, int? selectedLineId, bool autoSelectLine = true) {
             if (file == null || file.Length == 0) {
                 ModelState.AddModelError("file", "Please select a file to upload.");
                 ViewData["TtsTemplateId"] = new SelectList(await _context.TtsTemplates.Where(t => t.IsActive).ToListAsync(), "Id", "Name", ttsTemplateId);
+                ViewData["ScenarioRecordingId"] = new SelectList(await _context.ScenarioRecordings.Where(s => s.IsActive).ToListAsync(), "Id", "Name", scenarioRecordingId);
+                return View();
+            }
+
+            if (!ttsTemplateId.HasValue && !scenarioRecordingId.HasValue) {
+                ModelState.AddModelError("", "Please select either a TTS Template or a Scenario Recording.");
+                ViewData["TtsTemplateId"] = new SelectList(await _context.TtsTemplates.Where(t => t.IsActive).ToListAsync(), "Id", "Name", ttsTemplateId);
+                ViewData["ScenarioRecordingId"] = new SelectList(await _context.ScenarioRecordings.Where(s => s.IsActive).ToListAsync(), "Id", "Name", scenarioRecordingId);
                 return View();
             }
 
@@ -67,7 +82,7 @@ namespace AI.Caller.Phone.Controllers {
             }
 
             var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
-            await _callTaskService.CreateBatchCallTaskAsync(jobName, ttsTemplateId, filePath, file.FileName, userId, selectedLineId, autoSelectLine);
+            await _callTaskService.CreateBatchCallTaskAsync(jobName, ttsTemplateId, scenarioRecordingId, filePath, file.FileName, userId, selectedLineId, autoSelectLine);
 
             return RedirectToAction(nameof(Index));
         }
@@ -182,6 +197,36 @@ namespace AI.Caller.Phone.Controllers {
             var headers = new List<string> { "PhoneNumber" };
             headers.AddRange(template.Variables.Select(v => v.Name));
 
+            return GenerateExcelTemplate(headers, $"template_{template.Name}.xlsx");
+        }
+
+        [HttpGet("api/scenarios/{scenarioId}/excel-template")]
+        public async Task<IActionResult> DownloadScenarioExcelTemplate(int scenarioId) {
+            var scenario = await _context.ScenarioRecordings
+                .Include(s => s.Segments)
+                .FirstOrDefaultAsync(s => s.Id == scenarioId);
+
+            if (scenario == null) {
+                return NotFound();
+            }
+
+            var headers = new HashSet<string> { "PhoneNumber" };
+            
+            // Extract variables from all TTS segments
+            var regex = new System.Text.RegularExpressions.Regex(@"\{(\w+)\}");
+            foreach (var segment in scenario.Segments.Where(s => s.SegmentType == SegmentType.TTS && !string.IsNullOrEmpty(s.TtsText))) {
+                var matches = regex.Matches(segment.TtsText);
+                foreach (System.Text.RegularExpressions.Match match in matches) {
+                    if (match.Groups.Count > 1) {
+                        headers.Add(match.Groups[1].Value);
+                    }
+                }
+            }
+
+            return GenerateExcelTemplate(headers.ToList(), $"scenario_template_{scenario.Name}.xlsx");
+        }
+
+        private IActionResult GenerateExcelTemplate(List<string> headers, string fileName) {
             using (var memoryStream = new MemoryStream()) {
                 IWorkbook workbook = new XSSFWorkbook();
                 ISheet sheet = workbook.CreateSheet("Template");
@@ -193,7 +238,7 @@ namespace AI.Caller.Phone.Controllers {
 
                 workbook.Write(memoryStream, true);
                 var fileBytes = memoryStream.ToArray();
-                return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"template_{template.Name}.xlsx");
+                return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
             }
         }
     }

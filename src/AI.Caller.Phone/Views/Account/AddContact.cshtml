@@ -6,17 +6,23 @@
 }
 
 <div class="container mt-4">
-    <div class="page-header mb-4">
-        <div class="d-flex align-items-center">
+    <div class="row align-items-center">
+        <div class="col d-flex">
             <div class="page-icon me-3">
                 <i class="bi bi-person-plus-fill"></i>
             </div>
-            <div>
+            <div class="col-auto">
                 <h2 class="page-title mb-1">添加联系人</h2>
                 <p class="page-subtitle mb-0">添加新的联系人到通讯录</p>
             </div>
         </div>
+        <div class="col-auto">
+            <a asp-action="ManageContacts" class="btn btn-outline-secondary glass-effect">
+                <i class="bi bi-arrow-left me-2"></i>返回
+            </a>
+        </div>
     </div>
+    <hr />
 
     <div class="card modern-card">
         <div class="card-header">
@@ -42,10 +48,7 @@
                 <div class="mt-4">
                     <button type="submit" class="btn btn-primary">
                         <i class="bi bi-check-circle me-2"></i>添加联系人
-                    </button>
-                    <a asp-action="ManageContacts" class="btn btn-outline-secondary">
-                        <i class="bi bi-arrow-left me-2"></i>返回列表
-                    </a>
+                    </button>                    
                 </div>
             </form>
         </div>

@@ -6,26 +6,28 @@
 }
 
 <div class="container mt-4">
-    <div class="page-header mb-4">
-        <div class="row align-items-center">
-            <div class="col">
-                <div class="d-flex align-items-center">
-                    <div class="page-icon me-3">
-                        <i class="bi bi-person-lines-fill"></i>
-                    </div>
-                    <div>
-                        <h2 class="page-title mb-1">联系人管理</h2>
-                        <p class="page-subtitle mb-0">管理您的通讯录联系人</p>
-                    </div>
+    <div class="row align-items-center">
+        <div class="col">
+            <div class="d-flex align-items-center">
+                <div class="page-icon me-3">
+                    <i class="bi bi-person-lines-fill"></i>
+                </div>
+                <div>
+                    <h2 class="page-title mb-1">联系人管理</h2>
+                    <p class="page-subtitle mb-0">管理您的通讯录联系人</p>
                 </div>
             </div>
-            <div class="col-auto">
-                <a asp-action="AddContact" class="btn btn-primary btn-modern">
-                    <i class="bi bi-plus-circle me-2"></i>添加联系人
-                </a>
-            </div>
+        </div>
+        <div class="col-auto">
+            <a asp-action="AddContact" class="btn btn-primary btn-modern">
+                <i class="bi bi-plus-circle me-2"></i>添加联系人
+            </a>
+            <a asp-action="Index" asp-controller="Home" class="btn btn-outline-secondary glass-effect">
+                <i class="bi bi-arrow-left"></i> 返回首页
+            </a>
         </div>
     </div>
+    <hr />
 
     @if (TempData["SuccessMessage"] != null)
     {
@@ -44,7 +46,7 @@
 
     <div class="card modern-card">
         <div class="card-header">
-            <div class="row align-items-center">
+            <div class="row align-items-center mt-0">
                 <div class="col-md-6">
                     <h5 class="mb-0 d-flex align-items-center">
                         <div class="icon-wrapper me-3">
@@ -98,24 +100,22 @@
                                     @contact.PhoneNumber
                                 </p>
                             </div>
-                            <div class="contact-actions">
-                                <div class="btn-group btn-group-sm">
-                                    <button class="btn btn-success call-contact-btn" 
-                                            data-name="@contact.Name" 
-                                            data-phone="@contact.PhoneNumber" 
-                                            title="拨打电话">
-                                        <i class="bi bi-telephone-fill me-1"></i>拨打
-                                    </button>
-                                    <a asp-action="EditContact" asp-route-id="@contact.Id" 
-                                       class="btn btn-outline-primary" title="编辑联系人">
-                                        <i class="bi bi-pencil me-1"></i>编辑
-                                    </a>
-                                    <a asp-action="DeleteContact" asp-route-id="@contact.Id" 
-                                       class="btn btn-outline-danger" title="删除联系人">
-                                        <i class="bi bi-trash me-1"></i>删除
-                                    </a>
-                                </div>
-                            </div>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-success call-contact-btn" 
+                                        data-name="@contact.Name" 
+                                        data-phone="@contact.PhoneNumber" 
+                                        title="拨打电话">
+                                    <i class="bi bi-telephone-fill me-1"></i>
+                                </button>
+                                <a asp-action="EditContact" asp-route-id="@contact.Id" 
+                                    class="btn btn-outline-primary" title="编辑联系人">
+                                    <i class="bi bi-pencil me-1"></i>
+                                </a>
+                                <a asp-action="DeleteContact" asp-route-id="@contact.Id" 
+                                    class="btn btn-outline-danger" title="删除联系人">
+                                    <i class="bi bi-trash me-1"></i>
+                                </a>
+                            </div>                            
                         </div>
                     }
                 </div>
@@ -124,11 +124,6 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         共 @Model.Count() 个联系人
-                    </div>
-                    <div>
-                        <a asp-action="Index" asp-controller="Home" class="btn btn-outline-secondary">
-                            <i class="bi bi-arrow-left"></i> 返回主页
-                        </a>
                     </div>
                 </div>
             </div>

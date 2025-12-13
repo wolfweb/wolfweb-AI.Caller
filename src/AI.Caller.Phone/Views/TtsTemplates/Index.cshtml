@@ -3,16 +3,23 @@
 @{
     ViewData["Title"] = "TTS模板列表";
 }
-<div class="container mt-5">
-    <div class="mb-4">
-        <h1 class="text-gradient">@ViewData["Title"]</h1>
+<div class="container mt-4">
+    <div class="row align-items-center">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-voicemail"></i>
+            </div>
+            <div class="col-auto">
+                <h2>@ViewData["Title"]</h2>
+            </div>
+        </div>
+        <div class="col-auto">
+            <a asp-action="Create" class="btn btn-primary btn-neon">
+                <i class="bi bi-plus-circle"></i> 创建新模板
+            </a>
+        </div>
     </div>
-
-    <p>
-        <a asp-action="Create" class="btn btn-primary btn-neon">
-            <i class="bi bi-plus-circle"></i> 创建新模板
-        </a>
-    </p>
+    <hr />
 
     <div class="card shadow-custom hover-lift">
         <div class="card-header">
@@ -45,15 +52,17 @@
                             @(item.Variables.Any() ? string.Join(", ", item.Variables.Select(v => v.Name)) : "无")
                         </td>
                         <td>
-                            <button type="button" class="btn btn-sm btn-outline-success btn-neon test-tts-btn" 
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-sm btn-outline-success me-1 test-tts-btn"
                                     data-text="@item.Content" 
                                     data-rate="@item.SpeechRate.ToString("F1")"
                                     title="播放测试">
-                                <i class="bi bi-play-circle"></i>
-                            </button>
-                            <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary btn-neon" title="编辑"><i class="bi bi-pencil-square"></i></a>
-                            <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-primary btn-neon" title="详情"><i class="bi bi-info-lg"></i></a>
-                            <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger btn-neon" title="删除"><i class="bi bi-trash"></i></a>
+                                    <i class="bi bi-play-circle"></i>
+                                </button>
+                                <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-outline-primary me-1" title="编辑"><i class="bi bi-pencil"></i></a>
+                                <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-outline-primary me-1" title="详情"><i class="bi bi-info-lg"></i></a>
+                                <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-outline-danger me-1" title="删除"><i class="bi bi-trash"></i></a>
+                            </div>
                         </td>
                     </tr>
             }

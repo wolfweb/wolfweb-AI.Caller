@@ -10,8 +10,6 @@ namespace AI.Caller.Phone.Services;
 /// AI客服管理器 - 监听与接入功能扩展
 /// </summary>
 public partial class AICustomerServiceManager {
-    private readonly IMonitoringService _monitoringService;
-    private readonly IPlaybackControlService _playbackControlService;
 
     /// <summary>
     /// 开始监听通话
@@ -33,23 +31,27 @@ public partial class AICustomerServiceManager {
                 throw new InvalidOperationException($"用户 {userId} 没有活跃的AI客服会话");
             }
 
-            // 创建监听会话记录
-            var monitoringSession = await _monitoringService.StartMonitoringAsync(
-                callId,
-                monitorUserId,
-                monitorUserName);
+            using (var scope = _scopeFactory.CreateScope()) {
+                var monitoringService = scope.ServiceProvider.GetRequiredService<IMonitoringService>();
 
-            // 在AudioBridge中添加监听者
-            if (session.AudioBridge is AudioBridge audioBridge) {
-                audioBridge.AddMonitor(monitorUserId, monitorUserName);
-                _logger.LogInformation("监听者已添加到AudioBridge: UserId {UserId}, MonitorUser {MonitorUserId}",
-                    userId, monitorUserId);
+                // 创建监听会话记录
+                var monitoringSession = await monitoringService.StartMonitoringAsync(
+                    callId,
+                    monitorUserId,
+                    monitorUserName);
+
+                // 在AudioBridge中添加监听者
+                if (session.AudioBridge is AudioBridge audioBridge) {
+                    audioBridge.AddMonitor(monitorUserId, monitorUserName);
+                    _logger.LogInformation("监听者已添加到AudioBridge: UserId {UserId}, MonitorUser {MonitorUserId}",
+                        userId, monitorUserId);
+                }
+
+                _logger.LogInformation("监听会话已开始: SessionId {SessionId}, CallId {CallId}",
+                    monitoringSession.Id, callId);
+
+                return monitoringSession;
             }
-
-            _logger.LogInformation("监听会话已开始: SessionId {SessionId}, CallId {CallId}",
-                monitoringSession.Id, callId);
-
-            return monitoringSession;
         } catch (Exception ex) {
             _logger.LogError(ex, "开始监听失败: UserId {UserId}, MonitorUser {MonitorUserId}",
                 userId, monitorUserId);
@@ -65,18 +67,22 @@ public partial class AICustomerServiceManager {
     /// <param name="sessionId">监听会话ID</param>
     public async Task StopMonitoringAsync(int userId, int monitorUserId, int sessionId) {
         try {
-            // 停止监听会话记录
-            await _monitoringService.StopMonitoringAsync(sessionId);
+            using (var scope = _scopeFactory.CreateScope()) {
+                var monitoringService = scope.ServiceProvider.GetRequiredService<IMonitoringService>();
+                
+                // 停止监听会话记录
+                await monitoringService.StopMonitoringAsync(sessionId);
 
-            // 从AudioBridge中移除监听者
-            var session = GetActiveSession(userId);
-            if (session?.AudioBridge is AudioBridge audioBridge) {
-                audioBridge.RemoveMonitor(monitorUserId);
-                _logger.LogInformation("监听者已从AudioBridge移除: UserId {UserId}, MonitorUser {MonitorUserId}",
-                    userId, monitorUserId);
+                // 从AudioBridge中移除监听者
+                var session = GetActiveSession(userId);
+                if (session?.AudioBridge is AudioBridge audioBridge) {
+                    audioBridge.RemoveMonitor(monitorUserId);
+                    _logger.LogInformation("监听者已从AudioBridge移除: UserId {UserId}, MonitorUser {MonitorUserId}",
+                        userId, monitorUserId);
+                }
+
+                _logger.LogInformation("监听会话已停止: SessionId {SessionId}", sessionId);
             }
-
-            _logger.LogInformation("监听会话已停止: SessionId {SessionId}", sessionId);
         } catch (Exception ex) {
             _logger.LogError(ex, "停止监听失败: SessionId {SessionId}", sessionId);
             throw;
@@ -103,20 +109,25 @@ public partial class AICustomerServiceManager {
                 throw new InterventionException(callId, "用户没有活跃的AI客服会话");
             }
 
-            // 记录人工接入
-            await _monitoringService.InterventionAsync(sessionId, reason);
+            using (var scope = _scopeFactory.CreateScope()) {
+                var monitoringService = scope.ServiceProvider.GetRequiredService<IMonitoringService>();
+                var playbackControlService = scope.ServiceProvider.GetRequiredService<IPlaybackControlService>();
 
-            // 暂停AI播放
-            await session.AutoResponder.PauseAsync();
-            _logger.LogInformation("AI播放已暂停: UserId {UserId}", userId);
+                // 记录人工接入
+                await monitoringService.InterventionAsync(sessionId, reason);
 
-            // 更新播放控制状态
-            await _playbackControlService.PausePlaybackAsync(callId);
-            await _playbackControlService.RecordInterventionAsync(callId,
-                session.AutoResponder.IsPaused ? 0 : -1); // 记录当前片段
+                // 暂停AI播放
+                await session.AutoResponder.PauseAsync();
+                _logger.LogInformation("AI播放已暂停: UserId {UserId}", userId);
 
-            _logger.LogInformation("人工接入成功: UserId {UserId}, MonitorUser {MonitorUserId}, Reason: {Reason}",
-                userId, monitorUserId, reason);
+                // 更新播放控制状态
+                await playbackControlService.PausePlaybackAsync(callId);
+                await playbackControlService.RecordInterventionAsync(callId,
+                    session.AutoResponder.IsPaused ? 0 : -1); // 记录当前片段
+
+                _logger.LogInformation("人工接入成功: UserId {UserId}, MonitorUser {MonitorUserId}, Reason: {Reason}",
+                    userId, monitorUserId, reason);
+            }
         } catch (Exception ex) {
             _logger.LogError(ex, "人工接入失败: UserId {UserId}, SessionId {SessionId}",
                 userId, sessionId);
@@ -143,31 +154,35 @@ public partial class AICustomerServiceManager {
                 return;
             }
 
-            // 标记要跳过的片段
-            if (skipSegmentIds != null && skipSegmentIds.Count > 0) {
-                // 设置到AutoResponder中
-                session.AutoResponder.SetSkippedSegments(skipSegmentIds);
-                
-                // 同时记录到PlaybackControl（用于监控和审计）
-                foreach (var segmentId in skipSegmentIds) {
-                    await _playbackControlService.SkipSegmentAsync(callId, segmentId);
+            using (var scope = _scopeFactory.CreateScope()) {
+                var playbackControlService = scope.ServiceProvider.GetRequiredService<IPlaybackControlService>();
+
+                // 标记要跳过的片段
+                if (skipSegmentIds != null && skipSegmentIds.Count > 0) {
+                    // 设置到AutoResponder中
+                    session.AutoResponder.SetSkippedSegments(skipSegmentIds);
+                    
+                    // 同时记录到PlaybackControl（用于监控和审计）
+                    foreach (var segmentId in skipSegmentIds) {
+                        await playbackControlService.SkipSegmentAsync(callId, segmentId);
+                    }
+                    _logger.LogInformation("已标记跳过片段: CallId {CallId}, Count {Count}",
+                        callId, skipSegmentIds.Count);
                 }
-                _logger.LogInformation("已标记跳过片段: CallId {CallId}, Count {Count}",
-                    callId, skipSegmentIds.Count);
-            }
 
-            // 恢复AI播放
-            if (resumePlayback) {
-                await session.AutoResponder.ResumeAsync();
-                await _playbackControlService.ResumePlaybackAsync(callId);
-                _logger.LogInformation("AI播放已恢复: UserId {UserId}", userId);
-            } else {
-                await _playbackControlService.StopPlaybackAsync(callId);
-                _logger.LogInformation("AI播放已停止: UserId {UserId}", userId);
-            }
+                // 恢复AI播放
+                if (resumePlayback) {
+                    await session.AutoResponder.ResumeAsync();
+                    await playbackControlService.ResumePlaybackAsync(callId);
+                    _logger.LogInformation("AI播放已恢复: UserId {UserId}", userId);
+                } else {
+                    await playbackControlService.StopPlaybackAsync(callId);
+                    _logger.LogInformation("AI播放已停止: UserId {UserId}", userId);
+                }
 
-            _logger.LogInformation("退出人工接入成功: UserId {UserId}, CallId {CallId}",
-                userId, callId);
+                _logger.LogInformation("退出人工接入成功: UserId {UserId}, CallId {CallId}",
+                    userId, callId);
+            }
         } catch (Exception ex) {
             _logger.LogError(ex, "退出人工接入失败: UserId {UserId}, CallId {CallId}",
                 userId, callId);
@@ -227,98 +242,107 @@ public partial class AICustomerServiceManager {
                 return false;
             }
 
-            var mediaProfile = new MediaProfile(
-                codec: AudioCodec.PCMA,
-                payloadType: 0,
-                sampleRate: 8000,
-                ptimeMs: 20,
-                channels: 1
-            );
+            var scope = _scopeFactory.CreateScope(); // Create scope
 
-            var audioBridge = _serviceProvider.GetRequiredService<IAudioBridge>();
-            audioBridge.Initialize(mediaProfile);
+            try {
+                var mediaProfile = new MediaProfile(
+                    codec: AudioCodec.PCMA,
+                    payloadType: 0,
+                    sampleRate: 8000,
+                    ptimeMs: 20,
+                    channels: 1
+                );
 
-            if (sipClient.MediaSessionManager == null) {
-                _logger.LogError("MediaSessionManager为空，无法启动AI客服: User {Username}", user.Username);
-                return false;
+                var audioBridge = scope.ServiceProvider.GetRequiredService<IAudioBridge>();
+                audioBridge.Initialize(mediaProfile);
+
+                if (sipClient.MediaSessionManager == null) {
+                    _logger.LogError("MediaSessionManager为空，无法启动AI客服: User {Username}", user.Username);
+                    scope.Dispose();
+                    return false;
+                }
+
+                var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
+
+                // 设置音频文件播放器和DTMF收集器
+                var audioFilePlayer = scope.ServiceProvider.GetRequiredService<AudioFilePlayer>();
+                var dtmfCollector = scope.ServiceProvider.GetRequiredService<DtmfCollector>();
+                var dtmfInputService = scope.ServiceProvider.GetRequiredService<IDtmfInputService>();
+
+                autoResponder.SetAudioFilePlayer(audioFilePlayer);
+                autoResponder.SetDtmfCollector(dtmfCollector);
+                autoResponder.SetDtmfInputService(dtmfInputService);
+
+                // 设置CallContext（用于关联DTMF记录到数据库）
+                if (!string.IsNullOrEmpty(callId)) {
+                    autoResponder.SetCallContext(callId);
+                    _logger.LogDebug("已设置CallContext: {CallId}", callId);
+                } else {
+                    _logger.LogWarning("未提供CallId，DTMF输入将不会保存到数据库");
+                }
+
+                Action<byte[]> audioGeneratedHandler = (audioFrame) => {
+                    sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
+                    // 同时发送给监听者
+                    if (audioBridge is AudioBridge ab) {
+                        ab.ProcessOutgoingAudio(audioFrame);
+                    }
+                };
+                autoResponder.OutgoingAudioGenerated += audioGeneratedHandler;
+
+                audioBridge.IncomingAudioReceived += (audioFrame) => {
+                    try {
+                        autoResponder.OnUplinkPcmFrame(audioFrame);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "处理来电音频失败");
+                    }
+                };
+
+                // 连接DTMF事件
+                sipClient.DtmfToneReceived += (client, tone) => {
+                    autoResponder.OnDtmfToneReceived(tone);
+                };
+
+                sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
+
+                var session = new AIAutoResponderSession {
+                    User = user,
+                    AutoResponder = autoResponder,
+                    AudioBridge = audioBridge,
+                    ScriptText = $"场景录音: {scenarioRecording.Name}",
+                    StartTime = DateTime.UtcNow,
+                    AudioGeneratedHandler = audioGeneratedHandler,
+                    CallId = callId,  // 保存CallId
+                    ScenarioRecordingId = scenarioRecording.Id,  // 保存场景ID
+                    ScenarioRecording = scenarioRecording,  // 保存场景对象
+                    Scope = scope // Store scope
+                };
+
+                await autoResponder.StartAsync();
+                audioBridge.Start();
+
+                // 转换场景片段
+                var segments = ConvertToScenarioSegments(scenarioRecording);
+
+                _ = Task.Run(async () => {
+                    try {
+                        await autoResponder.PlayScenarioAsync(segments, variables);
+                        _logger.LogInformation("场景录音播放完成: User {Username}, Scenario {ScenarioName}",
+                            user.Username, scenarioRecording.Name);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "场景录音播放失败: User {Username}", user.Username);
+                    }
+                });
+
+                _activeSessions[user.Id] = session;
+                _logger.LogInformation("场景录音AI客服已启动: User {Username}, Scenario {ScenarioName}",
+                    user.Username, scenarioRecording.Name);
+
+                return true;
+            } catch {
+                scope.Dispose();
+                throw;
             }
-
-            var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
-
-            // 设置音频文件播放器和DTMF收集器
-            var audioFilePlayer = _serviceProvider.GetRequiredService<AudioFilePlayer>();
-            var dtmfCollector = _serviceProvider.GetRequiredService<DtmfCollector>();
-            var dtmfInputService = _serviceProvider.GetRequiredService<IDtmfInputService>();
-
-            autoResponder.SetAudioFilePlayer(audioFilePlayer);
-            autoResponder.SetDtmfCollector(dtmfCollector);
-            autoResponder.SetDtmfInputService(dtmfInputService);
-
-            // 设置CallContext（用于关联DTMF记录到数据库）
-            if (!string.IsNullOrEmpty(callId)) {
-                autoResponder.SetCallContext(callId);
-                _logger.LogDebug("已设置CallContext: {CallId}", callId);
-            } else {
-                _logger.LogWarning("未提供CallId，DTMF输入将不会保存到数据库");
-            }
-
-            Action<byte[]> audioGeneratedHandler = (audioFrame) => {
-                sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
-                // 同时发送给监听者
-                if (audioBridge is AudioBridge ab) {
-                    ab.ProcessOutgoingAudio(audioFrame);
-                }
-            };
-            autoResponder.OutgoingAudioGenerated += audioGeneratedHandler;
-
-            audioBridge.IncomingAudioReceived += (audioFrame) => {
-                try {
-                    autoResponder.OnUplinkPcmFrame(audioFrame);
-                } catch (Exception ex) {
-                    _logger.LogError(ex, "处理来电音频失败");
-                }
-            };
-
-            // 连接DTMF事件
-            sipClient.DtmfToneReceived += (client, tone) => {
-                autoResponder.OnDtmfToneReceived(tone);
-            };
-
-            sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
-
-            var session = new AIAutoResponderSession {
-                User = user,
-                AutoResponder = autoResponder,
-                AudioBridge = audioBridge,
-                ScriptText = $"场景录音: {scenarioRecording.Name}",
-                StartTime = DateTime.UtcNow,
-                AudioGeneratedHandler = audioGeneratedHandler,
-                CallId = callId,  // 保存CallId
-                ScenarioRecordingId = scenarioRecording.Id,  // 保存场景ID
-                ScenarioRecording = scenarioRecording  // 保存场景对象
-            };
-
-            await autoResponder.StartAsync();
-            audioBridge.Start();
-
-            // 转换场景片段
-            var segments = ConvertToScenarioSegments(scenarioRecording);
-
-            _ = Task.Run(async () => {
-                try {
-                    await autoResponder.PlayScenarioAsync(segments, variables);
-                    _logger.LogInformation("场景录音播放完成: User {Username}, Scenario {ScenarioName}",
-                        user.Username, scenarioRecording.Name);
-                } catch (Exception ex) {
-                    _logger.LogError(ex, "场景录音播放失败: User {Username}", user.Username);
-                }
-            });
-
-            _activeSessions[user.Id] = session;
-            _logger.LogInformation("场景录音AI客服已启动: User {Username}, Scenario {ScenarioName}",
-                user.Username, scenarioRecording.Name);
-
-            return true;
         } catch (Exception ex) {
             _logger.LogError(ex, "启动场景录音AI客服失败: User {Username}", user.Username);
             return false;

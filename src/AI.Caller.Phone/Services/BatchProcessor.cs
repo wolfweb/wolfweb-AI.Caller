@@ -29,9 +29,14 @@ public class BatchProcessor : IBatchProcessor {
             batchJob.Status = Entities.BatchJobStatus.Preprocessing;
             await _context.SaveChangesAsync();
 
-            var template = await _context.TtsTemplates.FindAsync(batchJob.TtsTemplateId);
-            if (template == null) {
-                throw new InvalidOperationException($"TTS Template with ID {batchJob.TtsTemplateId} not found.");
+            TtsTemplate? template = null;
+            if (batchJob.TtsTemplateId.HasValue) {
+                template = await _context.TtsTemplates.FindAsync(batchJob.TtsTemplateId);
+                if (template == null) {
+                    throw new InvalidOperationException($"TTS Template with ID {batchJob.TtsTemplateId} not found.");
+                }
+            } else if (!batchJob.ScenarioRecordingId.HasValue) {
+                throw new InvalidOperationException("Batch Job must have either TtsTemplateId or ScenarioRecordingId.");
             }
 
             var records = new List<Dictionary<string, string>>();
@@ -72,7 +77,15 @@ public class BatchProcessor : IBatchProcessor {
                 }
 
                 var variables = record.Where(kvp => kvp.Key != "PhoneNumber").ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-                string resolvedContent = _variableResolver.Resolve(template.Content, variables);
+                string resolvedContent;
+
+                if (template != null) {
+                    // Legacy TTS Template mode
+                    resolvedContent = _variableResolver.Resolve(template.Content, variables);
+                } else {
+                    // Scenario Recording mode: serialize variables to JSON
+                    resolvedContent = System.Text.Json.JsonSerializer.Serialize(variables);
+                }
 
                 var callLog = new CallLog {
                     PhoneNumber = phoneNumber,

@@ -11,6 +11,7 @@ namespace AI.Caller.Phone.Services {
         private readonly ILogger _logger;
         private readonly IServiceProvider _serviceProvider;
         private readonly IAIAutoResponderFactory _autoResponderFactory;
+        private readonly IServiceScopeFactory _scopeFactory;
 
         private readonly ConcurrentDictionary<int, AIAutoResponderSession> _activeSessions = new();
 
@@ -18,14 +19,12 @@ namespace AI.Caller.Phone.Services {
             ILogger<AICustomerServiceManager> logger,
             IServiceProvider serviceProvider,
             IAIAutoResponderFactory autoResponderFactory,
-            IMonitoringService monitoringService,
-            IPlaybackControlService playbackControlService
+            IServiceScopeFactory scopeFactory
             ) {
             _logger = logger;
             _serviceProvider = serviceProvider;
             _autoResponderFactory = autoResponderFactory;
-            _monitoringService = monitoringService;
-            _playbackControlService = playbackControlService;
+            _scopeFactory = scopeFactory;
         }
 
         /// <summary>
@@ -42,78 +41,87 @@ namespace AI.Caller.Phone.Services {
                     return false;
                 }
 
-                var mediaProfile = new MediaProfile(
-                    codec: AudioCodec.PCMA,
-                    payloadType: 0,
-                    sampleRate: 8000,
-                    ptimeMs: 20,
-                    channels: 1
-                );
-
-                var audioBridge = _serviceProvider.GetRequiredService<IAudioBridge>();
-                audioBridge.Initialize(mediaProfile);
-
-                if (sipClient.MediaSessionManager == null) {
-                    _logger.LogError("MediaSessionManager is null, cannot start AI customer service for user {Username}", user.Username);
-                    return false;
-                }
-
-                var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
+                var scope = _scopeFactory.CreateScope(); // Create scope for the session
                 
-                // 设置DTMF输入服务（如果需要收集DTMF）
                 try {
-                    var dtmfInputService = _serviceProvider.GetService<IDtmfInputService>();
-                    if (dtmfInputService != null) {
-                        autoResponder.SetDtmfInputService(dtmfInputService);
-                        if (!string.IsNullOrEmpty(callId)) {
-                            autoResponder.SetCallContext(callId);
-                            _logger.LogDebug("已设置CallContext: {CallId}", callId);
+                    var mediaProfile = new MediaProfile(
+                        codec: AudioCodec.PCMA,
+                        payloadType: 0,
+                        sampleRate: 8000,
+                        ptimeMs: 20,
+                        channels: 1
+                    );
+
+                    var audioBridge = scope.ServiceProvider.GetRequiredService<IAudioBridge>();
+                    audioBridge.Initialize(mediaProfile);
+
+                    if (sipClient.MediaSessionManager == null) {
+                        _logger.LogError("MediaSessionManager is null, cannot start AI customer service for user {Username}", user.Username);
+                        scope.Dispose(); // Dispose if failed
+                        return false;
+                    }
+
+                    var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
+                    
+                    // 设置DTMF输入服务（如果需要收集DTMF）
+                    try {
+                        var dtmfInputService = scope.ServiceProvider.GetService<IDtmfInputService>();
+                        if (dtmfInputService != null) {
+                            autoResponder.SetDtmfInputService(dtmfInputService);
+                            if (!string.IsNullOrEmpty(callId)) {
+                                autoResponder.SetCallContext(callId);
+                                _logger.LogDebug("已设置CallContext: {CallId}", callId);
+                            }
                         }
+                    } catch (Exception ex) {
+                        _logger.LogWarning(ex, "设置DtmfInputService失败，DTMF输入将不会保存到数据库");
                     }
-                } catch (Exception ex) {
-                    _logger.LogWarning(ex, "设置DtmfInputService失败，DTMF输入将不会保存到数据库");
+                    
+                    Action<byte[]> audioGeneratedHandler = (audioFrame) => {
+                        sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
+                    };
+                    autoResponder.OutgoingAudioGenerated += audioGeneratedHandler;
+
+                    audioBridge.IncomingAudioReceived += (audioFrame) => {
+                        try {
+                            autoResponder.OnUplinkPcmFrame(audioFrame);
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "Error processing incoming audio in AutoResponder");
+                        }
+                    };
+
+                    sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
+
+                    var session = new AIAutoResponderSession {
+                        User = user,
+                        AutoResponder = autoResponder,
+                        AudioBridge = audioBridge,
+                        ScriptText = scriptText,
+                        StartTime = DateTime.UtcNow,
+                        AudioGeneratedHandler = audioGeneratedHandler,
+                        Scope = scope // Store scope
+                    };
+
+                    await autoResponder.StartAsync();
+                    audioBridge.Start();
+
+                    _ = Task.Run(async () => {
+                        try {
+                            await autoResponder.PlayScriptAsync(scriptText);
+                            _logger.LogInformation($"AI customer service script completed for user {user.Username}");
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, $"Error playing script for user {user.Username}");
+                        }
+                    });
+
+                    _activeSessions[user.Id] = session;
+                    _logger.LogInformation($"AI customer service started for user {user.Username}");
+
+                    return true;
+                } catch {
+                    scope.Dispose(); // Dispose if exception
+                    throw;
                 }
-                
-                Action<byte[]> audioGeneratedHandler = (audioFrame) => {
-                    sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
-                };
-                autoResponder.OutgoingAudioGenerated += audioGeneratedHandler;
-
-                audioBridge.IncomingAudioReceived += (audioFrame) => {
-                    try {
-                        autoResponder.OnUplinkPcmFrame(audioFrame);
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, "Error processing incoming audio in AutoResponder");
-                    }
-                };
-
-                sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
-
-                var session = new AIAutoResponderSession {
-                    User = user,
-                    AutoResponder = autoResponder,
-                    AudioBridge = audioBridge,
-                    ScriptText = scriptText,
-                    StartTime = DateTime.UtcNow,
-                    AudioGeneratedHandler = audioGeneratedHandler
-                };
-
-                await autoResponder.StartAsync();
-                audioBridge.Start();
-
-                _ = Task.Run(async () => {
-                    try {
-                        await autoResponder.PlayScriptAsync(scriptText);
-                        _logger.LogInformation($"AI customer service script completed for user {user.Username}");
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, $"Error playing script for user {user.Username}");
-                    }
-                });
-
-                _activeSessions[user.Id] = session;
-                _logger.LogInformation($"AI customer service started for user {user.Username}");
-
-                return true;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"Failed to start AI customer service for user {user.Username}");
                 return false;
@@ -139,6 +147,7 @@ namespace AI.Caller.Phone.Services {
 
                 await session.AutoResponder.DisposeAsync();
                 session.AudioBridge.Dispose();
+                session.Scope?.Dispose(); // Dispose scope
 
                 _logger.LogInformation($"AI customer service stopped for user {session.User.Username}");
                 return true;
@@ -180,6 +189,7 @@ namespace AI.Caller.Phone.Services {
                     session.AudioBridge.Stop();
                     session.AutoResponder.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5));
                     session.AudioBridge.Dispose();
+                    session.Scope?.Dispose(); // Dispose scope
                 } catch (Exception ex) {
                     _logger.LogError(ex, $"Error disposing AI customer service session for user {session.User.Username}");
                 }
@@ -200,5 +210,6 @@ namespace AI.Caller.Phone.Services {
         public string? CallId { get; set; }  // 通话ID
         public int? ScenarioRecordingId { get; set; }  // 场景录音ID
         public ScenarioRecording? ScenarioRecording { get; set; }  // 场景录音对象
+        public IServiceScope? Scope { get; set; } // Service scope for the session
     }
 }

@@ -3,59 +3,91 @@
 }
 
 <div class="container mt-4">
-    <h1>@ViewData["Title"]</h1>
-
-    <hr />
-    <div class="row">
-        <div class="col-md-6">
-            <form asp-action="CreateBatch" enctype="multipart/form-data" method="post">
-                <div class="form-group mb-3">
-                    <label for="jobName" class="control-label">任务名称</label>
-                    <input id="jobName" name="jobName" class="form-control" />
-                </div>
-                <div class="form-group mb-3">
-                    <label for="ttsTemplateId" class="control-label">TTS模板</label>
-                    <select id="ttsTemplateId" name="ttsTemplateId" class="form-control" asp-items="ViewBag.TtsTemplateId">
-                        <option value="">-- 请选择模板 --</option>
-                    </select>
-                </div>
-                
-                <div class="form-group mb-3">
-                    <label class="control-label">线路选择</label>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="checkbox" id="autoSelectLine" name="autoSelectLine" checked>
-                        <label class="form-check-label" for="autoSelectLine">
-                            自动选择线路
-                        </label>
-                    </div>
-                    <div class="form-group" id="lineSelectionGroup" style="display: none;">
-                        <label for="selectedLineId" class="control-label">选择线路</label>
-                        <select id="selectedLineId" name="selectedLineId" class="form-control">
-                            <option value="">请选择线路</option>
-                        </select>
-                        <div class="form-text">选择用于批量呼叫的SIP线路。如果不选择，系统将自动选择最优线路。</div>
-                    </div>
-                </div>
-            
-                <div class="form-group mb-3">
-                    <a id="downloadTemplateBtn" class="btn btn-info disabled" href="#">下载数据模板</a>
-                    <small class="form-text text-muted">请先选择一个TTS模板，然后下载对应的数据模板文件。</small>
-                </div>
-
-                <div class="form-group mb-3">
-                    <label for="file" class="control-label">上传数据文件</label>
-                    <input type="file" id="file" name="file" class="form-control" />
-                </div>
-
-                <div class="form-group">
-                    <input type="submit" value="创建任务" class="btn btn-primary" />
-                </div>
-            </form>
+    <div class="row align-items-center">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-phone-vibrate"></i>
+            </div>
+            <div class="col-auto">
+                <h2>@ViewData["Title"]</h2>
+            </div>
+        </div>
+        <div class="col-auto">
+            <a asp-action="Index" class="btn btn-outline-secondary glass-effect">
+                <i class="bi bi-arrow-left me-2"></i>返回
+            </a>
         </div>
     </div>
 
-    <div>
-        <a asp-action="Index">返回列表</a>
+    <hr />
+
+    <div class="card">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <form asp-action="CreateBatch" enctype="multipart/form-data" method="post">
+                        <div class="form-group mb-3">
+                            <label for="jobName" class="control-label">任务名称</label>
+                            <input id="jobName" name="jobName" class="form-control" />
+                        </div>
+                        <div class="form-group mb-3">
+                            <label for="ttsTemplateId" class="control-label">TTS模板 (二选一)</label>
+                            <select id="ttsTemplateId" name="ttsTemplateId" class="form-control" asp-items="ViewBag.TtsTemplateId">
+                                <option value="">-- 请选择模板 --</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label for="scenarioRecordingId" class="control-label">场景录音 (二选一)</label>
+                            <select id="scenarioRecordingId" name="scenarioRecordingId" class="form-control" asp-items="ViewBag.ScenarioRecordingId">
+                                <option value="">-- 请选择场景 --</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label class="control-label">线路选择</label>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="autoSelectLine" name="autoSelectLine" checked>
+                                <label class="form-check-label" for="autoSelectLine">
+                                    自动选择线路
+                                </label>
+                            </div>
+                            <div class="form-group" id="lineSelectionGroup" style="display: none;">
+                                <label for="selectedLineId" class="control-label">选择线路</label>
+                                <select id="selectedLineId" name="selectedLineId" class="form-control">
+                                    <option value="">请选择线路</option>
+                                </select>
+                                <div class="form-text">选择用于批量呼叫的SIP线路。如果不选择，系统将自动选择最优线路。</div>
+                            </div>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <a id="downloadTemplateBtn" class="btn btn-info disabled" href="#">下载数据模板</a>
+                            <small class="form-text text-muted">请先选择一个模板或场景，然后下载对应的数据模板文件。</small>
+                        </div>
+
+                        <div id="scenarioInstructions" class="alert alert-info" style="display: none;">
+                            <h5><i class="bi bi-info-circle"></i> 场景录音说明</h5>
+                            <p>您选择了场景录音模式。系统将根据场景中的配置自动混合播放：</p>
+                            <ul>
+                                <li><strong>录音片段：</strong> 直接播放预设的音频文件，无需在Excel中提供数据。</li>
+                                <li><strong>TTS片段：</strong> 如果包含变量（如 <code>{Name}</code>），请确保下载的Excel模板中包含对应的列。</li>
+                            </ul>
+                            <p>请点击上方"下载数据模板"获取正确的Excel格式。</p>
+                        </div>
+
+                        <div class="form-group mb-3">
+                            <label for="file" class="control-label">上传数据文件</label>
+                            <input type="file" id="file" name="file" class="form-control" />
+                        </div>
+
+                        <div class="form-group">
+                            <input type="submit" value="创建任务" class="btn btn-primary" />
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -69,13 +101,39 @@
             $('#ttsTemplateId').change(function () {
                 var templateId = $(this).val();
                 var downloadBtn = $('#downloadTemplateBtn');
+                $('#scenarioInstructions').hide();
 
                 if (templateId) {
+                    // Clear Scenario selection
+                    $('#scenarioRecordingId').val('');
+                    
                     downloadBtn.removeClass('disabled');
                     downloadBtn.attr('href', '/api/templates/' + templateId + '/excel-template');
                 } else {
-                    downloadBtn.addClass('disabled');
-                    downloadBtn.attr('href', '#');
+                    if (!$('#scenarioRecordingId').val()) {
+                        downloadBtn.addClass('disabled');
+                        downloadBtn.attr('href', '#');
+                    }
+                }
+            });
+
+            $('#scenarioRecordingId').change(function () {
+                var scenarioId = $(this).val();
+                var downloadBtn = $('#downloadTemplateBtn');
+
+                if (scenarioId) {
+                    // Clear TTS selection
+                    $('#ttsTemplateId').val('');
+                    $('#scenarioInstructions').show();
+                    
+                    downloadBtn.removeClass('disabled');
+                    downloadBtn.attr('href', '/api/scenarios/' + scenarioId + '/excel-template');
+                } else {
+                    $('#scenarioInstructions').hide();
+                    if (!$('#ttsTemplateId').val()) {
+                        downloadBtn.addClass('disabled');
+                        downloadBtn.attr('href', '#');
+                    }
                 }
             });
             

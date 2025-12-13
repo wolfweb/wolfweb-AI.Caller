@@ -87,11 +87,11 @@ class RingtoneManagement {
                 <td>${ringtone.isSystem ? '系统内置' : '自定义'}</td>
                 <td>
                     <button class="btn btn-sm btn-outline-primary" onclick="ringtoneManagement.previewRingtone('${ringtone.filePath}')">
-                        <i class="bi bi-play-circle"></i> 试听
+                        <i class="bi bi-play-circle"></i>
                     </button>
                     ${!ringtone.isSystem ? `
                         <button class="btn btn-sm btn-outline-danger" onclick="ringtoneManagement.deleteRingtone(${ringtone.id})">
-                            <i class="bi bi-trash"></i> 删除
+                            <i class="bi bi-trash"></i>
                         </button>
                     ` : ''}
                 </td>

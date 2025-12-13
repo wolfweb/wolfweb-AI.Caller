@@ -9,20 +9,25 @@
     var hasScenario = scenarioSegments.Any();
 }
 
-<div class="container-fluid">
-    <div class="row mb-3">
-        <div class="col">
-            <h2>监听通话 - @targetUserName</h2>
-            <p class="text-muted">通话ID: @callId</p>
+<div class="container mt-4">
+    <div class="row align-items-center">
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-shield"></i>
+            </div>
+            <div class="col-auto">
+                <h2>监听通话 - @targetUserName</h2>
+                <p class="text-muted">通话ID: @callId</p>
+            </div>
         </div>
-        <div class="col text-end">
+        <div class="col-auto">
             <button id="startMonitorBtn" class="btn btn-success" onclick="startMonitoring()">
                 <i class="bi bi-play-circle"></i> 开始监听
             </button>
             <button id="stopMonitorBtn" class="btn btn-danger" onclick="stopMonitoring()" style="display:none;">
                 <i class="bi bi-stop-circle"></i> 停止监听
             </button>
-            <a asp-action="Index" class="btn btn-secondary">
+            <a asp-action="Index" class="btn btn-secondary glass-effect">
                 <i class="bi bi-arrow-left"></i> 返回
             </a>
         </div>
