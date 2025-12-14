@@ -275,6 +275,9 @@ namespace AI.Caller.Phone.Services {
                             ctx.RingbackPlayer = null;
                         } catch { }
                     }
+                    if (ctx.Caller != null && ctx.Caller.User != null) {
+                        _ = _hubContext.Clients.User(ctx.Caller.User.Id.ToString()).SendAsync("answered");
+                    }
                 };
 
                 ctx.Caller.Client.Client.CallEnded += (client, status) => {
@@ -916,7 +919,7 @@ namespace AI.Caller.Phone.Services {
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
             if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
             if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
-            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, false, callContext.RoutingInfo);
             if (handle == null) return false;
 
             handle.Client.Accept(sipRequest);
@@ -929,7 +932,7 @@ namespace AI.Caller.Phone.Services {
             await handle.Client.AnswerAsync();
 
             _ = _orchestrator.HandleInboundCallAsync(callContext);
-
+            
             return true;
         }
 

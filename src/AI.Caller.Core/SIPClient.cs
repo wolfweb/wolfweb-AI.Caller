@@ -86,9 +86,17 @@ namespace AI.Caller.Core {
 
             m_userAgent.ServerCallCancelled += IncomingCallCancelled;
 
-            m_userAgent.ServerCallRingTimeout += (uas) => {
-                CallFinished(CallFinishStatus.Failed);
-            };
+            //if (!enableWebRtcBridging) {
+            //    m_userAgent.ServerCallRingTimeout += (uas) => {
+            //        _logger.LogError("*** SERVER CALL RING TIMEOUT *** ClientId: {ClientId}, Role: {Role}, Context: {Context}, SipServer: {SipServer}, Time: {Time}", 
+            //            _clientId, 
+            //            enableWebRtcBridging ? "Caller" : "Callee", 
+            //            enableWebRtcBridging ? "WebRTC-Enabled" : "SIP-Only", 
+            //            sipServer, 
+            //            DateTime.Now.ToString("M/d/yyyy HH:mm:ss"));
+            //        CallFinished(CallFinishStatus.Failed);
+            //    };
+            //}
 
             RegisterWithNetworkMonitoring();
         }
