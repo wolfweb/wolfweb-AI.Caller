@@ -10,9 +10,6 @@ class GlobalWebRTCManager {
 
     async createAnswerConnection(offerSdp) {
         try {
-            console.log('创建全局WebRTC连接...');
-            
-            // 创建RTCPeerConnection
             this.pc = new RTCPeerConnection({
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
@@ -20,7 +17,6 @@ class GlobalWebRTCManager {
                 ]
             });
 
-            // 设置ICE候选事件
             this.pc.onicecandidate = (event) => {
                 if (event.candidate && window.globalSignalRManager) {
                     window.globalSignalRManager.invoke("SendIceCandidateAsync", {
@@ -34,7 +30,6 @@ class GlobalWebRTCManager {
 
             // 设置远程流事件
             this.pc.ontrack = (event) => {
-                console.log('收到远程音频流');
                 const remoteAudio = document.getElementById('global-remote-audio');
                 if (remoteAudio) {
                     remoteAudio.srcObject = event.streams[0];
@@ -60,8 +55,7 @@ class GlobalWebRTCManager {
             await this.pc.setLocalDescription(answer);
 
             this.isConnected = true;
-            console.log('全局WebRTC连接创建成功');
-            
+
             return answer;
 
         } catch (error) {
@@ -83,8 +77,6 @@ class GlobalWebRTCManager {
     }
 
     cleanup() {
-        console.log('清理全局WebRTC资源...');
-        
         if (this.localStream) {
             this.localStream.getTracks().forEach(track => {
                 track.stop();
@@ -98,7 +90,6 @@ class GlobalWebRTCManager {
         }
 
         this.isConnected = false;
-        console.log('全局WebRTC资源清理完成');
     }
 }
 
@@ -115,29 +106,33 @@ class GlobalCallMonitor {
             activeSessions: [],
             callEvents: []
         };
-        
+
         // 监控UI元素
         this.ui = null;
         this.isUIVisible = false;
         this.isUserManuallyHidden = false; // 用户是否手动隐藏了面板
-        
+
         // SignalR连接
         this.signalRConnection = null;
         this.isUsingSharedConnection = false;
-        
+
         // 页面信息
         this.currentPage = this.detectCurrentPage();
-        
+
         // 当前来电和通话状态
         this.currentIncomingCall = null;
         this.isIncomingCallActive = false;
         this.isInCall = false;
         this.callStartTime = null;
         this.callTimerInterval = null;
-        
+
+        // 🔧 新增：事件去重机制
+        this.lastProcessedEvents = new Map(); // 存储最近处理的事件
+        this.eventDeduplicationTimeout = 1000; // 1秒内的重复事件将被忽略
+
         // WebRTC管理器
         this.webrtcManager = new GlobalWebRTCManager();
-        
+
         // 拖动相关
         this.isDragging = false;
         this.dragOffset = { x: 0, y: 0 };
@@ -145,7 +140,7 @@ class GlobalCallMonitor {
         this.boundHandleDragEnd = null;
         this.boundHandleTouchMove = null;
         this.boundHandleTouchEnd = null;
-        
+
         // 初始化
         this.init();
     }
@@ -155,7 +150,7 @@ class GlobalCallMonitor {
      */
     detectCurrentPage() {
         const path = window.location.pathname.toLowerCase();
-        
+
         if (path === '/' || path === '/home' || path.includes('/home/')) {
             return 'home';
         } else if (path.includes('/monitoring/')) {
@@ -171,32 +166,29 @@ class GlobalCallMonitor {
      * 检查是否在Home页面
      */
     isOnHomePage() {
-        return this.currentPage === 'home' || 
-               window.location.pathname.toLowerCase().includes('/home');
+        return this.currentPage === 'home' ||
+            window.location.pathname.toLowerCase().includes('/home');
     }
 
     /**
      * 初始化全局监控
      */
     async init() {
-        console.log('初始化全局通话监控系统...');
-        
         // 创建监控UI
         this.createMonitoringUI();
-        
+
         // 监听现有系统事件
         this.setupEventListeners();
-        
+
         // 延迟设置SignalR监听，等待PhoneApp初始化
         setTimeout(async () => {
             await this.setupGlobalSignalR();
         }, 2000);
-        
+
         // 定期获取活跃通话
         this.startActiveCallsPolling();
-        
+
         this.isActive = true;
-        console.log('全局通话监控系统已启动');
     }
 
     /**
@@ -209,16 +201,15 @@ class GlobalCallMonitor {
         monitorPanel.className = 'global-monitor-panel';
         monitorPanel.innerHTML = `
             <div class="monitor-header">
-                <span class="monitor-title">📞 全局通话监控</span>
+                <span class="monitor-title">📞 通话监控</span>
                 <div class="monitor-controls">
                     <button id="monitor-minimize" class="monitor-btn-control">−</button>
                     <button id="monitor-close" class="monitor-btn-control">×</button>
                 </div>
             </div>
-            <div class="monitor-content">
-                <!-- 来电监听区域 -->
+            <div class="monitor-content">                
                 <div class="monitor-section">
-                    <h4>📥 来电监听</h4>
+                    <h4>📥 来电</h4>
                     <div class="monitor-status">
                         <span class="monitor-status-dot" id="incoming-status-dot"></span>
                         <span id="incoming-status-text">等待来电...</span>
@@ -228,27 +219,24 @@ class GlobalCallMonitor {
                     </div>
                 </div>
 
-                <!-- 活跃通话监控 -->
                 <div class="monitor-section">
-                    <h4>🔊 活跃通话 (<span id="active-calls-count">0</span>)</h4>
+                    <h4>🔊 通话 (<span id="active-calls-count">0</span>)</h4>
                     <div id="active-calls-list" class="monitor-calls-list">
                         <!-- 活跃通话列表 -->
                     </div>
                 </div>
 
-                <!-- 快速操作 -->
                 <div class="monitor-section">
-                    <h4>⚡ 快速操作</h4>
+                    <h4>⚡ 操作</h4>
                     <div class="monitor-quick-actions">
-                        <button id="refresh-calls" class="monitor-btn-action">刷新通话</button>
-                        <button id="view-all-monitoring" class="monitor-btn-action">查看监控页面</button>
-                        <button id="export-logs" class="monitor-btn-action">导出日志</button>
+                        <button id="refresh-calls" class="monitor-btn-action">刷新</button>
+                        <button id="view-all-monitoring" class="monitor-btn-action">监控</button>
+                        <button id="export-logs" class="monitor-btn-action">日志</button>
                     </div>
                 </div>
 
-                <!-- 事件日志 -->
                 <div class="monitor-section">
-                    <h4>📋 事件日志</h4>
+                    <h4>📋 日志</h4>
                     <div id="event-logs" class="monitor-event-logs">
                         <!-- 事件日志 -->
                     </div>
@@ -259,13 +247,13 @@ class GlobalCallMonitor {
         // 样式已移至 enterprise-theme.css，无需内联样式
 
         document.body.appendChild(monitorPanel);
-        
+
         // 创建右下角悬浮按钮
         const toggleBtn = document.createElement('div');
         toggleBtn.id = 'monitor-toggle-btn';
         toggleBtn.className = 'global-monitor-toggle';
         toggleBtn.innerHTML = `
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
             </svg>
         `;
@@ -273,22 +261,30 @@ class GlobalCallMonitor {
         toggleBtn.setAttribute('role', 'button');
         toggleBtn.setAttribute('tabindex', '0');
         document.body.appendChild(toggleBtn);
-        
+
         // 添加隐藏的音频元素
         const remoteAudio = document.createElement('audio');
         remoteAudio.id = 'global-remote-audio';
         remoteAudio.autoplay = true;
         document.body.appendChild(remoteAudio);
-        
+
         // 绑定事件
         this.bindUIEvents();
         this.setupDragFunctionality();
-        
+
         // 恢复上次保存的位置
         setTimeout(() => {
             this.restorePanelPosition();
+            // 初始化后再次检查安全区域（防止CSS加载延迟导致的尺寸问题）
+            setTimeout(() => {
+                this.detectSplitScreenMode(); // 🔧 检测分屏模式
+                this.ensureCurrentPositionSafe('初始化检查');
+            }, 200);
         }, 100);
-        
+
+        // 监听窗口大小变化，确保面板始终在安全区域内
+        this.setupWindowResizeHandler();
+
         this.ui = monitorPanel;
     }
 
@@ -308,31 +304,31 @@ class GlobalCallMonitor {
                 this.addLog('用户主动隐藏面板', 'info');
             }
         });
-        
+
         // 最小化
         document.getElementById('monitor-minimize').addEventListener('click', () => {
             this.hideUI();
             this.isUserManuallyHidden = true; // 记录用户手动隐藏
             this.addLog('用户手动最小化面板', 'info');
         });
-        
+
         // 关闭
         document.getElementById('monitor-close').addEventListener('click', () => {
             this.hideUI();
             this.isUserManuallyHidden = true; // 记录用户手动隐藏
             this.addLog('用户手动关闭面板', 'info');
         });
-        
+
         // 刷新通话
         document.getElementById('refresh-calls').addEventListener('click', () => {
             this.refreshActiveCalls();
         });
-        
+
         // 查看监控页面
         document.getElementById('view-all-monitoring').addEventListener('click', () => {
             window.open('/Monitoring/ActiveCalls', '_blank');
         });
-        
+
         // 导出日志
         document.getElementById('export-logs').addEventListener('click', () => {
             this.exportLogs();
@@ -348,18 +344,18 @@ class GlobalCallMonitor {
             console.error('监控面板标题栏未找到，无法设置拖动功能');
             return;
         }
-        
+
         // 预绑定事件处理函数，避免内存泄漏
         this.boundHandleDrag = this.handleDrag.bind(this);
         this.boundHandleDragEnd = this.handleDragEnd.bind(this);
         this.boundHandleTouchMove = this.handleTouchMove.bind(this);
         this.boundHandleTouchEnd = this.handleTouchEnd.bind(this);
-        
+
         // 鼠标拖动
         header.addEventListener('mousedown', (e) => {
             this.startDrag(e, 'mouse');
         });
-        
+
         // 触摸拖动
         header.addEventListener('touchstart', (e) => {
             this.startDrag(e, 'touch');
@@ -373,26 +369,29 @@ class GlobalCallMonitor {
         // 只响应左键点击（鼠标）或单点触摸
         if (type === 'mouse' && e.button !== 0) return;
         if (type === 'touch' && e.touches.length !== 1) return;
-        
+
         // 防止默认行为
         e.preventDefault();
         e.stopPropagation();
-        
+
         // 获取初始位置
         const clientX = type === 'mouse' ? e.clientX : e.touches[0].clientX;
         const clientY = type === 'mouse' ? e.clientY : e.touches[0].clientY;
-        
+
+        // 🔧 正确修复：获取面板在viewport中的实际位置
         const rect = this.ui.getBoundingClientRect();
+
+        // 🔧 正确修复：计算鼠标相对于面板左上角的偏移
         this.dragOffset.x = clientX - rect.left;
         this.dragOffset.y = clientY - rect.top;
-        
+
         // 设置拖动状态
         this.isDragging = true;
         this.dragType = type;
-        
+
         // 应用拖动样式
         this.applyDragStyles(true);
-        
+
         // 添加事件监听器
         if (type === 'mouse') {
             document.addEventListener('mousemove', this.boundHandleDrag);
@@ -401,8 +400,6 @@ class GlobalCallMonitor {
             document.addEventListener('touchmove', this.boundHandleTouchMove, { passive: false });
             document.addEventListener('touchend', this.boundHandleTouchEnd);
         }
-        
-        console.log('开始拖动操作:', type);
     }
 
     /**
@@ -433,7 +430,7 @@ class GlobalCallMonitor {
      */
     handleDrag(e) {
         if (!this.isDragging || this.dragType !== 'mouse') return;
-        
+
         this.updatePosition(e.clientX, e.clientY);
     }
 
@@ -442,10 +439,99 @@ class GlobalCallMonitor {
      */
     handleTouchMove(e) {
         if (!this.isDragging || this.dragType !== 'touch' || e.touches.length !== 1) return;
-        
+
         e.preventDefault(); // 防止页面滚动
         const touch = e.touches[0];
         this.updatePosition(touch.clientX, touch.clientY);
+    }
+
+    /**
+     * 安全区域检查 - 确保面板位置在屏幕范围内
+     */
+    ensureSafePosition(x, y) {
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const panelWidth = this.ui.offsetWidth || 280;
+        const panelHeight = this.ui.offsetHeight || 320;
+        const safeMargin = 10; // 安全边距
+
+        // 🔧 修复：正确的边界计算
+        // 如果viewport比面板小，使用紧急位置
+        if (viewportWidth < panelWidth + 20 || viewportHeight < panelHeight + 20) {
+            console.warn(`Viewport太小 (${viewportWidth}x${viewportHeight})，使用紧急位置`);
+            return this.getEmergencyPosition(viewportWidth, viewportHeight, panelWidth, panelHeight);
+        }
+
+        // 计算有效的边界范围
+        const minX = safeMargin;
+        const minY = safeMargin;
+        const maxX = viewportWidth - panelWidth - safeMargin;
+        const maxY = viewportHeight - panelHeight - safeMargin;
+
+        // 🔧 修复：确保边界有效
+        if (maxX < minX || maxY < minY) {
+            console.warn('计算的边界无效，使用紧急位置');
+            return this.getEmergencyPosition(viewportWidth, viewportHeight, panelWidth, panelHeight);
+        }
+
+        // 应用边界限制
+        const safeX = Math.max(minX, Math.min(x, maxX));
+        const safeY = Math.max(minY, Math.min(y, maxY));
+
+        return { x: safeX, y: safeY };
+    }
+
+    /**
+     * 紧急位置计算 - 当viewport太小时使用
+     */
+    getEmergencyPosition(viewportWidth, viewportHeight, panelWidth, panelHeight) {
+        // 🔧 修复：完善紧急位置计算
+        let emergencyX, emergencyY;
+
+        // X轴位置计算
+        if (viewportWidth >= panelWidth + 10) {
+            // 宽度足够，居中显示
+            emergencyX = Math.max(5, (viewportWidth - panelWidth) / 2);
+        } else if (viewportWidth >= panelWidth) {
+            // 刚好够宽，左对齐
+            emergencyX = Math.max(0, viewportWidth - panelWidth);
+        } else {
+            // 宽度不够，左对齐
+            emergencyX = 0;
+        }
+
+        // Y轴位置计算
+        if (viewportHeight >= panelHeight + 10) {
+            // 高度足够，顶部显示
+            emergencyY = 5;
+        } else if (viewportHeight >= panelHeight) {
+            // 刚好够高，顶部对齐
+            emergencyY = Math.max(0, viewportHeight - panelHeight);
+        } else {
+            // 高度不够，顶部对齐
+            emergencyY = 0;
+        }
+
+        return { x: emergencyX, y: emergencyY };
+    }
+
+    /**
+     * 设置面板位置（统一的位置设置方法）
+     */
+    setPanelPosition(x, y) {
+        const safePosition = this.ensureSafePosition(x, y);
+
+        // 🔧 修复：只使用CSS变量，避免与transform冲突
+        this.ui.style.setProperty('--panel-x', safePosition.x + 'px');
+        this.ui.style.setProperty('--panel-y', safePosition.y + 'px');
+
+        // 🔧 清除可能的left/top设置，避免冲突
+        this.ui.style.left = '';
+        this.ui.style.top = '';
+        this.ui.style.right = '';
+        this.ui.style.bottom = '';
+
+        return safePosition;
     }
 
     /**
@@ -454,27 +540,9 @@ class GlobalCallMonitor {
     updatePosition(clientX, clientY) {
         const newX = clientX - this.dragOffset.x;
         const newY = clientY - this.dragOffset.y;
-        
-        // 获取视口尺寸和面板尺寸
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-        const panelWidth = this.ui.offsetWidth;
-        const panelHeight = this.ui.offsetHeight;
-        
-        // 边界检查 - 确保面板完全在视口内
-        const minX = 0;
-        const minY = 0;
-        const maxX = Math.max(0, viewportWidth - panelWidth);
-        const maxY = Math.max(0, viewportHeight - panelHeight);
-        
-        const boundedX = Math.max(minX, Math.min(newX, maxX));
-        const boundedY = Math.max(minY, Math.min(newY, maxY));
-        
-        // 更新位置 - 使用left/top而不是transform，避免层叠上下文问题
-        this.ui.style.left = boundedX + 'px';
-        this.ui.style.top = boundedY + 'px';
-        this.ui.style.right = 'auto'; // 清除right定位
-        this.ui.style.bottom = 'auto'; // 清除bottom定位
+
+        // 使用统一的安全位置设置方法
+        this.setPanelPosition(newX, newY);
     }
 
     /**
@@ -482,9 +550,9 @@ class GlobalCallMonitor {
      */
     handleDragEnd(e) {
         if (!this.isDragging || this.dragType !== 'mouse') return;
-        
+
         this.endDrag();
-        
+
         // 移除鼠标事件监听器
         document.removeEventListener('mousemove', this.boundHandleDrag);
         document.removeEventListener('mouseup', this.boundHandleDragEnd);
@@ -495,9 +563,9 @@ class GlobalCallMonitor {
      */
     handleTouchEnd(e) {
         if (!this.isDragging || this.dragType !== 'touch') return;
-        
+
         this.endDrag();
-        
+
         // 移除触摸事件监听器
         document.removeEventListener('touchmove', this.boundHandleTouchMove);
         document.removeEventListener('touchend', this.boundHandleTouchEnd);
@@ -507,15 +575,13 @@ class GlobalCallMonitor {
      * 结束拖动操作
      */
     endDrag() {
-        console.log('结束拖动操作:', this.dragType);
-        
         // 重置拖动状态
         this.isDragging = false;
         this.dragType = null;
-        
+
         // 移除拖动样式
         this.applyDragStyles(false);
-        
+
         // 保存位置（可选，用于记住用户偏好）
         this.savePanelPosition();
     }
@@ -525,10 +591,13 @@ class GlobalCallMonitor {
      */
     savePanelPosition() {
         try {
-            const position = {
-                left: this.ui.style.left,
-                top: this.ui.style.top
-            };
+            // 获取当前位置（优先使用CSS变量）
+            const x = parseFloat(this.ui.style.getPropertyValue('--panel-x')) ||
+                parseFloat(this.ui.style.left) || 20;
+            const y = parseFloat(this.ui.style.getPropertyValue('--panel-y')) ||
+                parseFloat(this.ui.style.top) || 20;
+
+            const position = { x, y };
             localStorage.setItem('globalMonitorPosition', JSON.stringify(position));
         } catch (error) {
             console.warn('保存面板位置失败:', error);
@@ -543,16 +612,145 @@ class GlobalCallMonitor {
             const savedPosition = localStorage.getItem('globalMonitorPosition');
             if (savedPosition) {
                 const position = JSON.parse(savedPosition);
-                if (position.left && position.top) {
-                    this.ui.style.left = position.left;
-                    this.ui.style.top = position.top;
-                    this.ui.style.right = 'auto';
-                    console.log('已恢复面板位置:', position);
+
+                // 支持新格式 {x, y} 和旧格式 {left, top}
+                let x, y;
+                if (position.x !== undefined && position.y !== undefined) {
+                    x = position.x;
+                    y = position.y;
+                } else if (position.left && position.top) {
+                    // 兼容旧格式
+                    x = parseFloat(position.left);
+                    y = parseFloat(position.top);
+                } else {
+                    return; // 无效的位置数据
                 }
+
+                // 使用安全位置设置
+                const safePosition = this.setPanelPosition(x, y);
+            } else {
+                // 没有保存的位置，设置默认安全位置
+                this.setDefaultPosition();
             }
         } catch (error) {
             console.warn('恢复面板位置失败:', error);
+            // 出错时设置默认位置
+            this.setDefaultPosition();
         }
+    }
+
+    /**
+     * 设置默认安全位置
+     */
+    setDefaultPosition() {
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const panelWidth = this.ui.offsetWidth || 280;
+        const panelHeight = this.ui.offsetHeight || 320;
+
+        // 🔧 修复：简化并修正默认位置逻辑
+        let defaultX, defaultY;
+
+        // X轴位置：优先右上角，其次居中，最后左上角
+        if (viewportWidth >= panelWidth + 40) {
+            // 有足够空间，放在右上角
+            defaultX = viewportWidth - panelWidth - 20;
+        } else if (viewportWidth >= panelWidth + 20) {
+            // 空间较小，居中显示
+            defaultX = (viewportWidth - panelWidth) / 2;
+        } else {
+            // 空间很小，左对齐
+            defaultX = Math.max(0, Math.min(10, viewportWidth - panelWidth));
+        }
+
+        // Y轴位置：优先顶部，空间不够时调整
+        if (viewportHeight >= panelHeight + 40) {
+            defaultY = 20;
+        } else if (viewportHeight >= panelHeight + 20) {
+            defaultY = 10;
+        } else {
+            defaultY = Math.max(0, Math.min(5, viewportHeight - panelHeight));
+        }
+
+        // 🔧 最终边界检查
+        defaultX = Math.max(0, Math.min(defaultX, Math.max(0, viewportWidth - panelWidth)));
+        defaultY = Math.max(0, Math.min(defaultY, Math.max(0, viewportHeight - panelHeight)));
+
+        this.setPanelPosition(defaultX, defaultY);
+    }
+
+    /**
+     * 设置窗口大小变化处理
+     */
+    setupWindowResizeHandler() {
+        // 防抖处理，避免频繁调用
+        let resizeTimeout;
+
+        const handleResize = () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                this.handleWindowResize();
+            }, 250); // 250ms 防抖
+        };
+
+        window.addEventListener('resize', handleResize);
+
+        // 保存引用以便清理
+        this.windowResizeHandler = handleResize;
+    }
+
+    /**
+     * 处理窗口大小变化
+     */
+    handleWindowResize() {
+        if (!this.ui) return;
+
+        // 🔧 检测分屏情况
+        this.detectSplitScreenMode();
+
+        this.ensureCurrentPositionSafe('窗口大小变化');
+    }
+
+    /**
+     * 检测分屏模式并调整策略
+     */
+    detectSplitScreenMode() {
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const screenWidth = window.screen.width;
+        const screenHeight = window.screen.height;
+
+        const isLikelySplitScreen =
+            viewportWidth < screenWidth * 0.8 || // 宽度明显小于屏幕宽度
+            viewportHeight < screenHeight * 0.8;  // 高度明显小于屏幕高度
+
+        const isNarrowScreen = viewportWidth < 600; // 窄屏判断
+        const isShortScreen = viewportHeight < 500; // 矮屏判断
+
+        if (isLikelySplitScreen || isNarrowScreen || isShortScreen) {
+            this.setDefaultPosition();
+            this.addLog('检测到分屏模式，已调整面板位置', 'info');
+        }
+    }
+
+    /**
+     * 确保当前位置在安全区域内
+     */
+    ensureCurrentPositionSafe(reason = '位置检查') {
+        if (!this.ui) return;
+
+        const currentX = parseFloat(this.ui.style.getPropertyValue('--panel-x')) ||
+            parseFloat(this.ui.style.left) || 20;
+        const currentY = parseFloat(this.ui.style.getPropertyValue('--panel-y')) ||
+            parseFloat(this.ui.style.top) || 20;
+
+        const safePosition = this.setPanelPosition(currentX, currentY);
+
+        if (Math.abs(safePosition.x - currentX) > 1 || Math.abs(safePosition.y - currentY) > 1) {
+            this.addLog(`${reason}，已调整面板位置`, 'info');
+        }
+
+        return safePosition;
     }
 
     /**
@@ -561,42 +759,14 @@ class GlobalCallMonitor {
     updateToggleButtonForIncomingCall() {
         const toggleBtn = document.getElementById('monitor-toggle-btn');
         if (toggleBtn) {
-            // 添加来电提示样式
-            toggleBtn.style.animation = 'pulse 1s infinite, glow 2s infinite';
-            toggleBtn.style.background = 'linear-gradient(135deg, #FF9800, #F57C00)';
+            // 使用CSS类管理来电状态
+            toggleBtn.classList.add('incoming-call');
             toggleBtn.innerHTML = `
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
                 </svg>
             `;
             toggleBtn.title = '🔥 有新来电！点击查看监控面板';
-            toggleBtn.classList.add('incoming-call');
-            
-            // 添加增强动画CSS（如果还没有）
-            if (!document.getElementById('incoming-call-animation')) {
-                const style = document.createElement('style');
-                style.id = 'incoming-call-animation';
-                style.textContent = `
-                    @keyframes pulse {
-                        0%, 100% { transform: scale(1); }
-                        50% { transform: scale(1.15); }
-                    }
-                    @keyframes glow {
-                        0%, 100% { box-shadow: 0 6px 20px rgba(255,152,0,0.3); }
-                        50% { box-shadow: 0 6px 30px rgba(255,152,0,0.6), 0 0 20px rgba(255,152,0,0.4); }
-                    }
-                    .incoming-call {
-                        border-color: rgba(255,193,7,0.8) !important;
-                    }
-                    #monitor-toggle-btn svg {
-                        transition: all 0.3s ease;
-                    }
-                    #monitor-toggle-btn:hover svg {
-                        transform: rotate(15deg);
-                    }
-                `;
-                document.head.appendChild(style);
-            }
         }
     }
 
@@ -606,15 +776,14 @@ class GlobalCallMonitor {
     resetToggleButtonState() {
         const toggleBtn = document.getElementById('monitor-toggle-btn');
         if (toggleBtn) {
-            toggleBtn.style.animation = '';
-            toggleBtn.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
+            // 使用CSS类管理状态
+            toggleBtn.classList.remove('incoming-call');
             toggleBtn.innerHTML = `
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
                 </svg>
             `;
             toggleBtn.title = '全局通话监控 - 点击打开/关闭';
-            toggleBtn.classList.remove('incoming-call');
         }
     }
 
@@ -631,25 +800,26 @@ class GlobalCallMonitor {
      */
     avoidHomePageButtons() {
         if (!this.isOnHomePage()) return;
-        
+
         // 查找Home页面的重要按钮
         const importantButtons = this.findHomePageButtons();
-        
+
         if (importantButtons.length === 0) {
-            console.log('未找到Home页面按钮，使用默认位置');
+            this.setDefaultPosition();
             return;
         }
-        
-        // 计算安全位置
-        const safePosition = this.calculateSafePosition(importantButtons);
-        
-        if (safePosition) {
-            this.ui.style.left = safePosition.left + 'px';
-            this.ui.style.top = safePosition.top + 'px';
-            this.ui.style.right = 'auto';
-            
-            console.log('已调整面板位置避让Home按钮:', safePosition);
+
+        // 计算避让位置
+        const avoidPosition = this.calculateSafePosition(importantButtons);
+
+        if (avoidPosition) {
+            // 使用统一的安全位置设置方法
+            const finalPosition = this.setPanelPosition(avoidPosition.left, avoidPosition.top);
             this.addLog('已调整位置避让Home页面按钮', 'info');
+        } else {
+            // 如果无法找到合适的避让位置，使用默认安全位置
+            this.setDefaultPosition();
+            this.addLog('无法找到合适避让位置，使用默认位置', 'warning');
         }
     }
 
@@ -665,9 +835,9 @@ class GlobalCallMonitor {
             '.incoming-call',     // 来电区域
             '.call-info'          // 通话信息区域
         ];
-        
+
         const foundButtons = [];
-        
+
         buttonSelectors.forEach(selector => {
             const element = document.querySelector(selector);
             if (element && this.isElementVisible(element)) {
@@ -680,11 +850,9 @@ class GlobalCallMonitor {
                 });
             }
         });
-        
+
         // 按重要性排序（面积大的优先避让）
         foundButtons.sort((a, b) => b.area - a.area);
-        
-        console.log('找到Home页面重要元素:', foundButtons.map(b => b.selector));
         return foundButtons;
     }
 
@@ -693,25 +861,25 @@ class GlobalCallMonitor {
      */
     isElementVisible(element) {
         if (!element) return false;
-        
+
         const style = window.getComputedStyle(element);
-        return style.display !== 'none' && 
-               style.visibility !== 'hidden' && 
-               style.opacity !== '0' &&
-               element.offsetWidth > 0 && 
-               element.offsetHeight > 0;
+        return style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0' &&
+            element.offsetWidth > 0 &&
+            element.offsetHeight > 0;
     }
 
     /**
      * 计算安全位置（避开重要按钮）
      */
     calculateSafePosition(importantButtons) {
-        const panelWidth = this.ui.offsetWidth || 350;
-        const panelHeight = this.ui.offsetHeight || 400;
+        const panelWidth = this.ui.offsetWidth || 280; // 🔧 从350减少到280
+        const panelHeight = this.ui.offsetHeight || 320; // 🔧 从400减少到320
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
         const margin = 20; // 安全边距
-        
+
         // 候选位置（优先级从高到低）
         const candidatePositions = [
             // 左上角
@@ -727,7 +895,7 @@ class GlobalCallMonitor {
             // 中间右侧
             { left: viewportWidth - panelWidth - margin, top: (viewportHeight - panelHeight) / 2, priority: 6 }
         ];
-        
+
         // 检查每个候选位置是否与重要按钮冲突
         for (const position of candidatePositions) {
             const panelRect = {
@@ -736,9 +904,9 @@ class GlobalCallMonitor {
                 right: position.left + panelWidth,
                 bottom: position.top + panelHeight
             };
-            
+
             let hasConflict = false;
-            
+
             // 检查是否与任何重要按钮重叠
             for (const button of importantButtons) {
                 if (this.isRectOverlap(panelRect, button.rect)) {
@@ -746,15 +914,12 @@ class GlobalCallMonitor {
                     break;
                 }
             }
-            
+
             if (!hasConflict) {
-                console.log(`选择安全位置: 优先级${position.priority}`, position);
                 return position;
             }
         }
-        
-        // 如果所有位置都有冲突，选择冲突最小的位置
-        console.log('所有位置都有冲突，选择冲突最小的位置');
+
         return this.findLeastConflictPosition(candidatePositions, importantButtons, panelWidth, panelHeight);
     }
 
@@ -762,10 +927,10 @@ class GlobalCallMonitor {
      * 检查两个矩形是否重叠
      */
     isRectOverlap(rect1, rect2) {
-        return !(rect1.right < rect2.left || 
-                rect1.left > rect2.right || 
-                rect1.bottom < rect2.top || 
-                rect1.top > rect2.bottom);
+        return !(rect1.right < rect2.left ||
+            rect1.left > rect2.right ||
+            rect1.bottom < rect2.top ||
+            rect1.top > rect2.bottom);
     }
 
     /**
@@ -774,7 +939,7 @@ class GlobalCallMonitor {
     findLeastConflictPosition(positions, buttons, panelWidth, panelHeight) {
         let bestPosition = positions[0];
         let minConflictArea = Infinity;
-        
+
         for (const position of positions) {
             const panelRect = {
                 left: position.left,
@@ -782,9 +947,9 @@ class GlobalCallMonitor {
                 right: position.left + panelWidth,
                 bottom: position.top + panelHeight
             };
-            
+
             let totalConflictArea = 0;
-            
+
             for (const button of buttons) {
                 if (this.isRectOverlap(panelRect, button.rect)) {
                     // 计算重叠面积
@@ -792,14 +957,13 @@ class GlobalCallMonitor {
                     totalConflictArea += overlapArea;
                 }
             }
-            
+
             if (totalConflictArea < minConflictArea) {
                 minConflictArea = totalConflictArea;
                 bestPosition = position;
             }
         }
-        
-        console.log(`选择冲突最小位置，冲突面积: ${minConflictArea}`, bestPosition);
+
         return bestPosition;
     }
 
@@ -811,11 +975,11 @@ class GlobalCallMonitor {
         const overlapTop = Math.max(rect1.top, rect2.top);
         const overlapRight = Math.min(rect1.right, rect2.right);
         const overlapBottom = Math.min(rect1.bottom, rect2.bottom);
-        
+
         if (overlapLeft < overlapRight && overlapTop < overlapBottom) {
             return (overlapRight - overlapLeft) * (overlapBottom - overlapTop);
         }
-        
+
         return 0;
     }
 
@@ -826,19 +990,22 @@ class GlobalCallMonitor {
         try {
             // 等待全局SignalR管理器初始化
             await this.waitForGlobalSignalRManager();
-            
+
             if (window.globalSignalRManager) {
                 // 使用全局SignalR连接
                 this.signalRConnection = window.globalSignalRManager.connection;
                 this.isUsingSharedConnection = true;
                 this.addLog('使用全局SignalR连接进行监听', 'info');
-                
+
                 // 注册监控事件处理器
                 this.registerMonitoringHandlers();
+
+                // 🔧 启用SignalR事件调试
+                this.enableSignalRDebug();
             } else {
                 this.addLog('全局SignalR管理器未找到', 'error');
             }
-            
+
         } catch (error) {
             console.error('设置全局SignalR监听失败:', error);
             this.addLog('SignalR监听设置失败: ' + error.message, 'error');
@@ -852,15 +1019,13 @@ class GlobalCallMonitor {
         return new Promise((resolve) => {
             let attempts = 0;
             const maxAttempts = 20; // 最多等待10秒
-            
+
             const checkGlobalSignalR = () => {
                 attempts++;
-                
+
                 if (window.globalSignalRManager && window.globalSignalRManager.isConnected) {
-                    console.log('检测到全局SignalR管理器已就绪');
                     resolve(true);
                 } else if (attempts >= maxAttempts) {
-                    console.log('等待全局SignalR管理器超时');
                     resolve(false);
                 } else {
                     setTimeout(checkGlobalSignalR, 500);
@@ -875,27 +1040,40 @@ class GlobalCallMonitor {
      */
     registerMonitoringHandlers() {
         const handlerId = 'global-monitor';
-        
+
         // 注册来电监听
         window.globalSignalRManager.registerEventHandler(handlerId, 'inCalling', (callData) => {
             this.handleIncomingCall(callData);
         });
-        
+
         // 注册通话状态监听
         window.globalSignalRManager.registerEventHandler(handlerId, 'callAnswered', (data) => {
             this.handleCallAnswered(data);
         });
-        
+
         window.globalSignalRManager.registerEventHandler(handlerId, 'callEnded', (data) => {
             this.handleCallEnded(data);
         });
-        
+
         window.globalSignalRManager.registerEventHandler(handlerId, 'callTimeout', (data) => {
             this.handleCallTimeout(data);
         });
-        
-        console.log('全局监控事件处理器已注册');
-        
+
+        // 🔧 注册对方挂断事件
+        window.globalSignalRManager.registerEventHandler(handlerId, 'remoteHangup', (data) => {
+            this.handleRemoteHangup(data);
+        });
+
+        // 🔧 注册通话失败事件
+        window.globalSignalRManager.registerEventHandler(handlerId, 'callFailed', (data) => {
+            this.handleCallFailed(data);
+        });
+
+        // 🔧 注册网络断开事件
+        window.globalSignalRManager.registerEventHandler(handlerId, 'connectionLost', (data) => {
+            this.handleConnectionLost(data);
+        });
+
         // 页面卸载时注销处理器
         window.addEventListener('beforeunload', () => {
             if (window.globalSignalRManager) {
@@ -911,15 +1089,13 @@ class GlobalCallMonitor {
         return new Promise((resolve) => {
             let attempts = 0;
             const maxAttempts = 10; // 最多等待5秒 (10 * 500ms)
-            
+
             const checkPhoneApp = () => {
                 attempts++;
-                
+
                 if (window.phoneApp && window.phoneApp.isInitialized) {
-                    console.log('检测到PhoneApp已初始化，将复用SignalR连接');
                     resolve(true); // 找到PhoneApp
                 } else if (attempts >= maxAttempts) {
-                    console.log('未检测到PhoneApp，将创建独立SignalR连接');
                     resolve(false); // 超时，没有PhoneApp
                 } else {
                     setTimeout(checkPhoneApp, 500);
@@ -941,8 +1117,6 @@ class GlobalCallMonitor {
      * 创建独立的SignalR连接（备用方案）
      */
     async createIndependentSignalR() {
-        console.log('创建独立的全局SignalR连接...');
-        
         this.signalRConnection = new signalR.HubConnectionBuilder()
             .withUrl("/webrtc")
             .configureLogging(signalR.LogLevel.Information)
@@ -967,6 +1141,20 @@ class GlobalCallMonitor {
             this.handleCallTimeout(data);
         });
 
+        // 🔧 监听对方挂断事件
+        this.signalRConnection.on("remoteHangup", (data) => {
+            this.handleRemoteHangup(data);
+        });
+
+        // 🔧 监听其他挂断相关事件
+        this.signalRConnection.on("callFailed", (data) => {
+            this.handleCallFailed(data);
+        });
+
+        this.signalRConnection.on("connectionLost", (data) => {
+            this.handleConnectionLost(data);
+        });
+
         // 启动连接
         await this.signalRConnection.start();
         this.addLog('独立SignalR全局监听已启动', 'info');
@@ -979,10 +1167,12 @@ class GlobalCallMonitor {
         // 监听页面通话事件
         document.addEventListener('callEnded', () => {
             this.addLog('检测到通话结束事件', 'info');
+            this.handleCallEnded({ reason: 'local' });
         });
 
         document.addEventListener('remoteHangup', () => {
             this.addLog('检测到对方挂断事件', 'warning');
+            this.handleCallEnded({ reason: 'remote' });
         });
 
         // 监听网络状态
@@ -999,15 +1189,13 @@ class GlobalCallMonitor {
      * 处理来电
      */
     handleIncomingCall(callData) {
-        console.log('全局监听到来电:', callData);
-        
         // 设置当前来电
         this.currentIncomingCall = callData;
         this.isIncomingCallActive = true;
-        
+
         // 更新状态
         this.updateIncomingStatus('incoming', '检测到来电');
-        
+
         // 记录来电到历史
         const incomingCall = {
             callId: callData.callId,
@@ -1016,20 +1204,20 @@ class GlobalCallMonitor {
             timestamp: new Date(),
             isExternal: callData.isExternal || false
         };
-        
+
         this.monitoringData.incomingCalls.push(incomingCall);
-        
+
         // 根据页面类型更新UI
         if (this.isOnHomePage()) {
             this.showMonitoringMode(callData);
         } else {
             this.showFullControlMode(callData);
         }
-        
+
         // 添加日志
         const callerName = callData.caller?.sipUsername || callData.caller?.userId || '未知';
         this.addLog(`来电: ${callerName}`, 'warning');
-        
+
         // 显示监控面板（如果隐藏且用户未手动隐藏）
         if (!this.isUIVisible && !this.isUserManuallyHidden) {
             this.showUI();
@@ -1042,12 +1230,189 @@ class GlobalCallMonitor {
     }
 
     /**
+     * 事件去重检查
+     */
+    isDuplicateEvent(eventType, callId) {
+        const eventKey = `${eventType}_${callId || 'unknown'}`;
+        const now = Date.now();
+        const lastProcessed = this.lastProcessedEvents.get(eventKey);
+
+        if (lastProcessed && (now - lastProcessed) < this.eventDeduplicationTimeout) {
+            console.log(`🔄 忽略重复事件: ${eventType} (${callId})`);
+            return true;
+        }
+
+        this.lastProcessedEvents.set(eventKey, now);
+
+        // 清理过期的事件记录
+        for (const [key, timestamp] of this.lastProcessedEvents.entries()) {
+            if (now - timestamp > this.eventDeduplicationTimeout * 2) {
+                this.lastProcessedEvents.delete(key);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * 处理通话接听（SignalR事件）
+     */
+    handleCallAnswered(data) {
+        const callId = data?.callId || this.currentIncomingCall?.callId;
+        if (this.isDuplicateEvent('callAnswered', callId)) return;
+
+        if (!this.isInCall) {
+            this.isInCall = true;
+            this.isIncomingCallActive = false;
+            this.updateIncomingStatus('active', '通话进行中');
+            this.addLog('通话已接听', 'success');
+
+            // 显示通话控制界面
+            this.showCallControlUI();
+        }
+
+        // 刷新活跃通话列表
+        this.refreshActiveCalls();
+    }
+
+    /**
+     * 处理通话结束（SignalR事件）
+     */
+    handleCallEnded(data) {
+        const callId = data?.callId || this.currentIncomingCall?.callId;
+        if (this.isDuplicateEvent('callEnded', callId)) return;
+
+        const reason = data?.reason || 'unknown';
+        let logMessage = '通话已结束';
+
+        // 根据结束原因显示不同的消息
+        switch (reason) {
+            case 'remote':
+                logMessage = '对方已挂断';
+                break;
+            case 'local':
+                logMessage = '本地挂断';
+                break;
+            case 'timeout':
+                logMessage = '通话超时';
+                break;
+            case 'rejected':
+                logMessage = '通话被拒绝';
+                break;
+            case 'network':
+                logMessage = '网络断开';
+                break;
+            default:
+                logMessage = `通话结束 (${reason})`;
+        }
+
+        this.addLog(logMessage, reason === 'remote' ? 'warning' : 'info');
+
+        // 清理通话状态
+        this.endCall();
+
+        // 刷新活跃通话列表
+        this.refreshActiveCalls();
+    }
+
+    /**
+     * 处理通话超时（SignalR事件）
+     */
+    handleCallTimeout(data) {
+        this.addLog('来电超时未接听', 'warning');
+
+        // 清理当前通话状态
+        this.clearCurrentCall();
+
+        // 刷新活跃通话列表
+        this.refreshActiveCalls();
+    }
+
+    /**
+     * 处理对方挂断（SignalR事件）
+     */
+    handleRemoteHangup(data) {
+        this.addLog('对方已挂断通话', 'warning');
+
+        // 清理通话状态
+        this.endCall();
+
+        // 刷新活跃通话列表
+        this.refreshActiveCalls();
+
+        // 如果面板可见，显示提示
+        if (this.isUIVisible) {
+            this.updateIncomingStatus('ended', '对方已挂断');
+
+            // 3秒后恢复到等待状态
+            setTimeout(() => {
+                if (!this.isIncomingCallActive && !this.isInCall) {
+                    this.updateIncomingStatus('waiting', '等待来电...');
+                }
+            }, 3000);
+        }
+    }
+
+    /**
+     * 处理通话失败（SignalR事件）
+     */
+    handleCallFailed(data) {
+        const reason = data?.reason || 'unknown';
+        const errorMessage = data?.message || '通话连接失败';
+
+        this.addLog(`通话失败: ${errorMessage}`, 'error');
+
+        // 清理通话状态
+        this.clearCurrentCall();
+
+        // 显示错误状态
+        if (this.isUIVisible) {
+            this.updateIncomingStatus('error', `通话失败: ${reason}`);
+
+            // 5秒后恢复到等待状态
+            setTimeout(() => {
+                if (!this.isIncomingCallActive && !this.isInCall) {
+                    this.updateIncomingStatus('waiting', '等待来电...');
+                }
+            }, 5000);
+        }
+
+        // 刷新活跃通话列表
+        this.refreshActiveCalls();
+    }
+
+    /**
+     * 处理连接丢失（SignalR事件）
+     */
+    handleConnectionLost(data) {
+        this.addLog('网络连接丢失，通话中断', 'error');
+
+        // 清理通话状态
+        this.endCall();
+
+        // 显示连接丢失状态
+        if (this.isUIVisible) {
+            this.updateIncomingStatus('error', '网络连接丢失');
+
+            // 5秒后恢复到等待状态
+            setTimeout(() => {
+                if (!this.isIncomingCallActive && !this.isInCall) {
+                    this.updateIncomingStatus('waiting', '等待来电...');
+                }
+            }, 5000);
+        }
+
+        // 刷新活跃通话列表
+        this.refreshActiveCalls();
+    }
+
+    /**
      * 显示监控模式（Home页面）
      */
     showMonitoringMode(callData) {
         this.updateIncomingCallsUI(false); // 不显示操作按钮
         this.addLog('在Home页面，由Home系统处理来电', 'info');
-        
+
         // 在Home页面智能避让重要按钮
         this.avoidHomePageButtons();
     }
@@ -1179,8 +1544,8 @@ class GlobalCallMonitor {
             <div class="monitor-section">
                 <h4>📞 通话中</h4>
                 <div class="call-controls">
-                    <button id="global-mute-btn" class="btn-control-call btn-mute">🔇 静音</button>
-                    <button id="global-hangup-btn" class="btn-control-call btn-danger">📞 挂断</button>
+                    <button id="global-mute-btn" class="btn btn-sm btn-control-call btn-warning">🔇 静音</button>
+                    <button id="global-hangup-btn" class="btn btn-sm btn-control-call btn-danger">📞 挂断</button>
                 </div>
                 <div class="call-timer" id="global-call-timer">00:00</div>
             </div>
@@ -1209,7 +1574,7 @@ class GlobalCallMonitor {
     toggleMute() {
         const isMuted = this.webrtcManager.toggleMute();
         const muteBtn = document.getElementById('global-mute-btn');
-        
+
         if (muteBtn) {
             if (isMuted) {
                 muteBtn.textContent = '🔊 取消静音';
@@ -1271,7 +1636,7 @@ class GlobalCallMonitor {
     startCallTimer() {
         this.callStartTime = new Date();
         const timerElement = document.getElementById('global-call-timer');
-        
+
         if (timerElement) {
             timerElement.textContent = "00:00";
         }
@@ -1307,7 +1672,7 @@ class GlobalCallMonitor {
         this.callStartTime = null;
         this.updateIncomingStatus('waiting', '等待来电...');
         this.updateIncomingCallsUI(false);
-        
+
         // 重置悬浮按钮状态
         this.resetToggleButtonState();
     }
@@ -1349,7 +1714,7 @@ class GlobalCallMonitor {
     startActiveCallsPolling() {
         // 立即获取一次
         this.refreshActiveCalls();
-        
+
         // 每10秒刷新一次
         this.activeCallsPollingInterval = setInterval(() => {
             this.refreshActiveCalls();
@@ -1363,11 +1728,11 @@ class GlobalCallMonitor {
         try {
             const response = await fetch('/Monitoring/GetActiveCalls');
             const data = await response.json();
-            
+
             if (data.success) {
                 this.monitoringData.activeSessions = data.sessions;
                 this.updateActiveCallsUI();
-                
+
                 // 更新计数
                 document.getElementById('active-calls-count').textContent = data.sessions.length;
             }
@@ -1383,7 +1748,7 @@ class GlobalCallMonitor {
     updateIncomingStatus(status, text) {
         const dot = document.getElementById('incoming-status-dot');
         const statusText = document.getElementById('incoming-status-text');
-        
+
         dot.className = `status-dot ${status}`;
         statusText.textContent = text;
     }
@@ -1393,23 +1758,23 @@ class GlobalCallMonitor {
      */
     updateIncomingCallsUI(showButtons = false) {
         const container = document.getElementById('incoming-calls-list');
-        
+
         // 如果有当前来电，显示当前来电
         if (this.currentIncomingCall && this.isIncomingCallActive) {
             const call = this.currentIncomingCall;
             const callerName = call.caller?.sipUsername || call.caller?.userId || '未知来电';
-            
+
             const buttonsHtml = showButtons ? `
                 <div class="call-item-actions">
-                    <button class="btn-small btn-answer" onclick="window.globalCallMonitor.answerCall('${call.callId}')">
+                    <button class="btn btn-sm btn-success" onclick="window.globalCallMonitor.answerCall('${call.callId}')">
                         📞 接听
                     </button>
-                    <button class="btn-small btn-reject" onclick="window.globalCallMonitor.rejectCall('${call.callId}')">
+                    <button class="btn btn-sm btn-danger" onclick="window.globalCallMonitor.rejectCall('${call.callId}')">
                         ❌ 拒接
                     </button>
                 </div>
             ` : '';
-            
+
             container.innerHTML = `
                 <div class="call-item incoming current-call">
                     <div class="call-item-header">
@@ -1423,19 +1788,19 @@ class GlobalCallMonitor {
             `;
             return;
         }
-        
+
         // 显示历史来电
         const recentCalls = this.monitoringData.incomingCalls.slice(-3); // 显示最近3个历史来电
-        
+
         if (recentCalls.length === 0) {
             container.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">暂无来电</div>';
             return;
         }
-        
+
         container.innerHTML = recentCalls.map(call => {
             const callerName = call.caller?.sipUsername || call.caller?.userId || '未知来电';
             const timeStr = call.timestamp.toLocaleTimeString();
-            
+
             return `
                 <div class="call-item">
                     <div class="call-item-header">
@@ -1454,18 +1819,18 @@ class GlobalCallMonitor {
      */
     updateActiveCallsUI() {
         const container = document.getElementById('active-calls-list');
-        
+
         if (this.monitoringData.activeSessions.length === 0) {
             container.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">暂无活跃通话</div>';
             return;
         }
-        
+
         container.innerHTML = this.monitoringData.activeSessions.map(session => {
             const duration = Math.floor(session.duration);
             const minutes = Math.floor(duration / 60);
             const seconds = duration % 60;
             const durationStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-            
+
             return `
                 <div class="call-item">
                     <div class="call-item-header">
@@ -1475,7 +1840,7 @@ class GlobalCallMonitor {
                     <div>用户ID: ${session.userId}</div>
                     <div>通话ID: ${session.callId}</div>
                     <div class="call-item-actions">
-                        <button class="btn-small btn-monitor" onclick="window.open('/Monitoring/Monitor?userId=${session.userId}&callId=${session.callId}', '_blank')">
+                        <button class="btn btn-sm btn-danger" onclick="window.open('/Monitoring/Monitor?userId=${session.userId}&callId=${session.callId}', '_blank')">
                             监听
                         </button>
                     </div>
@@ -1490,16 +1855,16 @@ class GlobalCallMonitor {
     addLog(message, type = 'info') {
         const container = document.getElementById('event-logs');
         const time = new Date().toLocaleTimeString();
-        
+
         const logEntry = document.createElement('div');
         logEntry.className = `log-entry ${type}`;
         logEntry.innerHTML = `
             <span class="log-time">${time}</span>
             <span>${message}</span>
         `;
-        
+
         container.insertBefore(logEntry, container.firstChild);
-        
+
         // 保持最多50条日志
         while (container.children.length > 50) {
             container.removeChild(container.lastChild);
@@ -1524,7 +1889,7 @@ class GlobalCallMonitor {
         this.ui.style.display = 'block';
         this.isUIVisible = true;
         this.refreshActiveCalls(); // 显示时刷新数据
-        
+
         // 如果在Home页面，检查是否需要避让
         if (this.isOnHomePage()) {
             setTimeout(() => {
@@ -1551,10 +1916,10 @@ class GlobalCallMonitor {
             activeSessions: this.monitoringData.activeSessions,
             callEvents: this.monitoringData.callEvents
         };
-        
+
         const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        
+
         const a = document.createElement('a');
         a.href = url;
         a.download = `call-monitor-logs-${new Date().toISOString().slice(0, 19)}.json`;
@@ -1562,7 +1927,7 @@ class GlobalCallMonitor {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
+
         this.addLog('日志已导出', 'info');
     }
 
@@ -1580,19 +1945,112 @@ class GlobalCallMonitor {
     }
 
     /**
+     * 公共方法：手动触发安全区域检查
+     * 可以在页面布局变化后调用此方法确保面板位置安全
+     */
+    checkSafePosition() {
+        return this.ensureCurrentPositionSafe('手动检查');
+    }
+
+    /**
+     * 公共方法：重置面板到安全位置
+     * 当面板超出可视范围时可以调用此方法
+     */
+    resetToSafePosition() {
+        this.detectSplitScreenMode();
+        this.setDefaultPosition();
+        this.addLog('面板已重置到安全位置', 'info');
+
+        // 如果面板隐藏，显示它
+        if (!this.isUIVisible) {
+            this.showUI();
+        }
+
+        return this.getStatus();
+    }
+
+    /**
+     * 公共方法：启用SignalR事件调试（仅记录，不处理）
+     */
+    enableSignalRDebug() {
+        console.log('启用SignalR事件调试模式');
+
+        // 🔧 修复：只记录事件，不重复处理
+        if (window.globalSignalRManager && window.globalSignalRManager.connection) {
+            const connection = window.globalSignalRManager.connection;
+
+            // 监听所有可能的事件，但只用于调试记录
+            const possibleEvents = [
+                'callEnded',        // 通话结束
+                'callTimeout',      // 通话超时
+                'remoteHangup',     // 对方挂断
+                'callFailed',       // 通话失败
+                'connectionLost'    // 连接丢失
+            ];
+
+            // 🔧 修复：使用不同的处理器ID避免冲突
+            const debugHandlerId = 'global-monitor-debug';
+
+            possibleEvents.forEach(eventName => {
+                window.globalSignalRManager.registerEventHandler(debugHandlerId, eventName, (data) => {
+                    console.log(`🔥 [DEBUG] 收到SignalR事件: ${eventName}`, data);
+                    this.addLog(`[调试] 收到事件: ${eventName}`, 'info');
+                    // 🔧 修复：不在这里处理事件，避免重复处理
+                });
+            });
+
+            this.addLog('SignalR调试模式已启用', 'info');
+        }
+    }
+
+    /**
+     * 公共方法：获取当前viewport信息（调试用）
+     */
+    getViewportInfo() {
+        const info = {
+            viewport: {
+                width: window.innerWidth,
+                height: window.innerHeight
+            },
+            screen: {
+                width: window.screen.width,
+                height: window.screen.height
+            },
+            panel: {
+                width: this.ui?.offsetWidth || 280,
+                height: this.ui?.offsetHeight || 320,
+                actualWidth: this.ui?.offsetWidth,
+                actualHeight: this.ui?.offsetHeight
+            },
+            currentPosition: {
+                x: parseFloat(this.ui?.style.getPropertyValue('--panel-x')) || 0,
+                y: parseFloat(this.ui?.style.getPropertyValue('--panel-y')) || 0
+            },
+            dragState: {
+                isDragging: this.isDragging,
+                dragType: this.dragType,
+                dragOffset: this.dragOffset
+            },
+            uiState: {
+                isVisible: this.isUIVisible,
+                isUserManuallyHidden: this.isUserManuallyHidden
+            }
+        };
+
+        return info;
+    }
+
+    /**
      * 清理资源
      */
     cleanup() {
-        console.log('清理全局监控资源...');
-        
-        // 停止轮询
         if (this.activeCallsPollingInterval) {
             clearInterval(this.activeCallsPollingInterval);
         }
-        
+
         // 停止通话计时器
         this.stopCallTimer();
-        
+
         // 移除拖动事件监听器
         if (this.boundHandleDrag) {
             document.removeEventListener('mousemove', this.boundHandleDrag);
@@ -1606,36 +2064,40 @@ class GlobalCallMonitor {
         if (this.boundHandleTouchEnd) {
             document.removeEventListener('touchend', this.boundHandleTouchEnd);
         }
-        
+
+        // 移除窗口大小变化监听器
+        if (this.windowResizeHandler) {
+            window.removeEventListener('resize', this.windowResizeHandler);
+            this.windowResizeHandler = null;
+        }
+
         // 确保拖动状态被重置
-    
-        
+
+
         // 恢复body样式
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
-        
+
         // 清理WebRTC资源
         this.webrtcManager.cleanup();
-        
+
         // 如果使用的是独立连接，才关闭SignalR连接
-        if (this.signalRConnection && 
+        if (this.signalRConnection &&
             this.signalRConnection !== window.phoneApp?.signalRManager?.connection) {
             this.signalRConnection.stop();
-            console.log('独立SignalR连接已关闭');
         } else {
             console.log('使用共享SignalR连接，不关闭连接');
         }
-        
+
         // 隐藏UI
         if (this.ui) {
             this.ui.style.display = 'none';
         }
-        
+
         // 重置状态
         this.clearCurrentCall();
-        
+
         this.isActive = false;
-        console.log('全局监控资源清理完成');
     }
 }
 
@@ -1645,16 +2107,7 @@ window.GlobalCallMonitor = GlobalCallMonitor;
 // 页面加载完成后自动启动
 document.addEventListener('DOMContentLoaded', () => {
     window.globalCallMonitor = new GlobalCallMonitor();
-    console.log('全局通话监控系统已加载');
 });
-
-// 调试函数
-window.debugGlobalMonitor = () => {
-    if (window.globalCallMonitor) {
-        console.log('全局监控状态:', window.globalCallMonitor.getStatus());
-        console.log('监控数据:', window.globalCallMonitor.monitoringData);
-    }
-};
 
 // 系统完整性检查函数
 window.checkGlobalMonitorSystem = () => {
@@ -1664,7 +2117,7 @@ window.checkGlobalMonitorSystem = () => {
         issues: [],
         recommendations: []
     };
-    
+
     // 检查全局SignalR管理器
     if (window.globalSignalRManager) {
         results.components.globalSignalR = {
@@ -1673,7 +2126,7 @@ window.checkGlobalMonitorSystem = () => {
             state: window.globalSignalRManager.connection?.state || 'unknown',
             handlersCount: window.globalSignalRManager.eventHandlers?.size || 0
         };
-        
+
         if (!window.globalSignalRManager.isConnected) {
             results.issues.push('全局SignalR连接未建立');
             results.recommendations.push('检查网络连接和服务器状态');
@@ -1683,7 +2136,7 @@ window.checkGlobalMonitorSystem = () => {
         results.issues.push('全局SignalR管理器未加载');
         results.recommendations.push('检查global-signalr-manager.js是否正确加载');
     }
-    
+
     // 检查全局监控
     if (window.globalCallMonitor) {
         const status = window.globalCallMonitor.getStatus();
@@ -1695,7 +2148,7 @@ window.checkGlobalMonitorSystem = () => {
             signalRConnected: status.signalRConnected,
             usingSharedConnection: status.usingSharedConnection
         };
-        
+
         if (!status.isActive) {
             results.issues.push('全局监控未激活');
             results.recommendations.push('检查监控初始化过程');
@@ -1705,22 +2158,22 @@ window.checkGlobalMonitorSystem = () => {
         results.issues.push('全局监控未加载');
         results.recommendations.push('检查global-call-monitor.js是否正确加载');
     }
-    
+
     // 检查UI组件
     const monitorPanel = document.getElementById('global-monitor-panel');
     const toggleBtn = document.getElementById('monitor-toggle-btn');
-    
+
     results.components.ui = {
         monitorPanel: !!monitorPanel,
         toggleButton: !!toggleBtn,
         panelVisible: monitorPanel?.style.display !== 'none'
     };
-    
+
     if (!monitorPanel || !toggleBtn) {
         results.issues.push('监控UI组件缺失');
         results.recommendations.push('检查UI创建过程');
     }
-    
+
     // 检查Home页面集成（如果在Home页面）
     if (window.phoneApp) {
         results.components.homeIntegration = {
@@ -1735,19 +2188,15 @@ window.checkGlobalMonitorSystem = () => {
             note: '不在Home页面或PhoneApp未加载'
         };
     }
-    
+
     // 生成总结
     results.summary = {
         totalIssues: results.issues.length,
-        systemHealth: results.issues.length === 0 ? 'healthy' : 
-                     results.issues.length <= 2 ? 'warning' : 'critical',
-        readyForUse: results.components.globalSignalR?.connected && 
-                    results.components.globalMonitor?.active
+        systemHealth: results.issues.length === 0 ? 'healthy' :
+            results.issues.length <= 2 ? 'warning' : 'critical',
+        readyForUse: results.components.globalSignalR?.connected &&
+            results.components.globalMonitor?.active
     };
-    
-    console.log('=== 全局监控系统检查报告 ===');
-    console.log(results);
-    console.log('=== 检查报告结束 ===');
-    
+
     return results;
 };

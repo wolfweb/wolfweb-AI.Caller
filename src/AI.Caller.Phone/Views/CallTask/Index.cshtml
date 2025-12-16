@@ -59,7 +59,7 @@
                             <td>@Html.DisplayFor(modelItem => item.CompletedAt)</td>
                             <td>
                                 <div class="btn-group btn-group-sm">
-                                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-outline-secondary details-btn me-1"><i class="bi bi-info-circle"></i></a>
+                                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-secondary details-btn me-1"><i class="bi bi-info-circle"></i></a>
                                     @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Completed || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.CompletedWithFailures || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Cancelled || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Failed) {
                                         <form asp-action="Delete" asp-route-id="@item.Id" method="post" class="inline" onsubmit="return confirm('确定要删除此任务吗？');">
                                             @Html.AntiForgeryToken()

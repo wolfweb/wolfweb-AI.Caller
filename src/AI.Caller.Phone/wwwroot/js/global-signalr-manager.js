@@ -9,7 +9,7 @@ class GlobalSignalRManager {
         this.eventHandlers = new Map(); // 存储各页面的事件处理器
         this.heartbeatInterval = null;
         this.heartbeatIntervalMs = 5000;
-        
+
         // 自动初始化
         this.initialize();
     }
@@ -19,13 +19,13 @@ class GlobalSignalRManager {
      */
     async initialize() {
         console.log('初始化全局SignalR连接...');
-        
+
         try {
             this.createConnection();
             this.setupConnectionEvents();
             await this.startConnection();
             this.startHeartbeat();
-            
+
             console.log('全局SignalR连接已建立');
         } catch (error) {
             console.error('全局SignalR连接失败:', error);
@@ -117,6 +117,27 @@ class GlobalSignalRManager {
         this.connection.on("receiveIceCandidate", (candidate) => {
             this.notifyAllHandlers('receiveIceCandidate', candidate);
         });
+
+        // 🔧 添加缺失的通话结束相关事件
+        this.connection.on("callEnded", (data) => {
+            console.log('全局SignalR收到callEnded:', data);
+            this.notifyAllHandlers('callEnded', data);
+        });
+
+        this.connection.on("remoteHangup", (data) => {
+            console.log('全局SignalR收到remoteHangup:', data);
+            this.notifyAllHandlers('remoteHangup', data);
+        });
+
+        this.connection.on("callFailed", (data) => {
+            console.log('全局SignalR收到callFailed:', data);
+            this.notifyAllHandlers('callFailed', data);
+        });
+
+        this.connection.on("connectionLost", (data) => {
+            console.log('全局SignalR收到connectionLost:', data);
+            this.notifyAllHandlers('connectionLost', data);
+        });
     }
 
     /**
@@ -194,12 +215,12 @@ class GlobalSignalRManager {
         if (!this.eventHandlers.has(handlerId)) {
             this.eventHandlers.set(handlerId, new Map());
         }
-        
+
         const handlerEvents = this.eventHandlers.get(handlerId);
         if (!handlerEvents.has(eventType)) {
             handlerEvents.set(eventType, []);
         }
-        
+
         handlerEvents.get(eventType).push(callback);
         console.log(`已注册事件处理器: ${handlerId} -> ${eventType}`);
     }
@@ -239,7 +260,7 @@ class GlobalSignalRManager {
         if (!this.isConnected) {
             throw new Error('SignalR连接未建立');
         }
-        
+
         try {
             return await this.connection.invoke(methodName, ...args);
         } catch (error) {
@@ -264,16 +285,16 @@ class GlobalSignalRManager {
      */
     cleanup() {
         console.log('清理全局SignalR资源...');
-        
+
         this.stopHeartbeat();
-        
+
         if (this.connection) {
             this.connection.stop();
         }
-        
+
         this.eventHandlers.clear();
         this.isConnected = false;
-        
+
         console.log('全局SignalR资源清理完成');
     }
 }

@@ -1686,8 +1686,14 @@ form a+a {
 /* ==================== 全局监控面板样式 ==================== */
 .global-monitor-panel {
   position: fixed;
-  width: 350px;
-  max-height: 80vh;
+  top: 0;
+  /* 🔧 设置基准位置 */
+  left: 0;
+  /* 🔧 设置基准位置 */
+  width: 280px;
+  /* 🔧 从350px减少到280px */
+  max-height: 70vh;
+  /* 🔧 从80vh减少到70vh */
   background: linear-gradient(145deg, var(--bg-primary), var(--bg-secondary));
   border-radius: 0;
   box-shadow: var(--shadow-lg);
@@ -1713,7 +1719,8 @@ form a+a {
 
 .monitor-header {
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-  padding: 12px 16px;
+  padding: 8px 12px;
+  /* 🔧 从12px 16px减少到8px 12px */
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1733,7 +1740,8 @@ form a+a {
 
 .monitor-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 12px;
+  /* 🔧 从14px减少到12px */
   color: white;
 }
 
@@ -1743,14 +1751,18 @@ form a+a {
 }
 
 .monitor-btn-control {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  /* 🔧 从24px减少到20px */
+  height: 20px;
+  /* 🔧 从24px减少到20px */
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
+  /* 🔧 从4px减少到3px */
   background: rgba(255, 255, 255, 0.2);
   color: white;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 10px;
+  /* 🔧 从12px减少到10px */
   font-weight: bold;
   transition: background 0.2s ease;
 }
@@ -1760,22 +1772,29 @@ form a+a {
 }
 
 .monitor-content {
-  padding: 16px;
-  max-height: calc(80vh - 60px);
+  padding: 10px;
+  /* 🔧 从16px减少到10px */
+  max-height: calc(70vh - 50px);
+  /* 🔧 调整高度计算 */
   overflow-y: auto;
 }
 
 .monitor-section {
-  margin-bottom: 16px;
-  padding: 12px;
+  margin-bottom: 10px;
+  /* 🔧 从16px减少到10px */
+  padding: 8px;
+  /* 🔧 从12px减少到8px */
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
+  border-radius: 6px;
+  /* 🔧 从8px减少到6px */
   border: 1px solid var(--border-color);
 }
 
 .monitor-section h4 {
-  margin: 0 0 8px 0;
-  font-size: 12px;
+  margin: 0 0 6px 0;
+  /* 🔧 从8px减少到6px */
+  font-size: 11px;
+  /* 🔧 从12px减少到11px */
   color: var(--success);
   font-weight: 500;
 }
@@ -1808,18 +1827,33 @@ form a+a {
   background: var(--success);
 }
 
+.monitor-status-dot.ended {
+  background: var(--warning);
+}
+
+.monitor-status-dot.error {
+  background: var(--danger);
+  animation: pulse-glow 0.5s infinite;
+}
+
 .monitor-calls-list {
-  max-height: 120px;
+  max-height: 80px;
+  /* 🔧 从120px减少到80px */
   overflow-y: auto;
 }
 
 .monitor-call-item {
-  padding: 8px;
-  margin-bottom: 4px;
+  padding: 6px;
+  /* 🔧 从8px减少到6px */
+  margin-bottom: 3px;
+  /* 🔧 从4px减少到3px */
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  font-size: 11px;
-  border-left: 3px solid var(--success);
+  border-radius: 3px;
+  /* 🔧 从4px减少到3px */
+  font-size: 10px;
+  /* 🔧 从11px减少到10px */
+  border-left: 2px solid var(--success);
+  /* 🔧 从3px减少到2px */
   transition: all 0.3s ease;
 }
 
@@ -1906,17 +1940,23 @@ form a+a {
 }
 
 .monitor-event-logs {
-  max-height: 100px;
+  max-height: 60px;
+  /* 🔧 从100px减少到60px */
   overflow-y: auto;
   background: rgba(0, 0, 0, 0.3);
-  border-radius: 4px;
-  padding: 8px;
+  border-radius: 3px;
+  /* 🔧 从4px减少到3px */
+  padding: 6px;
+  /* 🔧 从8px减少到6px */
 }
 
 .monitor-log-entry {
-  font-size: 10px;
-  margin-bottom: 4px;
-  padding: 4px;
+  font-size: 9px;
+  /* 🔧 从10px减少到9px */
+  margin-bottom: 2px;
+  /* 🔧 从4px减少到2px */
+  padding: 3px;
+  /* 🔧 从4px减少到3px */
   border-radius: 2px;
   border-left: 2px solid var(--success);
 }
@@ -1937,10 +1977,14 @@ form a+a {
 /* 悬浮按钮样式 */
 .global-monitor-toggle {
   position: fixed;
-  bottom: 30px;
-  right: 30px;
-  width: 60px;
-  height: 60px;
+  bottom: 20px;
+  /* 🔧 从30px减少到20px */
+  right: 20px;
+  /* 🔧 从30px减少到20px */
+  width: 50px;
+  /* 🔧 从60px减少到50px */
+  height: 50px;
+  /* 🔧 从60px减少到50px */
   background: linear-gradient(135deg, var(--primary), var(--primary-dark));
   border-radius: 50%;
   display: flex;
@@ -1950,9 +1994,11 @@ form a+a {
   z-index: 9999;
   box-shadow: var(--shadow-md);
   color: white;
-  font-size: 24px;
+  font-size: 20px;
+  /* 🔧 从24px减少到20px */
   transition: all 0.3s ease;
-  border: 3px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  /* 🔧 从3px减少到2px */
 }
 
 .global-monitor-toggle:hover {
@@ -2047,15 +2093,70 @@ form a+a {
 /* 响应式设计 */
 @media (max-width: 768px) {
   .global-monitor-toggle {
-    bottom: 20px;
-    right: 20px;
-    width: 55px;
-    height: 55px;
-    font-size: 22px;
+    bottom: 15px;
+    /* 🔧 进一步减少 */
+    right: 15px;
+    /* 🔧 进一步减少 */
+    width: 45px;
+    /* 🔧 从55px减少到45px */
+    height: 45px;
+    /* 🔧 从55px减少到45px */
+    font-size: 18px;
+    /* 🔧 从22px减少到18px */
   }
 
   .global-monitor-panel {
-    width: calc(100vw - 40px);
-    max-width: 350px;
+    width: calc(100vw - 30px);
+    /* 🔧 从40px减少到30px */
+    max-width: 280px;
+    /* 🔧 从350px减少到280px */
+  }
+
+  .monitor-content {
+    padding: 8px;
+    /* 🔧 移动端进一步减少内边距 */
+  }
+
+  .monitor-section {
+    padding: 6px;
+    /* 🔧 移动端进一步减少内边距 */
+    margin-bottom: 8px;
+    /* 🔧 减少间距 */
+  }
+}
+
+/* 🔧 新增：超小屏幕优化 */
+@media (max-width: 480px) {
+  .global-monitor-panel {
+    width: calc(100vw - 20px);
+    max-width: 260px;
+  }
+
+  .monitor-header {
+    padding: 6px 8px;
+  }
+
+  .monitor-title {
+    font-size: 11px;
+  }
+
+  .monitor-btn-control {
+    width: 18px;
+    height: 18px;
+    font-size: 9px;
+  }
+
+  .monitor-content {
+    padding: 6px;
+  }
+
+  .monitor-section {
+    padding: 4px;
+    margin-bottom: 6px;
+  }
+
+  .monitor-section h4 {
+    font-size: 10px;
+    margin-bottom: 4px;
   }
 }
