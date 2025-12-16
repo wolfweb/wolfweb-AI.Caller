@@ -53,15 +53,15 @@
                         </td>
                         <td>
                             <div class="btn-group btn-group-sm">
-                                <button type="button" class="btn btn-sm btn-outline-success me-1 test-tts-btn"
+                                <button type="button" class="btn btn-sm btn-outline-success test-tts-btn"
                                     data-text="@item.Content" 
                                     data-rate="@item.SpeechRate.ToString("F1")"
                                     title="播放测试">
                                     <i class="bi bi-play-circle"></i>
                                 </button>
-                                <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-outline-primary me-1" title="编辑"><i class="bi bi-pencil"></i></a>
-                                <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-outline-primary me-1" title="详情"><i class="bi bi-info-lg"></i></a>
-                                <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-outline-danger me-1" title="删除"><i class="bi bi-trash"></i></a>
+                                <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-outline-primary" title="编辑"><i class="bi bi-pencil"></i></a>
+                                <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-outline-primary" title="详情"><i class="bi bi-info-lg"></i></a>
+                                <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-outline-danger" title="删除"><i class="bi bi-trash"></i></a>
                             </div>
                         </td>
                     </tr>

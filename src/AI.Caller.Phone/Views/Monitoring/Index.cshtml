@@ -72,8 +72,8 @@
                             <td>
                                 @if (!session.EndTime.HasValue)
                                 {
-                                    <a asp-action="Monitor" asp-route-userId="@session.CallId" asp-route-callId="@session.CallId" class="btn btn-sm btn-primary">
-                                        <i class="bi bi-eye"></i> 继续监听
+                                    <a asp-action="Monitor" asp-route-userId="@session.CallId" asp-route-callId="@session.CallId" class="btn btn-sm btn-primary" title="继续监听">
+                                        <i class="bi bi-eye"></i> 
                                     </a>
                                 }
                             </td>

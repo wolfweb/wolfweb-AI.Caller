@@ -1095,38 +1095,6 @@ textarea.form-control {
   resize: vertical;
 }
 
-/* ==================== 按钮组样式 ==================== */
-.btn-group .btn {
-  margin: 0;
-  border-radius: 0;
-  /* 无圆角 */
-}
-
-.btn-group .btn:first-child {
-  border-radius: 0;
-  /* 无圆角 */
-}
-
-.btn-group .btn:last-child {
-  border-radius: 0;
-  /* 无圆角 */
-}
-
-.btn-group-vertical .btn {
-  border-radius: 0;
-  /* 无圆角 */
-}
-
-.btn-group-vertical .btn:first-child {
-  border-radius: 0;
-  /* 无圆角 */
-}
-
-.btn-group-vertical .btn:last-child {
-  border-radius: 0;
-  /* 无圆角 */
-}
-
 /* ==================== 面包屑导航样式 ==================== */
 .breadcrumb {
   background: rgba(30, 33, 57, 0.5);
@@ -1430,9 +1398,6 @@ small,
 /* ==================== 去除所有剩余圆角 ==================== */
 /* 确保所有元素都是直角 */
 
-* {
-  border-radius: 0 !important;
-}
 
 /* 但保留圆形元素（如头像、图标） */
 .rounded-circle {
@@ -1453,41 +1418,11 @@ small,
   border-radius: 50% !important;
 }
 
-/* 保留加载动画的圆角 */
-.loading-spinner {
-  border-radius: 50% !important;
-}
-
-/* 保留进度条圆形指示器 */
-.spinner-border,
-.spinner-grow {
-  border-radius: 50% !important;
-}
 
 /* 保留 Toast 通知的轻微圆角 */
 .toast {
   border-radius: 4px !important;
 }
-
-/* 保留徽章的轻微圆角（可选） */
-.badge-pill {
-  border-radius: 10rem !important;
-}
-
-/* ==================== 增强对比度的辅助类 ==================== */
-.text-high-contrast {
-  color: #FFFFFF !important;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-}
-
-.bg-high-contrast {
-  background: rgba(10, 14, 39, 0.95) !important;
-}
-
-.border-high-contrast {
-  border-color: rgba(255, 255, 255, 0.2) !important;
-}
-
 
 /* ==================== 联系人管理页面样式 ==================== */
 
@@ -1582,9 +1517,11 @@ small,
   0% {
     transform: scale(1);
   }
+
   50% {
     transform: scale(1.02);
   }
+
   100% {
     transform: scale(1);
   }
@@ -1679,27 +1616,28 @@ small,
 
 /* 响应式设计 */
 @media (max-width: 768px) {
+
   .contact-card,
   .contact-row {
     flex-wrap: wrap;
     padding: 1rem;
   }
-  
+
   .contact-info {
     flex: 1 1 100%;
     margin-bottom: 0.75rem;
   }
-    
+
   .page-icon {
     width: 50px;
     height: 50px;
     font-size: 1.5rem;
   }
-  
+
   .page-title {
     font-size: 1.5rem;
   }
-  
+
   .page-subtitle {
     font-size: 0.9rem;
   }
@@ -1711,11 +1649,11 @@ small,
     height: 40px;
     font-size: 1.5rem;
   }
-  
+
   .contact-name {
     font-size: 1rem;
   }
-  
+
   .contact-phone {
     font-size: 0.85rem;
   }
@@ -1731,16 +1669,6 @@ small,
   margin-bottom: 0;
 }
 
-/* 表单按钮间距 */
-form .btn {
-  margin-top: 1rem;
-  margin-right: 0.5rem;
-}
-
-form .btn:last-child {
-  margin-right: 0;
-}
-
 /* 表单底部按钮组 */
 form .btn-group {
   margin-top: 1rem;
@@ -1748,9 +1676,386 @@ form .btn-group {
 }
 
 /* 表单内多个按钮的间距 */
-form button + button,
-form button + a,
-form a + button,
-form a + a {
+form button+button,
+form button+a,
+form a+button,
+form a+a {
   margin-left: 0.5rem;
+}
+
+/* ==================== 全局监控面板样式 ==================== */
+.global-monitor-panel {
+  position: fixed;
+  width: 350px;
+  max-height: 80vh;
+  background: linear-gradient(145deg, var(--bg-primary), var(--bg-secondary));
+  border-radius: 0;
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+  font-family: 'Segoe UI', sans-serif;
+  z-index: 10000;
+  overflow: hidden;
+  display: none;
+  border: 1px solid var(--border-color);
+  transform: translate(var(--panel-x, 20px), var(--panel-y, 20px));
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.global-monitor-panel.dragging {
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  z-index: 10001;
+  transition: none;
+}
+
+.global-monitor-panel.visible {
+  display: block;
+}
+
+.monitor-header {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.monitor-header:hover {
+  background: linear-gradient(135deg, var(--primary-light), var(--primary));
+}
+
+.monitor-header:active {
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+}
+
+.monitor-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: white;
+}
+
+.monitor-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.monitor-btn-control {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
+  transition: background 0.2s ease;
+}
+
+.monitor-btn-control:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.monitor-content {
+  padding: 16px;
+  max-height: calc(80vh - 60px);
+  overflow-y: auto;
+}
+
+.monitor-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.monitor-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: var(--success);
+  font-weight: 500;
+}
+
+.monitor-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.monitor-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: background 0.3s ease;
+}
+
+.monitor-status-dot.waiting {
+  background: var(--text-tertiary);
+}
+
+.monitor-status-dot.incoming {
+  background: var(--warning);
+  animation: pulse-glow 1s infinite;
+}
+
+.monitor-status-dot.active {
+  background: var(--success);
+}
+
+.monitor-calls-list {
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.monitor-call-item {
+  padding: 8px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-size: 11px;
+  border-left: 3px solid var(--success);
+  transition: all 0.3s ease;
+}
+
+.monitor-call-item.incoming {
+  border-left-color: var(--warning);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.monitor-call-item.current-call {
+  border-left-color: var(--success);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.monitor-call-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.monitor-call-user {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.monitor-call-time {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.monitor-call-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.monitor-btn-small {
+  padding: 2px 6px;
+  font-size: 10px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  color: white;
+  transition: opacity 0.2s ease;
+}
+
+.monitor-btn-small:hover {
+  opacity: 0.8;
+}
+
+.monitor-btn-small.btn-monitor {
+  background: var(--info);
+}
+
+.monitor-btn-small.btn-answer {
+  background: var(--success);
+}
+
+.monitor-btn-small.btn-reject {
+  background: var(--danger);
+}
+
+.monitor-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.monitor-btn-action {
+  padding: 6px 10px;
+  font-size: 11px;
+  border: none;
+  border-radius: 4px;
+  background: linear-gradient(135deg, var(--success), #45a049);
+  color: white;
+  cursor: pointer;
+  flex: 1;
+  min-width: 80px;
+  transition: transform 0.2s ease;
+}
+
+.monitor-btn-action:hover {
+  transform: translateY(-1px);
+}
+
+.monitor-event-logs {
+  max-height: 100px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.monitor-log-entry {
+  font-size: 10px;
+  margin-bottom: 4px;
+  padding: 4px;
+  border-radius: 2px;
+  border-left: 2px solid var(--success);
+}
+
+.monitor-log-entry.warning {
+  border-left-color: var(--warning);
+}
+
+.monitor-log-entry.error {
+  border-left-color: var(--danger);
+}
+
+.monitor-log-time {
+  color: var(--text-tertiary);
+  margin-right: 8px;
+}
+
+/* 悬浮按钮样式 */
+.global-monitor-toggle {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 9999;
+  box-shadow: var(--shadow-md);
+  color: white;
+  font-size: 24px;
+  transition: all 0.3s ease;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+}
+
+.global-monitor-toggle:hover {
+  transform: scale(1.1);
+  box-shadow: var(--shadow-lg);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.global-monitor-toggle:active {
+  transform: scale(0.95);
+}
+
+.global-monitor-toggle.incoming-call {
+  animation: pulse-glow 1s infinite, monitor-glow 2s infinite;
+  background: linear-gradient(135deg, var(--warning), #F57C00);
+  border-color: rgba(255, 193, 7, 0.8);
+}
+
+/* 通话控制区域 */
+.monitor-call-control {
+  border: 2px solid var(--success);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  animation: callPulse 2s infinite;
+}
+
+@keyframes callPulse {
+
+  0%,
+  100% {
+    border-color: var(--success);
+  }
+
+  50% {
+    border-color: #81C784;
+  }
+}
+
+.monitor-call-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.monitor-btn-call-control {
+  padding: 8px 12px;
+  font-size: 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: white;
+  flex: 1;
+  transition: opacity 0.2s ease;
+}
+
+.monitor-btn-call-control:hover {
+  opacity: 0.8;
+}
+
+.monitor-btn-call-control.btn-mute {
+  background: var(--warning);
+}
+
+.monitor-btn-call-control.btn-mute.muted {
+  background: var(--danger);
+}
+
+.monitor-btn-call-control.btn-danger {
+  background: var(--danger);
+}
+
+.monitor-call-timer {
+  text-align: center;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--success);
+}
+
+/* 动画效果 */
+@keyframes monitor-glow {
+
+  0%,
+  100% {
+    box-shadow: var(--shadow-md);
+  }
+
+  50% {
+    box-shadow: 0 6px 30px rgba(255, 152, 0, 0.6), 0 0 20px rgba(255, 152, 0, 0.4);
+  }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .global-monitor-toggle {
+    bottom: 20px;
+    right: 20px;
+    width: 55px;
+    height: 55px;
+    font-size: 22px;
+  }
+
+  .global-monitor-panel {
+    width: calc(100vw - 40px);
+    max-width: 350px;
+  }
 }

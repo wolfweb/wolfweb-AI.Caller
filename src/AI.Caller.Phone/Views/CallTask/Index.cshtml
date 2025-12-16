@@ -59,44 +59,41 @@
                             <td>@Html.DisplayFor(modelItem => item.CompletedAt)</td>
                             <td>
                                 <div class="btn-group btn-group-sm">
-                                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-outline-secondary details-btn"><i class="bi bi-info-circle"></i></a>
+                                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-outline-secondary details-btn me-1"><i class="bi bi-info-circle"></i></a>
                                     @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Completed || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.CompletedWithFailures || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Cancelled || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Failed) {
-                                        <form asp-action="Delete" asp-route-id="@item.Id" method="post" style="display:inline;" onsubmit="return confirm('确定要删除此任务吗？');">
+                                        <form asp-action="Delete" asp-route-id="@item.Id" method="post" class="inline" onsubmit="return confirm('确定要删除此任务吗？');">
                                             @Html.AntiForgeryToken()
-                                            <button type="submit" class="btn btn-outline-danger delete-btn"><i class="bi bi-trash"></i></button>
+                                            <button type="submit" class="btn btn-sm btn-outline-danger delete-btn me-1"><i class="bi bi-trash"></i></button>
+                                        </form>
+                                    }
+                                    @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Processing) {
+                                        <form asp-action="Pause" asp-route-id="@item.Id" method="post" class="inline">
+                                            @Html.AntiForgeryToken()
+                                            <button type="submit" class="btn btn-sm btn-warning btn-neon me-1" title="暂停"><i class="bi bi-pause"></i></button>
+                                        </form>
+                                    }
+                    
+                                    @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Paused) {
+                                        <form asp-action="Resume" asp-route-id="@item.Id" method="post" class="inline">
+                                            @Html.AntiForgeryToken()
+                                            <button type="submit" class="btn btn-sm btn-success btn-neon me-1" title="恢复"><i class="bi bi-play"></i></button>
+                                        </form>
+                                    }
+
+                                    @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.CompletedWithFailures || (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Completed && item.FailedCount > 0)) {
+                                        <form asp-action="RetryFailed" asp-route-id="@item.Id" method="post" class="inline">
+                                            @Html.AntiForgeryToken()
+                                            <button type="submit" class="btn btn-sm btn-primary btn-neon me-1" title="重试失败项"><i class="bi bi-arrow-clockwise"></i></button>
+                                        </form>
+                                    }
+
+                                    @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Processing || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Paused || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Queued) {
+                                        <form asp-action="Cancel" asp-route-id="@item.Id" method="post" class="inline">
+                                            @Html.AntiForgeryToken()
+                                            <button type="submit" class="btn btn-sm btn-danger btn-neon me-1" title="取消"><i class="bi bi-ban"></i></button>
                                         </form>
                                     }
                                 </div>
-                    
-                                @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Processing) {
-                                    <form asp-action="Pause" asp-route-id="@item.Id" method="post" style="display:inline;">
-                                        @Html.AntiForgeryToken()
-                                        <button type="submit" class="btn btn-sm btn-warning btn-neon">暂停</button>
-                                    </form>
-                                }
-                    
-                                @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Paused) {
-                                    <form asp-action="Resume" asp-route-id="@item.Id" method="post" style="display:inline;">
-                                        @Html.AntiForgeryToken()
-                                        <button type="submit" class="btn btn-sm btn-success btn-neon">恢复</button>
-                                    </form>
-                                }
-
-                                @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.CompletedWithFailures || (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Completed && item.FailedCount > 0)) {
-                                    <form asp-action="RetryFailed" asp-route-id="@item.Id" method="post" style="display:inline;">
-                                        @Html.AntiForgeryToken()
-                                        <button type="submit" class="btn btn-sm btn-primary btn-neon">重试失败项</button>
-                                    </form>
-                                }
-
-                                @if (item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Processing || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Paused || item.Status == AI.Caller.Phone.Entities.BatchJobStatus.Queued) {
-                                    <form asp-action="Cancel" asp-route-id="@item.Id" method="post" style="display:inline;">
-                                        @Html.AntiForgeryToken()
-                                        <button type="submit" class="btn btn-sm btn-danger btn-neon">取消</button>
-                                    </form>
-                                }
-
-                                
                             </td>
                         </tr>
                     }

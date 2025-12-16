@@ -206,23 +206,24 @@ class GlobalCallMonitor {
         // 创建悬浮监控面板
         const monitorPanel = document.createElement('div');
         monitorPanel.id = 'global-monitor-panel';
+        monitorPanel.className = 'global-monitor-panel';
         monitorPanel.innerHTML = `
             <div class="monitor-header">
                 <span class="monitor-title">📞 全局通话监控</span>
                 <div class="monitor-controls">
-                    <button id="monitor-minimize" class="btn-control">−</button>
-                    <button id="monitor-close" class="btn-control">×</button>
+                    <button id="monitor-minimize" class="monitor-btn-control">−</button>
+                    <button id="monitor-close" class="monitor-btn-control">×</button>
                 </div>
             </div>
             <div class="monitor-content">
                 <!-- 来电监听区域 -->
                 <div class="monitor-section">
                     <h4>📥 来电监听</h4>
-                    <div class="incoming-status">
-                        <span class="status-dot" id="incoming-status-dot"></span>
+                    <div class="monitor-status">
+                        <span class="monitor-status-dot" id="incoming-status-dot"></span>
                         <span id="incoming-status-text">等待来电...</span>
                     </div>
-                    <div id="incoming-calls-list" class="calls-list">
+                    <div id="incoming-calls-list" class="monitor-calls-list">
                         <!-- 来电列表 -->
                     </div>
                 </div>
@@ -230,7 +231,7 @@ class GlobalCallMonitor {
                 <!-- 活跃通话监控 -->
                 <div class="monitor-section">
                     <h4>🔊 活跃通话 (<span id="active-calls-count">0</span>)</h4>
-                    <div id="active-calls-list" class="calls-list">
+                    <div id="active-calls-list" class="monitor-calls-list">
                         <!-- 活跃通话列表 -->
                     </div>
                 </div>
@@ -238,376 +239,31 @@ class GlobalCallMonitor {
                 <!-- 快速操作 -->
                 <div class="monitor-section">
                     <h4>⚡ 快速操作</h4>
-                    <div class="quick-actions">
-                        <button id="refresh-calls" class="btn-action">刷新通话</button>
-                        <button id="view-all-monitoring" class="btn-action">查看监控页面</button>
-                        <button id="export-logs" class="btn-action">导出日志</button>
+                    <div class="monitor-quick-actions">
+                        <button id="refresh-calls" class="monitor-btn-action">刷新通话</button>
+                        <button id="view-all-monitoring" class="monitor-btn-action">查看监控页面</button>
+                        <button id="export-logs" class="monitor-btn-action">导出日志</button>
                     </div>
                 </div>
 
                 <!-- 事件日志 -->
                 <div class="monitor-section">
                     <h4>📋 事件日志</h4>
-                    <div id="event-logs" class="event-logs">
+                    <div id="event-logs" class="monitor-event-logs">
                         <!-- 事件日志 -->
                     </div>
                 </div>
             </div>
         `;
 
-        // 添加样式
-        const style = document.createElement('style');
-        style.textContent = `
-            #global-monitor-panel {
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                width: 350px;
-                max-height: 80vh;
-                background: linear-gradient(145deg, #1a1a1a, #2d2d2d);
-                border-radius: 12px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-                color: white;
-                font-family: 'Segoe UI', sans-serif;
-                z-index: 10000;
-                overflow: hidden;
-                display: none;
-                border: 1px solid rgba(255,255,255,0.1);
-            }
-            
-            #global-monitor-panel.dragging {
-                box-shadow: 0 12px 48px rgba(0,0,0,0.6);
-                z-index: 10001; /* 确保拖动时在最上层 */
-            }
-            
-            .monitor-header {
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                padding: 12px 16px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                cursor: move;
-                /* 拖动优化 - 简化版本 */
-                touch-action: none;
-                user-select: none;
-                /* 平滑过渡 */
-                transition: background 0.2s ease;
-            }
-            
-            .monitor-header:hover {
-                background: linear-gradient(135deg, #7c8df0, #8a5cb8);
-            }
-            
-            .monitor-header:active {
-                background: linear-gradient(135deg, #5a6fd8, #6a4a98);
-            }
-            
-            .monitor-title {
-                font-weight: 600;
-                font-size: 14px;
-            }
-            
-            .monitor-controls {
-                display: flex;
-                gap: 8px;
-            }
-            
-            .btn-control {
-                width: 24px;
-                height: 24px;
-                border: none;
-                border-radius: 4px;
-                background: rgba(255,255,255,0.2);
-                color: white;
-                cursor: pointer;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            
-            .btn-control:hover {
-                background: rgba(255,255,255,0.3);
-            }
-            
-            .monitor-content {
-                padding: 16px;
-                max-height: calc(80vh - 60px);
-                overflow-y: auto;
-            }
-            
-            .monitor-section {
-                margin-bottom: 16px;
-                padding: 12px;
-                background: rgba(255,255,255,0.05);
-                border-radius: 8px;
-                border: 1px solid rgba(255,255,255,0.1);
-            }
-            
-            .monitor-section h4 {
-                margin: 0 0 8px 0;
-                font-size: 12px;
-                color: #4CAF50;
-                font-weight: 500;
-            }
-            
-            .incoming-status {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin-bottom: 8px;
-            }
-            
-            .status-dot {
-                width: 8px;
-                height: 8px;
-                border-radius: 50%;
-                background: #666;
-            }
-            
-            .status-dot.waiting { background: #666; }
-            .status-dot.incoming { background: #FF9800; animation: pulse 1s infinite; }
-            .status-dot.active { background: #4CAF50; }
-            
-            @keyframes pulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.5; }
-            }
-            
-            .calls-list {
-                max-height: 120px;
-                overflow-y: auto;
-            }
-            
-            .call-item {
-                padding: 8px;
-                margin-bottom: 4px;
-                background: rgba(255,255,255,0.1);
-                border-radius: 4px;
-                font-size: 11px;
-                border-left: 3px solid #4CAF50;
-            }
-            
-            .call-item.incoming {
-                border-left-color: #FF9800;
-                background: rgba(255,152,0,0.1);
-            }
-            
-            .call-item-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 4px;
-            }
-            
-            .call-item-user {
-                font-weight: 500;
-                color: #fff;
-            }
-            
-            .call-item-time {
-                color: #aaa;
-                font-size: 10px;
-            }
-            
-            .call-item-actions {
-                display: flex;
-                gap: 4px;
-                margin-top: 4px;
-            }
-            
-            .btn-small {
-                padding: 2px 6px;
-                font-size: 10px;
-                border: none;
-                border-radius: 3px;
-                cursor: pointer;
-                color: white;
-            }
-            
-            .btn-monitor { background: #2196F3; }
-            .btn-answer { background: #4CAF50; }
-            .btn-reject { background: #F44336; }
-            
-            .quick-actions {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 6px;
-            }
-            
-            .btn-action {
-                padding: 6px 10px;
-                font-size: 11px;
-                border: none;
-                border-radius: 4px;
-                background: linear-gradient(135deg, #4CAF50, #45a049);
-                color: white;
-                cursor: pointer;
-                flex: 1;
-                min-width: 80px;
-            }
-            
-            .btn-action:hover {
-                transform: translateY(-1px);
-            }
-            
-            .event-logs {
-                max-height: 100px;
-                overflow-y: auto;
-                background: rgba(0,0,0,0.3);
-                border-radius: 4px;
-                padding: 8px;
-            }
-            
-            .log-entry {
-                font-size: 10px;
-                margin-bottom: 4px;
-                padding: 4px;
-                border-radius: 2px;
-                border-left: 2px solid #4CAF50;
-            }
-            
-            .log-entry.warning { border-left-color: #FF9800; }
-            .log-entry.error { border-left-color: #F44336; }
-            
-            .log-time {
-                color: #888;
-                margin-right: 8px;
-            }
-            
-            /* 悬浮按钮 - 右下角圆形 */
-            #monitor-toggle-btn {
-                position: fixed;
-                bottom: 30px;
-                right: 30px;
-                width: 60px;
-                height: 60px;
-                background: linear-gradient(135deg, #667eea, #764ba2);
-                border-radius: 50% !important;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                cursor: pointer;
-                z-index: 9999;
-                box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-                color: white;
-                font-size: 24px;
-                transition: all 0.3s ease;
-                border: 3px solid rgba(255,255,255,0.2);
-                /* 确保圆形 */
-                min-width: 60px;
-                min-height: 60px;
-                max-width: 60px;
-                max-height: 60px;
-                overflow: hidden;
-            }
-            
-            #monitor-toggle-btn:hover {
-                transform: scale(1.1);
-                box-shadow: 0 8px 25px rgba(0,0,0,0.4);
-                border-color: rgba(255,255,255,0.4);
-            }
-            
-            #monitor-toggle-btn:active {
-                transform: scale(0.95);
-            }
-            
-            /* 悬浮按钮响应式设计 */
-            @media (max-width: 768px) {
-                #monitor-toggle-btn {
-                    bottom: 20px;
-                    right: 20px;
-                    width: 55px;
-                    height: 55px;
-                    font-size: 22px;
-                    /* 移动端也确保圆形 */
-                    min-width: 55px;
-                    min-height: 55px;
-                    max-width: 55px;
-                    max-height: 55px;
-                    border-radius: 50% !important;
-                }
-            }
-            
-            /* 通话控制区域 */
-            .call-control-section {
-                border: 2px solid #4CAF50;
-                border-radius: 8px;
-                margin-bottom: 16px;
-                animation: callPulse 2s infinite;
-            }
-            
-            @keyframes callPulse {
-                0%, 100% { border-color: #4CAF50; }
-                50% { border-color: #81C784; }
-            }
-            
-            .call-controls {
-                display: flex;
-                gap: 8px;
-                margin-bottom: 8px;
-            }
-            
-            .btn-control-call {
-                padding: 8px 12px;
-                font-size: 12px;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                color: white;
-                flex: 1;
-            }
-            
-            .btn-control-call.btn-mute {
-                background: #FF9800;
-            }
-            
-            .btn-control-call.btn-mute.muted {
-                background: #F44336;
-            }
-            
-            .btn-control-call.btn-danger {
-                background: #F44336;
-            }
-            
-            .btn-control-call:hover {
-                opacity: 0.8;
-            }
-            
-            .call-timer {
-                text-align: center;
-                font-size: 14px;
-                font-weight: bold;
-                color: #4CAF50;
-            }
-            
-            .current-call {
-                border-left-color: #4CAF50 !important;
-                background: rgba(76, 175, 80, 0.1) !important;
-            }
-            
-            .btn-answer {
-                background: #4CAF50 !important;
-            }
-            
-            .btn-reject {
-                background: #F44336 !important;
-            }
-            
-            .btn-answer:hover, .btn-reject:hover {
-                opacity: 0.8;
-            }
-            
-            /* 隐藏音频元素 */
-            #global-remote-audio {
-                display: none;
-            }
-        `;
-        
-        document.head.appendChild(style);
+        // 样式已移至 enterprise-theme.css，无需内联样式
+
         document.body.appendChild(monitorPanel);
         
         // 创建右下角悬浮按钮
         const toggleBtn = document.createElement('div');
         toggleBtn.id = 'monitor-toggle-btn';
+        toggleBtn.className = 'global-monitor-toggle';
         toggleBtn.innerHTML = `
             <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
