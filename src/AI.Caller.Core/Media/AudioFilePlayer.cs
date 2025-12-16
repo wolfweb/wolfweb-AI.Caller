@@ -1,5 +1,5 @@
-using Microsoft.Extensions.Logging;
 using AI.Caller.Core.Media.Encoders;
+using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
 namespace AI.Caller.Core.Media;
@@ -16,11 +16,10 @@ public class AudioFilePlayer : IDisposable {
     private const int SamplesPerFrame = SampleRate * FrameSizeMs / 1000; // 160 samples
     private const int BytesPerFrame = SamplesPerFrame * 2; // 16-bit PCM = 2 bytes per sample
 
-    public AudioFilePlayer(ILogger logger) {
-        _logger = logger;
+    public AudioFilePlayer(ILoggerFactory loggerFactory) {
+        _logger = loggerFactory.CreateLogger<AudioFilePlayer>();
 
         try {
-            var loggerFactory = LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.Warning));
             var g711Logger = loggerFactory.CreateLogger<G711Codec>();
             _g711Codec = new G711Codec(g711Logger, SampleRate, 1);
             _logger.LogDebug("G711Codec initialized for AudioFilePlayer");

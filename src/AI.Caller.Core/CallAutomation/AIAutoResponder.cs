@@ -2,10 +2,10 @@
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Vad;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
-using System.Threading.Channels;
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Threading.Channels;
 
 namespace AI.Caller.Core {
     public sealed partial class AIAutoResponder : IAsyncDisposable {
@@ -15,6 +15,7 @@ namespace AI.Caller.Core {
         private readonly G711Codec _g711Codec;
         private readonly byte[] _g711SilenceFrame;
         private readonly IVoiceActivityDetector _vad;
+        private readonly ILoggerFactory _loggerFactory;
         private readonly Channel<byte[]> _jitterBuffer;
         private readonly ArrayPool<byte> _bytePool = ArrayPool<byte>.Shared;        
         private readonly ConcurrentDictionary<int, AudioResamplerCrossType<float, byte>> _resamplerCache = new();
@@ -43,16 +44,17 @@ namespace AI.Caller.Core {
         private volatile bool _shouldStopPlayout = false;
 
         public AIAutoResponder(
-            ILogger logger,
+            ILoggerFactory loggerFactory,
             ITTSEngine tts,
             IVoiceActivityDetector vad,
             MediaProfile profile,
             G711Codec g711Codec) {
             _tts = tts;
             _vad = vad;
-            _logger = logger;
+            _logger = loggerFactory.CreateLogger<AIAutoResponder>();
             _profile = profile;
             _g711Codec = g711Codec;
+            _loggerFactory = loggerFactory;
 
             _jitterBuffer = Channel.CreateUnbounded<byte[]>();
 

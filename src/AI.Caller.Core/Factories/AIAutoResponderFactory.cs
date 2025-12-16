@@ -10,6 +10,7 @@ namespace AI.Caller.Core {
         private readonly ILogger _logger;
         private readonly ITTSEngine _ttsEngine;
         private readonly G711Codec _g711;
+        private readonly ILoggerFactory _loggerFactory;
 
         public AIAutoResponderFactory(
             ILogger<AIAutoResponder> logger,
@@ -17,6 +18,7 @@ namespace AI.Caller.Core {
             ILoggerFactory loggerFactory) {
             _logger = logger;
             _ttsEngine = ttsEngine;
+            _loggerFactory = loggerFactory;
             _g711 = new G711Codec(loggerFactory.CreateLogger<G711Codec>());
         }
 
@@ -42,7 +44,7 @@ namespace AI.Caller.Core {
             );
 
             var autoResponder = new AIAutoResponder(
-                _logger, 
+                _loggerFactory, 
                 _ttsEngine, 
                 vad, 
                 profile, 

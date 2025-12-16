@@ -1,4 +1,5 @@
 using AI.Caller.Core.Media;
+using DnsClient.Internal;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
@@ -39,7 +40,7 @@ public sealed partial class AIAutoResponder {
             _logger.LogInformation("开始播放录音文件: {FilePath}", filePath);
 
             // 创建AudioFilePlayer实例来加载音频文件
-            using var audioFilePlayer = new AudioFilePlayer(_logger);
+            using var audioFilePlayer = new AudioFilePlayer(_loggerFactory);
             var frames = await audioFilePlayer.LoadAsync(filePath);
 
             if (frames == null || frames.Count == 0) {

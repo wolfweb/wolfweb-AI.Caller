@@ -18,7 +18,7 @@ public class DtmfCollector {
     private char _backspaceKey;
     private TimeSpan? _timeout;
 
-    public DtmfCollector(ILogger logger) {
+    public DtmfCollector(ILogger<DtmfCollector> logger) {
         _logger = logger;
     }
 

@@ -148,12 +148,10 @@
                             <div class="input-group">
                                 <input type="text" id="filePath" class="form-control" 
                                        placeholder="选择录音方式..." readonly />
-                                <button type="button" class="btn btn-outline-secondary" 
-                                        onclick="showFileUpload()">
+                                <button type="button" id="showFileUploadBtn" class="btn btn-outline-secondary">
                                     <i class="bi bi-upload"></i> 上传文件
                                 </button>
-                                <button type="button" class="btn btn-outline-primary" 
-                                        onclick="toggleRecordingPanel()">
+                                <button type="button" id="toggleRecordingBtn" class="btn btn-outline-primary">
                                     <i class="bi bi-mic-fill"></i> 在线录制
                                 </button>
                             </div>
@@ -297,7 +295,7 @@
 
 @section Scripts {
     @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script src="~/lib/sortablejs/Sortable.min.js"></script>
     
     <!-- PhoneApp 命名空间 -->
     <script src="~/js/phone-namespace.js" asp-append-version="true"></script>
@@ -557,9 +555,21 @@
         }
         
         /**
-         * 文件上传处理
+         * 文件上传处理和按钮事件绑定
          */
         document.addEventListener('DOMContentLoaded', function() {
+            // 绑定"在线录制"按钮事件
+            const toggleRecordingBtn = document.getElementById('toggleRecordingBtn');
+            if (toggleRecordingBtn) {
+                toggleRecordingBtn.addEventListener('click', toggleRecordingPanel);
+            }
+            
+            // 绑定"上传文件"按钮事件
+            const showFileUploadBtn = document.getElementById('showFileUploadBtn');
+            if (showFileUploadBtn) {
+                showFileUploadBtn.addEventListener('click', showFileUpload);
+            }
+            
             const fileInput = document.getElementById('audioFileInput');
             if (fileInput) {
                 fileInput.addEventListener('change', async (e) => {

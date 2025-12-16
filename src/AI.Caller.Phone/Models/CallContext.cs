@@ -10,8 +10,9 @@ namespace AI.Caller.Phone.Models {
         public Caller?       Caller { get; set; }
         public Callee?       Callee { get; set; }
 
-        public DateTime      CreatedAt     { get; set; } = DateTime.UtcNow;
-        public CallState     State         { get; set; } = CallState.Initiating;        
+        public DateTime      CreatedAt       { get; set; } = DateTime.UtcNow;
+        public CallState     State           { get; set; } = CallState.Initiating;        
+        public bool          IsServerCalling { get; set; }
         
         public bool          IsActive => State != CallState.Ended && State != CallState.Failed;
         public TimeSpan      Duration => DateTime.UtcNow - CreatedAt;

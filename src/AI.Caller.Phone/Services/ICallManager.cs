@@ -171,7 +171,7 @@ namespace AI.Caller.Phone.Services {
 
             if (aiSettings.Enabled) {
                 if (routingResult.Strategy == CallHandlingStrategy.WebToWeb) {
-                    callScenario = scope.ServiceProvider.GetRequiredService<WebToServerScenario>();
+                    callScenario = ctx.IsServerCalling ? scope.ServiceProvider.GetRequiredService<ServerToWebScenario>() : scope.ServiceProvider.GetRequiredService<WebToServerScenario>();
                 } else if (routingResult.Strategy == CallHandlingStrategy.NonWebToWeb) {
                     callScenario = scope.ServiceProvider.GetRequiredService<MobileToServerScenario>();
                 }
@@ -234,8 +234,8 @@ namespace AI.Caller.Phone.Services {
             ICallScenario callScenario = scenario switch {
                 CallScenario.WebToWeb => scope.ServiceProvider.GetRequiredService<WebToWebScenario>(),
                 CallScenario.WebToMobile => scope.ServiceProvider.GetRequiredService<WebToMobileScenario>(),
-                CallScenario.ServerToWeb => scope.ServiceProvider.GetRequiredService<ServerToWebScenario>(),
                 CallScenario.WebToServer => scope.ServiceProvider.GetRequiredService<WebToServerScenario>(),
+                CallScenario.ServerToWeb => scope.ServiceProvider.GetRequiredService<ServerToWebScenario>(),
                 CallScenario.ServerToMobile => scope.ServiceProvider.GetRequiredService<ServerToMobileScenario>(),
                 _ => throw new ArgumentException($"不支持的通话场景: {scenario}")
             };
@@ -737,18 +737,15 @@ namespace AI.Caller.Phone.Services {
         private readonly ILogger _logger;
         private readonly SIPClientPoolManager _poolManager;
         private readonly IHubContext<WebRtcHub> _hubContext;
-        private readonly IServiceScopeFactory _serviceScopeFactory;
 
         public MobileToWebScenario(
             ILogger<MobileToWebScenario> logger,
-            IServiceScopeFactory serviceScopeFactory,
             IHubContext<WebRtcHub> hubContext,
             SIPClientPoolManager poolManager
         ) : base(logger) {
             _logger              = logger;
             _hubContext          = hubContext;
             _poolManager         = poolManager;
-            _serviceScopeFactory = serviceScopeFactory;
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
@@ -835,7 +832,7 @@ namespace AI.Caller.Phone.Services {
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
             if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
             if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
-            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, false, callContext.RoutingInfo);
+            var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true, callContext.RoutingInfo);
             if (handle == null) return false;
 
             handle.Client.Accept(sipRequest);
@@ -881,6 +878,7 @@ namespace AI.Caller.Phone.Services {
 
             callContext.Type = CallScenario.ServerToWeb;
             callContext.Caller!.Client = handle;
+            callContext.IsServerCalling = true;
 
             var fromTag = GenerateFromTag(callerUser, callContext);
             var fromHeader = new SIPFromHeader(callerUser.Username, new SIPURI(callerUser.SipAccount.SipUsername, callerUser.SipAccount.SipServer, $"id={fromTag}"), fromTag);
@@ -965,15 +963,12 @@ namespace AI.Caller.Phone.Services {
     public class ServerToMobileScenario : CallScenarioBase {
         private readonly ILogger _logger;
         private readonly SIPClientPoolManager _poolManager;
-        private readonly IHubContext<WebRtcHub> _hubContext;
 
         public ServerToMobileScenario(
             ILogger<ServerToMobileScenario> logger,
-            IHubContext<WebRtcHub> hubContext,
             SIPClientPoolManager poolManager
             ) : base(logger) {
             _logger = logger;
-            _hubContext = hubContext;
             _poolManager = poolManager;
         }
 
@@ -985,6 +980,7 @@ namespace AI.Caller.Phone.Services {
 
             callContext.Type = CallScenario.ServerToMobile;
             callContext.Caller!.Client = handle;
+            callContext.IsServerCalling = true;
 
             var fromTag = GenerateFromTag(callerUser, callContext);
             var fromHeader = new SIPFromHeader(callerUser.Username, new SIPURI(callerUser.SipAccount.SipUsername, callerUser.SipAccount.SipServer, $"id={fromTag}"), fromTag);
@@ -997,17 +993,14 @@ namespace AI.Caller.Phone.Services {
     public class MobileToServerScenario : CallScenarioBase {
         private readonly ILogger _logger;
         private readonly SIPClientPoolManager _poolManager;
-        private readonly IHubContext<WebRtcHub> _hubContext;
         private readonly ICallFlowOrchestrator _orchestrator;
 
         public MobileToServerScenario(
             ILogger<MobileToServerScenario> logger,
-            IHubContext<WebRtcHub> hubContext,
             SIPClientPoolManager poolManager,
             ICallFlowOrchestrator orchestrator
             ) : base(logger) {
             _logger = logger;
-            _hubContext = hubContext;
             _poolManager = poolManager;
             _orchestrator = orchestrator;
         }

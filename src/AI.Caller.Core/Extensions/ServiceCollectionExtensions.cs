@@ -1,3 +1,4 @@
+using AI.Caller.Core.CallAutomation;
 using AI.Caller.Core.Interfaces;
 using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Adapters;
@@ -10,6 +11,8 @@ namespace AI.Caller.Core.Extensions {
         public static IServiceCollection AddAIAutoResponder(this IServiceCollection services) {            
             services.TryAddSingleton<ITTSEngine, TTSEngineAdapter>();
             services.TryAddSingleton<G711Codec>();
+            services.TryAddScoped<AudioFilePlayer>();
+            services.TryAddScoped<DtmfCollector>();
             services.TryAddSingleton<IAIAutoResponderFactory, AIAutoResponderFactory>();
 
             services.TryAddTransient<IAudioBridge, AudioBridge>();
