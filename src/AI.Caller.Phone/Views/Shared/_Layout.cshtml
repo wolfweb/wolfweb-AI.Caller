@@ -136,6 +136,15 @@
     </footer>
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    
+    @if (User.Identity.IsAuthenticated)
+    {
+        <script src="~/js/global-signalr-manager.js"></script>        
+        <!-- 全局通话监控 - 在所有页面中启用 -->
+        @await Html.PartialAsync("_GlobalMonitor")
+    }
+    
     @RenderSection("Scripts", required: false)
 </body>
 </html>

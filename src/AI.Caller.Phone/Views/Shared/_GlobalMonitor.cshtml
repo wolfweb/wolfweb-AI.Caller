@@ -1,0 +1,20 @@
+
+@if (User.Identity?.IsAuthenticated == true)
+{   
+    <script src="~/js/global-call-monitor.js"></script>
+    
+    <script>
+        // 全局监控已在 global-call-monitor.js 中自动初始化
+        // 这里只需要确认组件已激活
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('全局通话监控组件已在页面中激活');
+            
+            // 验证全局监控是否正常运行
+            if (window.globalCallMonitor) {
+                console.log('全局监控实例已存在，状态:', window.globalCallMonitor.getStatus());
+            } else {
+                console.warn('全局监控实例未找到，可能初始化失败');
+            }
+        });
+    </script>
+}

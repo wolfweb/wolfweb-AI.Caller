@@ -12,19 +12,130 @@ class SignalRManager {
         this.reconnectAttempts = 0;
         this.heartbeatInterval = null;
         this.heartbeatIntervalMs = 5000; // 5秒心跳间隔
+        this.usingGlobalConnection = false; // 标记是否使用全局连接
     }
 
     async initialize() {
-        this.createConnection();
-        this.setupConnectionEvents();
-        this.setupCallEvents();
-        this.setupRecordingEvents();
-        
-        await this.startConnection();
-        this.startHeartbeat();
+        // 使用全局SignalR连接
+        await this.useGlobalConnection();
+        this.setupPageSpecificHandlers();
     }
 
-    createConnection() {
+    /**
+     * 使用全局SignalR连接
+     */
+    async useGlobalConnection() {
+        // 等待全局SignalR管理器初始化
+        await this.waitForGlobalSignalR();
+        
+        if (window.globalSignalRManager) {
+            this.connection = window.globalSignalRManager.connection;
+            console.log('Home页面已连接到全局SignalR');
+            
+            // 注册页面特定的事件处理器（只通过全局管理器注册）
+            this.registerWithGlobalManager();
+            
+            // 标记使用全局连接，避免重复注册
+            this.usingGlobalConnection = true;
+        } else {
+            console.error('全局SignalR管理器未找到，回退到独立连接');
+            this.createIndependentConnection();
+        }
+    }
+
+    /**
+     * 等待全局SignalR管理器
+     */
+    async waitForGlobalSignalR() {
+        return new Promise((resolve) => {
+            let attempts = 0;
+            const maxAttempts = 20; // 最多等待10秒
+            
+            const checkGlobalSignalR = () => {
+                attempts++;
+                
+                if (window.globalSignalRManager && window.globalSignalRManager.isConnected) {
+                    resolve();
+                } else if (attempts >= maxAttempts) {
+                    console.warn('等待全局SignalR超时');
+                    resolve();
+                } else {
+                    setTimeout(checkGlobalSignalR, 500);
+                }
+            };
+            
+            checkGlobalSignalR();
+        });
+    }
+
+    /**
+     * 向全局管理器注册事件处理器
+     */
+    registerWithGlobalManager() {
+        const handlerId = 'home-page';
+        
+        // 注册来电处理器
+        window.globalSignalRManager.registerEventHandler(handlerId, 'inCalling', (callData) => {
+            this.handleIncomingCall(callData);
+        });
+        
+        // 注册其他事件处理器
+        window.globalSignalRManager.registerEventHandler(handlerId, 'callTrying', (data) => {
+            this.handleCallTrying(data);
+        });
+        
+        window.globalSignalRManager.registerEventHandler(handlerId, 'callRinging', (data) => {
+            this.handleCallRinging(data);
+        });
+        
+        window.globalSignalRManager.registerEventHandler(handlerId, 'callAnswered', (data) => {
+            this.handleCallAnswered(data);
+        });
+        
+        window.globalSignalRManager.registerEventHandler(handlerId, 'answered', (data) => {
+            this.handleAnswered(data);
+        });
+        
+        window.globalSignalRManager.registerEventHandler(handlerId, 'callTimeout', (data) => {
+            this.handleCallTimeout(data);
+        });
+        
+        window.globalSignalRManager.registerEventHandler(handlerId, 'sdpAnswered', (answerDesc) => {
+            this.handleSdpAnswered(answerDesc);
+        });
+        
+        window.globalSignalRManager.registerEventHandler(handlerId, 'receiveIceCandidate', (candidate) => {
+            this.handleIceCandidate(candidate);
+        });
+        
+        // 注册录音事件处理器
+        window.globalSignalRManager.registerEventHandler(handlerId, 'recordingStarted', (data) => {
+            if (window.phoneApp && window.phoneApp.recordingManager) {
+                window.phoneApp.recordingManager.handleRecordingStarted(data);
+            }
+        });
+        
+        window.globalSignalRManager.registerEventHandler(handlerId, 'recordingStopped', (data) => {
+            if (window.phoneApp && window.phoneApp.recordingManager) {
+                window.phoneApp.recordingManager.handleRecordingStopped(data);
+            }
+        });
+        
+        window.globalSignalRManager.registerEventHandler(handlerId, 'recordingError', (data) => {
+            if (window.phoneApp && window.phoneApp.recordingManager) {
+                window.phoneApp.recordingManager.handleRecordingError(data);
+            }
+        });
+        
+        console.log('Home页面事件处理器已注册到全局SignalR管理器');
+    }
+
+    /**
+     * 创建独立连接（备用方案）
+     */
+    createIndependentConnection() {
+        console.warn('全局SignalR不可用，创建独立连接');
+        
         this.connection = new signalR.HubConnectionBuilder()
             .withUrl("/webrtc")
             .configureLogging(signalR.LogLevel.Debug)
@@ -38,6 +149,28 @@ class SignalRManager {
                 }
             })
             .build();
+            
+        // 标记使用独立连接
+        this.usingGlobalConnection = false;
+            
+        // 只有在独立连接时才直接注册事件
+        this.setupConnectionEvents();
+        this.setupCallEvents();
+        this.setupRecordingEvents();
+        this.startConnection();
+        this.startHeartbeat();
+    }
+
+    /**
+     * 设置页面特定的处理器
+     */
+    setupPageSpecificHandlers() {
+        // 页面卸载时注销事件处理器
+        window.addEventListener('beforeunload', () => {
+            if (window.globalSignalRManager) {
+                window.globalSignalRManager.unregisterEventHandler('home-page');
+            }
+        });
     }
 
     setupConnectionEvents() {
@@ -339,6 +472,12 @@ class SignalRManager {
     }
 
     startHeartbeat() {
+        // 如果使用全局连接，不需要启动独立的心跳（全局管理器已经处理）
+        if (this.usingGlobalConnection) {
+            console.log('使用全局SignalR连接，心跳由全局管理器处理');
+            return;
+        }
+        
         if (this.heartbeatInterval) {
             clearInterval(this.heartbeatInterval);
         }
@@ -348,21 +487,27 @@ class SignalRManager {
                 this.connection.state === signalR.HubConnectionState.Connected) {
                 try {
                     await this.connection.invoke("Heartbeat");
-                    console.log('心跳发送成功');
+                    console.log('独立连接心跳发送成功');
                 } catch (error) {
-                    console.warn('心跳发送失败:', error);
+                    console.warn('独立连接心跳发送失败:', error);
                 }
             }
         }, this.heartbeatIntervalMs);
 
-        console.log(`心跳定时器已启动，间隔: ${this.heartbeatIntervalMs}ms`);
+        console.log(`独立连接心跳定时器已启动，间隔: ${this.heartbeatIntervalMs}ms`);
     }
 
     stopHeartbeat() {
+        // 如果使用全局连接，不需要停止心跳（由全局管理器处理）
+        if (this.usingGlobalConnection) {
+            console.log('使用全局SignalR连接，心跳由全局管理器处理');
+            return;
+        }
+        
         if (this.heartbeatInterval) {
             clearInterval(this.heartbeatInterval);
             this.heartbeatInterval = null;
-            console.log('心跳定时器已停止');
+            console.log('独立连接心跳定时器已停止');
         }
     }
 
@@ -431,7 +576,15 @@ class SignalRManager {
     async checkSecureConnection() {
         try {
             const callContext = this.callStateManager.getCallContext();
-            const isSecure = await this.connection.invoke("GetSecureContextState", callContext.callId);
+            
+            // 使用适当的连接调用方法
+            let isSecure;
+            if (this.usingGlobalConnection && window.globalSignalRManager) {
+                isSecure = await window.globalSignalRManager.invoke("GetSecureContextState", callContext.callId);
+            } else {
+                isSecure = await this.connection.invoke("GetSecureContextState", callContext.callId);
+            }
+            
             if (!isSecure) {
                 this.updateStatus('当前连接不安全，通话质量可能受影响', 'warning');
             } else {

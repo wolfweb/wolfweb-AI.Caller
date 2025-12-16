@@ -83,6 +83,9 @@ class PhoneApp {
 
             // 设置事件监听器
             this.setupEventListeners();
+            
+            // 设置全局监控事件监听
+            this.setupGlobalMonitoringEvents();
 
             this.isInitialized = true;
             this.uiManager.updateStatus('就绪', 'success');
@@ -196,6 +199,40 @@ class PhoneApp {
             this.uiManager.showCallInfo(false);
             this.uiManager.stopCallTimer();
         });
+    }
+
+    /**
+     * 设置全局监控事件监听
+     */
+    setupGlobalMonitoringEvents() {
+        // 监听全局接听请求
+        document.addEventListener('globalAnswerRequest', (event) => {
+            const { callId } = event.detail;
+            console.log('收到全局接听请求:', callId);
+            
+            // 检查是否是当前来电
+            const currentCall = this.callStateManager.getCallContext();
+            if (currentCall && currentCall.callId === callId) {
+                console.log('匹配当前来电，自动触发接听');
+                
+                // 自动触发接听按钮
+                const answerButton = this.elements.answerButton;
+                if (answerButton && !answerButton.classList.contains('d-none')) {
+                    // 模拟点击接听按钮
+                    setTimeout(() => {
+                        answerButton.click();
+                    }, 100);
+                } else {
+                    console.warn('接听按钮不可用或已隐藏');
+                }
+            } else {
+                console.warn('全局接听请求的CallId与当前来电不匹配');
+                console.log('请求CallId:', callId);
+                console.log('当前CallId:', currentCall?.callId);
+            }
+        });
+        
+        console.log('全局监控事件监听已设置');
     }
 
     async handleCall() {
