@@ -5,6 +5,7 @@ using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
+using NPOI.OpenXmlFormats.Spreadsheet;
 using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
@@ -34,6 +35,7 @@ namespace AI.Caller.Phone.Services {
         private readonly IHubContext<WebRtcHub> _hubContext;
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly AICustomerServiceManager _aiManager;
+        private readonly SemaphoreSlim _semaphoreSlim = new (1, 1);
 
         public CallManager(
             ILogger<ICallManager> logger,
@@ -80,14 +82,7 @@ namespace AI.Caller.Phone.Services {
                 throw new Exception($"无效的呼叫标识:{callId}");
             }
 
-            if (ctx.RingbackPlayer != null) {
-                _logger.LogInformation("Stopping ringback tone as call is being answered");
-                try {
-                    ctx.RingbackPlayer.Stop();
-                    ctx.RingbackPlayer.Dispose();
-                    ctx.RingbackPlayer = null;
-                } catch { }
-            }
+            CleanRingback(ctx);
 
             if (ctx.Callee == null) throw new Exception($"呼叫上下文被叫不能是空:{callId}");
             if (ctx.Callee.Client == null) throw new Exception($"呼叫上下文被叫未初始化:{callId}");
@@ -268,13 +263,7 @@ namespace AI.Caller.Phone.Services {
 
                 ctx.Caller.Client.Client.CallAnswered += (client) => {
                     _logger.LogInformation("CallAnswered事件触发，停止回铃音: {CallId}", ctx.CallId);
-                    if (ctx.RingbackPlayer != null) {
-                        try {
-                            ctx.RingbackPlayer.Stop();
-                            ctx.RingbackPlayer.Dispose();
-                            ctx.RingbackPlayer = null;
-                        } catch { }
-                    }
+                    CleanRingback(ctx);
                     if (ctx.Caller != null && ctx.Caller.User != null) {
                         _ = _hubContext.Clients.User(ctx.Caller.User.Id.ToString()).SendAsync("answered");
                     }
@@ -303,14 +292,7 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void OnHangupCall(CallContext ctx) {
-            if (ctx.RingbackPlayer != null) {
-                _logger.LogInformation("停止回铃音（挂断时）: {CallId}", ctx.CallId);
-                try {
-                    ctx.RingbackPlayer.Stop();
-                    ctx.RingbackPlayer.Dispose();
-                    ctx.RingbackPlayer = null;
-                } catch { }
-            }
+            CleanRingback(ctx);
 
             if (ctx.Caller != null && ctx.Caller.User != null) {
                 if (ctx.Caller.Client != null) {
@@ -471,14 +453,7 @@ namespace AI.Caller.Phone.Services {
                     return;
                 }
 
-                if (ctx.RingbackPlayer != null) {
-                    _logger.LogDebug("停止旧的回铃音实例: {CallId}", ctx.CallId);
-                    try {
-                        ctx.RingbackPlayer.Stop();
-                        ctx.RingbackPlayer.Dispose();
-                    } catch {
-                    }
-                }
+                CleanRingback(ctx);
 
                 string audioFilePath;
                 if (!string.IsNullOrEmpty(customAudioFilePath)) {
@@ -499,6 +474,23 @@ namespace AI.Caller.Phone.Services {
                 _logger.LogInformation("回铃音已启动: {CallId}, 文件: {FilePath}", ctx.CallId, audioFilePath);
             } catch (Exception ex) {
                 _logger.LogError(ex, "启动回铃音失败: {CallId}", ctx.CallId);
+            }
+        }
+
+        private void CleanRingback(CallContext ctx) {
+            try {
+                _semaphoreSlim.Wait();
+                if (ctx.RingbackPlayer != null) {
+                    _logger.LogDebug("停止回铃音: {CallId}", ctx.CallId);
+                    try {
+                        ctx.RingbackPlayer.Stop();
+                        ctx.RingbackPlayer.Dispose();
+                        ctx.RingbackPlayer = null;
+                    } catch {
+                    }
+                }
+            } finally {
+                _semaphoreSlim.Release();
             }
         }
 
