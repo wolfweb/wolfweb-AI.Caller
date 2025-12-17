@@ -275,6 +275,11 @@ public partial class AICustomerServiceManager {
                     _logger.LogWarning("未提供CallId，DTMF输入将不会保存到数据库");
                 }
 
+                Action<DtmfInputEventArgs> dtmfHandler = async (dtmfEventArgs) => {
+                    await HandleDtmfInputCollectedAsync(dtmfEventArgs);
+                };
+                autoResponder.OnDtmfInputCollected += dtmfHandler;
+
                 Action<byte[]> audioGeneratedHandler = (audioFrame) => {
                     sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
                     if (audioBridge is AudioBridge ab) {
@@ -304,6 +309,7 @@ public partial class AICustomerServiceManager {
                     ScriptText = $"场景录音: {scenarioRecording.Name}",
                     StartTime = DateTime.UtcNow,
                     AudioGeneratedHandler = audioGeneratedHandler,
+                    DtmfInputHandler = dtmfHandler,
                     CallId = callId,  // 保存CallId
                     ScenarioRecordingId = scenarioRecording.Id,  // 保存场景ID
                     ScenarioRecording = scenarioRecording,  // 保存场景对象

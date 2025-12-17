@@ -69,7 +69,7 @@ namespace AI.Caller.Phone.Services {
                         _logger.LogDebug("已设置CallContext: {CallId}", callId);
                     }
                     
-                    Action<AI.Caller.Core.DtmfInputEventArgs> dtmfHandler = async (dtmfEventArgs) => {
+                    Action<DtmfInputEventArgs> dtmfHandler = async (dtmfEventArgs) => {
                         await HandleDtmfInputCollectedAsync(dtmfEventArgs);
                     };
                     autoResponder.OnDtmfInputCollected += dtmfHandler;

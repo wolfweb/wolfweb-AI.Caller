@@ -41,6 +41,8 @@ class SignalRManager {
             console.error('全局SignalR管理器未找到，回退到独立连接');
             this.createIndependentConnection();
         }
+        this.setupConnectionEvents();
+        this.startHeartbeat();
     }
 
     /**
@@ -152,13 +154,11 @@ class SignalRManager {
             
         // 标记使用独立连接
         this.usingGlobalConnection = false;
-            
-        // 只有在独立连接时才直接注册事件
-        this.setupConnectionEvents();
+        
         this.setupCallEvents();
         this.setupRecordingEvents();
         this.startConnection();
-        this.startHeartbeat();
+        
     }
 
     /**
