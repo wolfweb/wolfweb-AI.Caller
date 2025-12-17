@@ -1,17 +1,14 @@
 ﻿using AI.Caller.Core;
 using AI.Caller.Core.Media;
+using AI.Caller.Core.Services;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.Options;
-using NPOI.OpenXmlFormats.Spreadsheet;
 using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
 using System.Collections.Concurrent;
-using System.Linq;
-using System.Threading;
 
 namespace AI.Caller.Phone.Services {
     public interface ICallManager {
@@ -24,11 +21,18 @@ namespace AI.Caller.Phone.Services {
         Task<bool> IncomingCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult);
         Task SendDtmfAsync(byte tone, int sendUser, string callId);
         Task<CallContext> MakeCallAsync(string destination, User caller, RTCSessionDescriptionInit? offer, CallScenario scenario, int? preferredLineId = null, bool autoSelectLine = true);
+
+        Task<string> StartDtmfCollectionAsync(string callId, AI.Caller.Core.Services.DtmfCollectionConfig? config = null, CancellationToken ct = default);
+        Task StopDtmfCollectionAsync(string callId);
+        Task ResetDtmfCollectionAsync(string callId);
+        Task<string> GetCurrentDtmfInputAsync(string callId);
+        Task<bool> IsDtmfCollectingAsync(string callId);
     }
 
     public partial class CallManager : ICallManager, IDisposable {
         private readonly ILogger _logger;
         private readonly Timer _monitoringTimer;
+        private readonly IDtmfService _dtmfService;
         private readonly ConcurrentDictionary<string, CallContext> _contexts;
         private readonly RecordingManager _recordingManager;
         private readonly HangupRetryPolicy _hangupRetryPolicy;
@@ -39,6 +43,7 @@ namespace AI.Caller.Phone.Services {
 
         public CallManager(
             ILogger<ICallManager> logger,
+            IDtmfService dtmfService,
             RecordingManager recordingManager,
             IHubContext<WebRtcHub> hubContext,
             IServiceScopeFactory serviceScopeFactory,
@@ -51,6 +56,7 @@ namespace AI.Caller.Phone.Services {
             _hangupRetryPolicy   = new();
             _serviceScopeFactory = serviceScopeFactory;
             _aiManager           = aiManager;
+            _dtmfService         = dtmfService;
 
             _monitoringTimer = new Timer(OnCleanupContext, null, TimeSpan.FromSeconds(0), TimeSpan.FromSeconds(5));
         }
@@ -200,6 +206,12 @@ namespace AI.Caller.Phone.Services {
                     _logger.LogInformation("被叫方CallEnded事件触发: {CallId}, Status: {Status}", ctx.CallId, status);
                     _ = HandleCallEndedAsync(ctx.CallId, ctx.Callee.User?.Id ?? 0, status);
                 };
+
+                ctx.Callee.Client!.Client.DtmfToneReceived += (client, tone) => {
+                    _logger.LogDebug("被叫方DTMF按键接收: {CallId}, 按键: {Tone}", ctx.CallId, tone);
+                    _dtmfService.OnDtmfToneReceived(ctx.CallId, tone);
+                };
+
                 if (!aiSettings.Enabled) {
                     var ringtoneService = scope.ServiceProvider.GetRequiredService<IRingtoneService>();
                     var ringbackTone = await ringtoneService.GetRingtoneForUserAsync(ctx.Callee.User!.Id, RingtoneType.Ringback);
@@ -273,6 +285,11 @@ namespace AI.Caller.Phone.Services {
                     _logger.LogInformation("主叫方CallEnded事件触发: {CallId}, Status: {Status}", ctx.CallId, status);
                     _ = HandleCallEndedAsync(ctx.CallId, ctx.Caller.User?.Id ?? 0, status);
                 };
+
+                ctx.Caller.Client.Client.DtmfToneReceived += (client, tone) => {
+                    _logger.LogDebug("主叫方DTMF按键接收: {CallId}, 按键: {Tone}", ctx.CallId, tone);
+                    _dtmfService.OnDtmfToneReceived(ctx.CallId, tone);
+                };
             }
 
             OnMakeCalled(ctx);
@@ -291,8 +308,47 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
+        public async Task<string> StartDtmfCollectionAsync(string callId, AI.Caller.Core.Services.DtmfCollectionConfig? config = null, CancellationToken ct = default) {
+            if (!_contexts.TryGetValue(callId, out var ctx)) {
+                throw new Exception($"无效的呼叫标识:{callId}");
+            }
+
+            config ??= new AI.Caller.Core.Services.DtmfCollectionConfig {
+                MaxLength = 18,
+                TerminationKey = '#',
+                BackspaceKey = '*',
+                Timeout = TimeSpan.FromSeconds(30),
+                EnableLogging = true,
+                Description = $"通话 {callId} 的DTMF收集"
+            };
+
+            _logger.LogInformation("开始DTMF收集: {CallId}, 配置: {Config}", callId, System.Text.Json.JsonSerializer.Serialize(config));
+
+            return await _dtmfService.StartCollectionWithConfigAsync(callId, config, ct);
+        }
+
+        public async Task StopDtmfCollectionAsync(string callId) {
+            await _dtmfService.StopCollectionAsync(callId);
+            _logger.LogInformation("停止DTMF收集: {CallId}", callId);
+        }
+
+        public async Task ResetDtmfCollectionAsync(string callId) {
+            await _dtmfService.ResetCollectionAsync(callId);
+            _logger.LogInformation("重置DTMF收集: {CallId}", callId);
+        }
+
+        public async Task<string> GetCurrentDtmfInputAsync(string callId) {
+            return await _dtmfService.GetCurrentInputAsync(callId);
+        }
+
+        public async Task<bool> IsDtmfCollectingAsync(string callId) {
+            return await _dtmfService.IsCollectingAsync(callId);
+        }
+
         private void OnHangupCall(CallContext ctx) {
             CleanRingback(ctx);
+
+            _ = _dtmfService.StopCollectionAsync(ctx.CallId);
 
             if (ctx.Caller != null && ctx.Caller.User != null) {
                 if (ctx.Caller.Client != null) {

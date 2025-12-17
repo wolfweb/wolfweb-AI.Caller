@@ -1,6 +1,7 @@
 ﻿using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Vad;
+using AI.Caller.Core.Services;
 using Microsoft.Extensions.Logging;
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -21,6 +22,9 @@ namespace AI.Caller.Core {
         private readonly ConcurrentDictionary<int, AudioResamplerCrossType<float, byte>> _resamplerCache = new();
         private readonly Stopwatch _performanceStopwatch = new();
         private readonly object _audioBufferLock = new object();
+        
+        private readonly IDtmfService? _dtmfService;
+        private string? _currentCallId;
         
         private bool _isStarted;
         private Task? _playoutTask;
@@ -48,12 +52,14 @@ namespace AI.Caller.Core {
             ITTSEngine tts,
             IVoiceActivityDetector vad,
             MediaProfile profile,
-            G711Codec g711Codec) {
+            G711Codec g711Codec,
+            IDtmfService? dtmfService = null) {
             _tts = tts;
             _vad = vad;
             _logger = loggerFactory.CreateLogger<AIAutoResponder>();
             _profile = profile;
             _g711Codec = g711Codec;
+            _dtmfService = dtmfService;
             _loggerFactory = loggerFactory;
 
             _jitterBuffer = Channel.CreateUnbounded<byte[]>();
@@ -452,6 +458,71 @@ namespace AI.Caller.Core {
             }
             
             return _profile.PtimeMs;
+        }
+
+        // DTMF 相关方法
+        
+        /// <summary>
+        /// 设置当前通话上下文
+        /// </summary>
+        public void SetCallContext(string callId) {
+            _currentCallId = callId;
+            _logger.LogDebug("CallContext已设置: {CallId}", callId);
+        }
+
+        /// <summary>
+        /// 收集DTMF输入
+        /// </summary>
+        public async Task<string> CollectDtmfInputAsync(
+            int maxLength,
+            char terminationKey = '#',
+            char backspaceKey = '*',
+            TimeSpan? timeout = null,
+            CancellationToken ct = default) {
+            
+            if (_dtmfService == null) {
+                _logger.LogError("DtmfService未设置，无法收集DTMF输入");
+                throw new InvalidOperationException("DtmfService未设置");
+            }
+
+            if (string.IsNullOrEmpty(_currentCallId)) {
+                _logger.LogError("CallId未设置，无法收集DTMF输入");
+                throw new InvalidOperationException("CallId未设置");
+            }
+
+            _logger.LogInformation("开始收集DTMF输入，最大长度: {MaxLength}, CallId: {CallId}", maxLength, _currentCallId);
+
+            try {
+                var config = new Services.DtmfCollectionConfig {
+                    MaxLength = maxLength,
+                    TerminationKey = terminationKey,
+                    BackspaceKey = backspaceKey,
+                    Timeout = timeout,
+                    EnableLogging = true,
+                    Description = $"AI场景DTMF收集 - CallId: {_currentCallId}"
+                };
+
+                var input = await _dtmfService.StartCollectionWithConfigAsync(_currentCallId, config, ct);
+                _logger.LogInformation("DTMF输入收集完成: {CallId}", _currentCallId);
+                return input;
+            } catch (TimeoutException) {
+                _logger.LogWarning("DTMF输入超时: {CallId}", _currentCallId);
+                throw;
+            } catch (Exception ex) {
+                _logger.LogError(ex, "DTMF输入收集失败: {CallId}", _currentCallId);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 处理DTMF按键（由SIPClient调用）
+        /// </summary>
+        public void OnDtmfToneReceived(byte tone) {
+            if (_dtmfService != null && !string.IsNullOrEmpty(_currentCallId)) {
+                _dtmfService.OnDtmfToneReceived(_currentCallId, tone);
+            } else {
+                _logger.LogWarning("无法处理DTMF按键：DtmfService或CallId未设置");
+            }
         }
 
         public async ValueTask DisposeAsync() {

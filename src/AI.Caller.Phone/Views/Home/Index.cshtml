@@ -122,6 +122,54 @@
                     
                     <!-- 拨号盘 -->
                     <div class="dialpad dialpad-container mb-3">
+                        <div class="dtmf-status-indicator mb-2 d-none" id="dtmfStatusIndicator">
+                            <div class="alert alert-info py-2 mb-0">
+                                <i class="bi bi-soundwave"></i>
+                                <span id="dtmfStatusText">通话中 - 点击按键发送DTMF音频</span>
+                            </div>
+                        </div>
+                        
+                        <div class="dtmf-input-display mb-3 d-none" id="dtmfInputDisplay">
+                            <div class="card">
+                                <div class="card-header py-2">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="text-muted">
+                                            <i class="bi bi-keyboard"></i> 已输入的按键
+                                        </small>
+                                        <div>
+                                            <button class="btn btn-sm btn-outline-secondary me-1" id="dtmfClearBtn" title="清空显示（已发送的信号无法撤回）">
+                                                <i class="bi bi-eraser"></i>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-primary" id="dtmfToggleVisibility" title="显示/隐藏内容">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-body py-2">
+                                    <div class="dtmf-input-content">
+                                        <div class="input-group">
+                                            <span class="input-group-text">
+                                                <i class="bi bi-hash"></i>
+                                            </span>
+                                            <input type="text" class="form-control" id="dtmfInputField" 
+                                                   readonly placeholder="按键输入将显示在这里..." 
+                                                   style="font-family: 'Courier New', monospace; letter-spacing: 2px; font-size: 1.1rem; background-color: #f8f9fa;">
+                                            <button class="btn btn-outline-danger" id="dtmfBackspaceBtn" title="删除显示字符（已发送的信号无法撤回）">
+                                                <i class="bi bi-backspace"></i>
+                                            </button>
+                                        </div>
+                                        <div class="mt-2">
+                                            <small class="text-muted">
+                                                已输入 <span id="dtmfInputCount">0</span> 个字符
+                                            </small>
+                                        </div>
+
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div class="row g-2 mb-2">
                             <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="1">1</button></div>
                             <div class="col-4"><button class="btn btn-light w-100 keypad-btn dialpad-btn-tech" data-key="2">2</button></div>

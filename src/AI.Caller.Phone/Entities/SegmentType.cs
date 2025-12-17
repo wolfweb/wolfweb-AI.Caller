@@ -6,26 +6,26 @@ namespace AI.Caller.Phone.Entities {
         /// <summary>
         /// 录音文件
         /// </summary>
-        Recording = 1,
+        Recording ,
 
         /// <summary>
         /// TTS语音
         /// </summary>
-        TTS = 2,
+        TTS ,
 
         /// <summary>
         /// DTMF输入
         /// </summary>
-        DtmfInput = 3,
+        DtmfInput,
 
         /// <summary>
         /// 条件分支
         /// </summary>
-        Condition = 4,
+        Condition ,
 
         /// <summary>
         /// 静音
         /// </summary>
-        Silence = 5
+        Silence
     }
 }

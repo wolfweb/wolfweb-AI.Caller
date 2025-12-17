@@ -99,15 +99,26 @@ public class DtmfInputConfig {
     /// </summary>
     public int? TemplateId { get; set; }
 
+    private int _maxLength = 18;
+    private int _minLength = 1;
+    private int _timeoutSeconds = 30;
+    private int _maxRetries = 3;
+
     /// <summary>
     /// 最大长度
     /// </summary>
-    public int MaxLength { get; set; }
+    public int MaxLength { 
+        get => _maxLength; 
+        set => _maxLength = value > 0 ? value : throw new ArgumentException("MaxLength must be positive"); 
+    }
 
     /// <summary>
     /// 最小长度
     /// </summary>
-    public int MinLength { get; set; }
+    public int MinLength { 
+        get => _minLength; 
+        set => _minLength = value >= 0 ? value : throw new ArgumentException("MinLength must be non-negative"); 
+    }
 
     /// <summary>
     /// 终止键
@@ -122,12 +133,18 @@ public class DtmfInputConfig {
     /// <summary>
     /// 超时时间（秒）
     /// </summary>
-    public int TimeoutSeconds { get; set; } = 30;
+    public int TimeoutSeconds { 
+        get => _timeoutSeconds; 
+        set => _timeoutSeconds = value > 0 ? value : throw new ArgumentException("TimeoutSeconds must be positive"); 
+    }
 
     /// <summary>
     /// 最大重试次数
     /// </summary>
-    public int MaxRetries { get; set; } = 3;
+    public int MaxRetries { 
+        get => _maxRetries; 
+        set => _maxRetries = value >= 0 ? value : throw new ArgumentException("MaxRetries must be non-negative"); 
+    }
 
     /// <summary>
     /// 提示文本
@@ -158,4 +175,79 @@ public class DtmfInputConfig {
     /// 验证器类型
     /// </summary>
     public string? ValidatorType { get; set; }
+}
+
+/// <summary>
+/// 场景执行状态
+/// </summary>
+public enum ScenarioExecutionStatus {
+    /// <summary>
+    /// 未开始
+    /// </summary>
+    NotStarted,
+
+    /// <summary>
+    /// 正在执行片段
+    /// </summary>
+    ExecutingSegment,
+
+    /// <summary>
+    /// 等待DTMF输入
+    /// </summary>
+    WaitingForDtmfInput,
+
+    /// <summary>
+    /// 已完成
+    /// </summary>
+    Completed,
+
+    /// <summary>
+    /// 已取消
+    /// </summary>
+    Cancelled,
+
+    /// <summary>
+    /// 执行失败
+    /// </summary>
+    Failed
+}
+
+/// <summary>
+/// 场景执行进度信息
+/// </summary>
+public class ScenarioProgressInfo {
+    /// <summary>
+    /// 当前片段索引
+    /// </summary>
+    public int CurrentSegmentIndex { get; set; }
+
+    /// <summary>
+    /// 总片段数
+    /// </summary>
+    public int TotalSegments { get; set; }
+
+    /// <summary>
+    /// 当前片段
+    /// </summary>
+    public ScenarioSegment? CurrentSegment { get; set; }
+
+    /// <summary>
+    /// 执行状态
+    /// </summary>
+    public ScenarioExecutionStatus Status { get; set; }
+
+    /// <summary>
+    /// 进度百分比（0-100）
+    /// </summary>
+    public double ProgressPercentage => TotalSegments > 0 ? (double)CurrentSegmentIndex / TotalSegments * 100 : 0;
+
+    /// <summary>
+    /// 错误信息（如果有）
+    /// </summary>
+    public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// 时间戳
+    /// </summary>
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }

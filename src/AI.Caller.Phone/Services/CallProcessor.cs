@@ -3,6 +3,7 @@ using AI.Caller.Core.Models;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace AI.Caller.Phone.Services;
 
@@ -92,7 +93,6 @@ public class CallProcessor : ICallProcessor {
                     var batchCall = await context.BatchCallJobs.FindAsync(callLog.BatchCallJobId);
                     
                     if (batchCall != null && batchCall.ScenarioRecordingId.HasValue) {
-                        // Scenario Recording Mode
                         _logger.LogInformation("Executing Scenario Recording {ScenarioId} for CallLogId {CallLogId}", batchCall.ScenarioRecordingId, callLogId);
                         
                         var aiManager = scope.ServiceProvider.GetRequiredService<AICustomerServiceManager>();
@@ -103,12 +103,13 @@ public class CallProcessor : ICallProcessor {
                             throw new InvalidOperationException($"Scenario Recording with ID {batchCall.ScenarioRecordingId} not found.");
                         }
 
-                        var variables = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(callLog.ResolvedContent) 
-                                        ?? new Dictionary<string, string>();
+                        var variables = JsonSerializer.Deserialize<Dictionary<string, string>>(callLog.ResolvedContent) ?? new Dictionary<string, string>();
 
-                        // Start the scenario service
-                        await aiManager.StartScenarioServiceAsync(agent, sc, scenario, variables, callContext.CallId);
-                        
+                        if(await aiManager.StartScenarioServiceAsync(agent, sc, scenario, variables, callContext.CallId)) {
+                            await aiManager.GetSessionByCallId(callContext.CallId)!.PlaybackTask!;
+                        }
+                        await aiManager.StopAICustomerServiceAsync(agent.Id);
+                        await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
                     } else {
                         // Legacy TTS Template Mode
                         var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);

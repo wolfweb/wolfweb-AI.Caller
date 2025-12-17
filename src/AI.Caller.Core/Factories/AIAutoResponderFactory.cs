@@ -11,14 +11,17 @@ namespace AI.Caller.Core {
         private readonly ITTSEngine _ttsEngine;
         private readonly G711Codec _g711;
         private readonly ILoggerFactory _loggerFactory;
+        private readonly Services.IDtmfService? _dtmfService;
 
         public AIAutoResponderFactory(
             ILogger<AIAutoResponder> logger,
             ITTSEngine ttsEngine,
-            ILoggerFactory loggerFactory) {
+            ILoggerFactory loggerFactory,
+            Services.IDtmfService? dtmfService = null) {
             _logger = logger;
             _ttsEngine = ttsEngine;
             _loggerFactory = loggerFactory;
+            _dtmfService = dtmfService;
             _g711 = new G711Codec(loggerFactory.CreateLogger<G711Codec>());
         }
 
@@ -48,7 +51,8 @@ namespace AI.Caller.Core {
                 _ttsEngine, 
                 vad, 
                 profile, 
-                _g711);
+                _g711,
+                _dtmfService);
 
             return autoResponder;
         }

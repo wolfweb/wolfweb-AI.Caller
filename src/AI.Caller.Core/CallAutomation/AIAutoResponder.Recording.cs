@@ -44,7 +44,7 @@ public sealed partial class AIAutoResponder {
             var frames = await audioFilePlayer.LoadAsync(filePath);
 
             if (frames == null || frames.Count == 0) {
-                _logger.LogWarning("录音文件加载失败或为空: {FilePath}", filePath);
+                _logger.LogWarning("录音文件加载失败或为空: {FilePath}, FrameCount={FrameCount}", filePath, frames?.Count ?? 0);
                 _isTtsStreamFinished = true;
                 return;
             }
@@ -52,23 +52,27 @@ public sealed partial class AIAutoResponder {
             _logger.LogInformation("录音文件已加载: {FrameCount} 帧", frames.Count);
 
             // 将所有帧写入jitter buffer
+            int frameIndex = 0;
             foreach (var frame in frames) {
                 if (token.IsCancellationRequested) {
                     _logger.LogInformation("录音播放被取消");
                     break;
                 }
 
-
                 if (!_jitterBuffer.Writer.TryWrite(frame)) {
-                    _logger.LogWarning("无法写入帧到jitter buffer");
+                    _logger.LogError("无法写入帧到jitter buffer，帧索引: {FrameIndex}", frameIndex);
                     break;
                 }
 
                 Interlocked.Add(ref _totalBytesGenerated, frame.Length);
+                frameIndex++;
+                
+                if (frameIndex % 100 == 0) {
+                    _logger.LogDebug("已写入 {FrameIndex}/{TotalFrames} 帧到jitter buffer", frameIndex, frames.Count);
+                }
             }
 
-            _logger.LogInformation("录音文件所有帧已写入jitter buffer: {TotalBytes} 字节", 
-                Interlocked.Read(ref _totalBytesGenerated));
+            _logger.LogDebug("录音文件所有帧已写入jitter buffer: {TotalFrames} 帧, {TotalBytes} 字节", frameIndex, Interlocked.Read(ref _totalBytesGenerated));
 
             _isTtsStreamFinished = true;
 

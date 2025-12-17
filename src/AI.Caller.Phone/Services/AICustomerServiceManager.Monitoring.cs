@@ -3,6 +3,7 @@ using AI.Caller.Core.Media;
 using AI.Caller.Core.CallAutomation;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Exceptions;
+using SIPSorcery.SIP;
 
 namespace AI.Caller.Phone.Services;
 
@@ -264,16 +265,9 @@ public partial class AICustomerServiceManager {
 
                 var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
 
-                // 设置音频文件播放器和DTMF收集器
                 var audioFilePlayer = scope.ServiceProvider.GetRequiredService<AudioFilePlayer>();
-                var dtmfCollector = scope.ServiceProvider.GetRequiredService<DtmfCollector>();
-                var dtmfInputService = scope.ServiceProvider.GetRequiredService<IDtmfInputService>();
-
                 autoResponder.SetAudioFilePlayer(audioFilePlayer);
-                autoResponder.SetDtmfCollector(dtmfCollector);
-                autoResponder.SetDtmfInputService(dtmfInputService);
 
-                // 设置CallContext（用于关联DTMF记录到数据库）
                 if (!string.IsNullOrEmpty(callId)) {
                     autoResponder.SetCallContext(callId);
                     _logger.LogDebug("已设置CallContext: {CallId}", callId);
@@ -283,7 +277,6 @@ public partial class AICustomerServiceManager {
 
                 Action<byte[]> audioGeneratedHandler = (audioFrame) => {
                     sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
-                    // 同时发送给监听者
                     if (audioBridge is AudioBridge ab) {
                         ab.ProcessOutgoingAudio(audioFrame);
                     }
@@ -298,7 +291,6 @@ public partial class AICustomerServiceManager {
                     }
                 };
 
-                // 连接DTMF事件
                 sipClient.DtmfToneReceived += (client, tone) => {
                     autoResponder.OnDtmfToneReceived(tone);
                 };
@@ -321,22 +313,60 @@ public partial class AICustomerServiceManager {
                 await autoResponder.StartAsync();
                 audioBridge.Start();
 
-                // 转换场景片段
-                var segments = ConvertToScenarioSegments(scenarioRecording);
+                var segments = ConvertToScenarioSegments(scenarioRecording, scope.ServiceProvider);
 
-                _ = Task.Run(async () => {
+                var playbackTask = Task.Run(async () => {
                     try {
-                        await autoResponder.PlayScenarioAsync(segments, variables);
-                        _logger.LogInformation("场景录音播放完成: User {Username}, Scenario {ScenarioName}",
-                            user.Username, scenarioRecording.Name);
+                        var callStatusCts = new CancellationTokenSource();
+                        var callStatusTask = Task.Run(async () => {
+                            while (!callStatusCts.Token.IsCancellationRequested) {
+                                await Task.Delay(1000, callStatusCts.Token);
+                                
+                                if (sipClient.Dialogue?.DialogueState != SIPDialogueStateEnum.Confirmed) {
+                                    _logger.LogWarning("SIP呼叫已断开，停止场景播放: User {Username}", user.Username);
+                                    callStatusCts.Cancel();
+                                    return;
+                                }
+                            }
+                        }, callStatusCts.Token);
+                        
+                        var scenarioTask = autoResponder.PlayScenarioAsync(segments, variables, callStatusCts.Token);
+                        await Task.WhenAny(scenarioTask, callStatusTask);
+                        
+                        callStatusCts.Cancel(); // 停止状态检查
+                        
+                        if (scenarioTask.IsCompletedSuccessfully) {
+                            _logger.LogInformation("场景录音播放完成: User {Username}, Scenario {ScenarioName}", user.Username, scenarioRecording.Name);
+                        } else {
+                            _logger.LogInformation("场景播放因呼叫断开而停止: User {Username}", user.Username);
+                        }
+                    } catch (OperationCanceledException) {
+                        _logger.LogInformation("场景播放被取消: User {Username}", user.Username);
                     } catch (Exception ex) {
-                        _logger.LogError(ex, "场景录音播放失败: User {Username}", user.Username);
+                        _logger.LogError(ex, "场景录音播放失败: User {Username}", user.Username);                        
+                        try {
+                            if (_activeSessions.TryRemove(user.Id, out var failedSession)) {
+                                if (failedSession.PlaybackTask != null && !failedSession.PlaybackTask.IsCompleted) {
+                                    try {
+                                        await failedSession.PlaybackTask.WaitAsync(TimeSpan.FromSeconds(1));
+                                    } catch (Exception taskEx) {
+                                        _logger.LogDebug(taskEx, "播放任务清理时出错");
+                                    }
+                                }
+                                
+                                await failedSession.AutoResponder.StopAsync();
+                                failedSession.Scope?.Dispose();
+                            }
+                        } catch (Exception cleanupEx) {
+                            _logger.LogError(cleanupEx, "清理失败会话时出错: User {Username}", user.Username);
+                        }
                     }
                 });
+                
+                session.PlaybackTask = playbackTask;
 
                 _activeSessions[user.Id] = session;
-                _logger.LogInformation("场景录音AI客服已启动: User {Username}, Scenario {ScenarioName}",
-                    user.Username, scenarioRecording.Name);
+                _logger.LogInformation("场景录音AI客服已启动: User {Username}, Scenario {ScenarioName}", user.Username, scenarioRecording.Name);
 
                 return true;
             } catch {
@@ -352,38 +382,75 @@ public partial class AICustomerServiceManager {
     /// <summary>
     /// 转换数据库场景片段为执行片段
     /// </summary>
-    private List<Core.CallAutomation.ScenarioSegment> ConvertToScenarioSegments(ScenarioRecording scenarioRecording) {
-        var segments = new List<Core.CallAutomation.ScenarioSegment>();
+    private List<ScenarioSegment> ConvertToScenarioSegments(ScenarioRecording scenarioRecording, IServiceProvider serviceProvider) {
+        var segments = new List<ScenarioSegment>();
+
+        var webHostEnvironment = serviceProvider.GetService<IWebHostEnvironment>();
+        var contentRootPath = webHostEnvironment?.ContentRootPath ?? Directory.GetCurrentDirectory();
 
         foreach (var dbSegment in scenarioRecording.Segments.OrderBy(s => s.SegmentOrder)) {
+            string? absoluteFilePath = null;
+            if (!string.IsNullOrEmpty(dbSegment.FilePath)) {
+                try {
+                    if (Path.IsPathRooted(dbSegment.FilePath)) {
+                        var normalizedPath = Path.GetFullPath(dbSegment.FilePath);
+                        if (normalizedPath.StartsWith(contentRootPath, StringComparison.OrdinalIgnoreCase)) {
+                            absoluteFilePath = normalizedPath;
+                        } else {
+                            _logger.LogError("🔥 [DEBUG] 安全警告：文件路径超出应用程序目录: {FilePath}", dbSegment.FilePath);
+                            throw new UnauthorizedAccessException($"文件路径不安全: {dbSegment.FilePath}");
+                        }
+                    } else {
+                        var safePath = dbSegment.FilePath.Replace("..", "").Replace("\\", "/");
+                        absoluteFilePath = Path.GetFullPath(Path.Combine(contentRootPath, safePath));
+                        
+                        if (!absoluteFilePath.StartsWith(contentRootPath, StringComparison.OrdinalIgnoreCase)) {
+                            _logger.LogError("🔥 [DEBUG] 安全警告：检测到路径遍历攻击: {FilePath}", dbSegment.FilePath);
+                            throw new UnauthorizedAccessException($"文件路径不安全: {dbSegment.FilePath}");
+                        }
+                    }
+                    
+                    _logger.LogDebug("🔥 [DEBUG] 文件路径转换: {RelativePath} → {AbsolutePath}, 文件存在: {FileExists}", dbSegment.FilePath, absoluteFilePath, File.Exists(absoluteFilePath));
+                } catch (Exception ex) when (!(ex is UnauthorizedAccessException)) {
+                    _logger.LogError(ex, "🔥 [DEBUG] 文件路径处理失败: {FilePath}", dbSegment.FilePath);
+                    throw new InvalidOperationException($"无效的文件路径: {dbSegment.FilePath}", ex);
+                }
+            }
+
             var segment = new Core.CallAutomation.ScenarioSegment {
                 Id = dbSegment.Id,
                 Order = dbSegment.SegmentOrder,
                 Type = ConvertSegmentType(dbSegment.SegmentType),
-                FilePath = dbSegment.FilePath,
+                FilePath = absoluteFilePath, // 绝对路径
                 TtsText = dbSegment.TtsText,
                 ConditionExpression = dbSegment.ConditionExpression,
                 NextSegmentIdOnTrue = dbSegment.NextSegmentIdOnTrue,
-                NextSegmentIdOnFalse = dbSegment.NextSegmentIdOnFalse
+                NextSegmentIdOnFalse = dbSegment.NextSegmentIdOnFalse,
+                SilenceDurationMs = dbSegment.Duration // 映射静音时长
             };
 
             // 转换DTMF配置
-            if (dbSegment.DtmfTemplate != null) {
-                segment.DtmfConfig = new Core.CallAutomation.DtmfInputConfig {
-                    TemplateId = dbSegment.DtmfTemplate.Id,
-                    MaxLength = dbSegment.DtmfTemplate.MaxLength,
-                    MinLength = dbSegment.DtmfTemplate.MinLength,
-                    TerminationKey = dbSegment.DtmfTemplate.TerminationKey,
-                    BackspaceKey = dbSegment.DtmfTemplate.BackspaceKey,
-                    TimeoutSeconds = dbSegment.DtmfTemplate.TimeoutSeconds,
-                    MaxRetries = dbSegment.DtmfTemplate.MaxRetries,
-                    PromptText = dbSegment.DtmfTemplate.PromptText,
-                    SuccessText = dbSegment.DtmfTemplate.SuccessText,
-                    ErrorText = dbSegment.DtmfTemplate.ErrorText,
-                    TimeoutText = dbSegment.DtmfTemplate.TimeoutText,
-                    VariableName = dbSegment.DtmfVariableName,
-                    ValidatorType = dbSegment.DtmfTemplate.ValidatorType
-                };
+            if (dbSegment.SegmentType == SegmentType.DtmfInput) {
+                if (dbSegment.DtmfTemplate != null) {
+                    segment.DtmfConfig = new Core.CallAutomation.DtmfInputConfig {
+                        TemplateId = dbSegment.DtmfTemplate.Id,
+                        MaxLength = dbSegment.DtmfTemplate.MaxLength,
+                        MinLength = dbSegment.DtmfTemplate.MinLength,
+                        TerminationKey = dbSegment.DtmfTemplate.TerminationKey,
+                        BackspaceKey = dbSegment.DtmfTemplate.BackspaceKey,
+                        TimeoutSeconds = dbSegment.DtmfTemplate.TimeoutSeconds,
+                        MaxRetries = dbSegment.DtmfTemplate.MaxRetries,
+                        PromptText = dbSegment.DtmfTemplate.PromptText,
+                        SuccessText = dbSegment.DtmfTemplate.SuccessText,
+                        ErrorText = dbSegment.DtmfTemplate.ErrorText,
+                        TimeoutText = dbSegment.DtmfTemplate.TimeoutText,
+                        VariableName = dbSegment.DtmfVariableName,
+                        ValidatorType = dbSegment.DtmfTemplate.ValidatorType
+                    };
+                } else {
+                    _logger.LogError("DTMF片段缺少模板配置: SegmentId={SegmentId}", dbSegment.Id);
+                    throw new InvalidOperationException($"DTMF片段 {dbSegment.Id} 缺少模板配置");
+                }
             }
 
             segments.Add(segment);
@@ -395,14 +462,14 @@ public partial class AICustomerServiceManager {
     /// <summary>
     /// 转换片段类型
     /// </summary>
-    private Core.CallAutomation.ScenarioSegmentType ConvertSegmentType(SegmentType dbType) {
+    private ScenarioSegmentType ConvertSegmentType(SegmentType dbType) {
         return dbType switch {
-            SegmentType.Recording => Core.CallAutomation.ScenarioSegmentType.Recording,
-            SegmentType.TTS => Core.CallAutomation.ScenarioSegmentType.TTS,
-            SegmentType.DtmfInput => Core.CallAutomation.ScenarioSegmentType.DtmfInput,
-            SegmentType.Condition => Core.CallAutomation.ScenarioSegmentType.Condition,
-            SegmentType.Silence => Core.CallAutomation.ScenarioSegmentType.Silence,
-            _ => Core.CallAutomation.ScenarioSegmentType.TTS
+            SegmentType.Recording => ScenarioSegmentType.Recording,
+            SegmentType.TTS => ScenarioSegmentType.TTS,
+            SegmentType.DtmfInput => ScenarioSegmentType.DtmfInput,
+            SegmentType.Condition => ScenarioSegmentType.Condition,
+            SegmentType.Silence => ScenarioSegmentType.Silence,
+            _ => ScenarioSegmentType.TTS
         };
     }
 }

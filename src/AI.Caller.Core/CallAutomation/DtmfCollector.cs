@@ -90,8 +90,8 @@ public class DtmfCollector {
     /// <param name="tone">DTMF按键（0-9, *, #, A-D）</param>
     public void OnDtmfReceived(byte tone) {
         lock (_lock) {
-            if (_completionSource == null) {
-                _logger.LogDebug("收到DTMF按键但未在收集状态: {Tone}", tone);
+            if (_completionSource == null || _completionSource.Task.IsCompleted) {
+                _logger.LogDebug("收到DTMF按键但未在收集状态或已完成: {Tone}", tone);
                 return;
             }
 

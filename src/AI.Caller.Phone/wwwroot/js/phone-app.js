@@ -12,6 +12,12 @@ class PhoneApp {
         this.uiManager = null;
         this.hangupHandler = null;
 
+        // DTMF输入管理
+        this.dtmfInputBuffer = '';
+        this.dtmfInputVisible = true;
+        this.dtmfInputHistory = [];
+        this.dtmfClearSequence = null; // 可配置的清空序列，如 "**" 或 "##"
+
         this.isInitialized = false;
     }
 
@@ -28,7 +34,7 @@ class PhoneApp {
             statusAlert: document.getElementById('statusAlert'),
             recordingStatusAlert: document.getElementById('recordingStatusAlert'),
             recordingStatus: document.getElementById('recordingStatus'),
-            
+
             // 线路选择相关元素
             lineSelectorContainer: document.getElementById('lineSelectorContainer'),
             recordingTimer: document.getElementById('recordingTimer'),
@@ -37,7 +43,20 @@ class PhoneApp {
             callerNumber: document.getElementById('callerNumber'),
             callInfo: document.getElementById('callInfo'),
             callTimer: document.getElementById('callTimer'),
-            remoteAudio: document.getElementById('remoteAudio')
+            remoteAudio: document.getElementById('remoteAudio'),
+
+            // DTMF相关元素
+            dtmfStatusIndicator: document.getElementById('dtmfStatusIndicator'),
+            dtmfInputDisplay: document.getElementById('dtmfInputDisplay'),
+            dtmfInputField: document.getElementById('dtmfInputField'),
+            dtmfInputCount: document.getElementById('dtmfInputCount'),
+            dtmfLastInput: document.getElementById('dtmfLastInput'),
+            dtmfInputTime: document.getElementById('dtmfInputTime'),
+            dtmfClearBtn: document.getElementById('dtmfClearBtn'),
+            dtmfBackspaceBtn: document.getElementById('dtmfBackspaceBtn'),
+            dtmfToggleVisibility: document.getElementById('dtmfToggleVisibility'),
+            dtmfActualSentDisplay: document.getElementById('dtmfActualSentDisplay'),
+            dtmfActualSentText: document.getElementById('dtmfActualSentText')
         };
     }
 
@@ -56,7 +75,7 @@ class PhoneApp {
             // 初始化SignalR管理器
             this.signalRManager = new SignalRManager(this.elements, this.callStateManager, this.webRTCManager);
             await this.signalRManager.initialize();
-            
+
             // 初始化线路选择器
             if (this.elements.lineSelectorContainer) {
                 this.lineSelector = new LineSelector('lineSelectorContainer', {
@@ -83,7 +102,7 @@ class PhoneApp {
 
             // 设置事件监听器
             this.setupEventListeners();
-            
+
             // 设置全局监控事件监听
             this.setupGlobalMonitoringEvents();
 
@@ -113,17 +132,303 @@ class PhoneApp {
 
         // 全局事件
         this.setupGlobalEvents();
+
+        // DTMF输入管理事件
+        this.setupDtmfInputEvents();
     }
 
     setupDialpadEvents() {
         document.querySelectorAll('.keypad-btn').forEach(button => {
             button.addEventListener('click', () => {
                 const key = button.getAttribute('data-key');
-                this.elements.destinationInput.value += key;
-                this.elements.destinationInput.focus();
-                console.log('键盘按钮点击:', key);
+
+                if (this.callStateManager.isInCall()) {
+                    this.sendDtmfTone(key);
+                } else {
+                    this.elements.destinationInput.value += key;
+                    this.elements.destinationInput.focus();
+                }
+
+                console.log('键盘按钮点击:', key, '通话状态:', this.callStateManager.getCurrentState());
             });
         });
+    }
+
+    /**
+     * 设置DTMF输入管理事件
+     */
+    setupDtmfInputEvents() {
+        // 清空按钮
+        if (this.elements.dtmfClearBtn) {
+            this.elements.dtmfClearBtn.addEventListener('click', () => {
+                this.clearDtmfInput();
+            });
+        }
+
+        // 退格按钮
+        if (this.elements.dtmfBackspaceBtn) {
+            this.elements.dtmfBackspaceBtn.addEventListener('click', () => {
+                this.backspaceDtmfInput();
+            });
+        }
+
+        // 显示/隐藏切换
+        if (this.elements.dtmfToggleVisibility) {
+            this.elements.dtmfToggleVisibility.addEventListener('click', () => {
+                this.toggleDtmfVisibility();
+            });
+        }
+
+        // 快捷确认按钮 (#)
+        if (this.elements.dtmfQuickConfirm) {
+            this.elements.dtmfQuickConfirm.addEventListener('click', () => {
+                this.sendDtmfTone('#');
+            });
+        }
+
+        // 快捷取消按钮 (*)
+        if (this.elements.dtmfQuickCancel) {
+            this.elements.dtmfQuickCancel.addEventListener('click', () => {
+                this.sendDtmfTone('*');
+            });
+        }
+
+        // 重复最后输入
+        if (this.elements.dtmfQuickRepeat) {
+            this.elements.dtmfQuickRepeat.addEventListener('click', () => {
+                this.repeatLastDtmfSequence();
+            });
+        }
+
+        // 键盘快捷键支持
+        document.addEventListener('keydown', (event) => {
+            if (this.callStateManager.isInCall() && event.target.tagName !== 'INPUT') {
+                if (event.key >= '0' && event.key <= '9') {
+                    event.preventDefault();
+                    this.sendDtmfTone(event.key);
+                }
+                else if (event.key === '*' || event.key === '#') {
+                    event.preventDefault();
+                    this.sendDtmfTone(event.key);
+                }
+                else if (event.key === 'Backspace') {
+                    event.preventDefault();
+                    this.backspaceDtmfInput();
+                }
+                else if (event.key === 'Delete') {
+                    event.preventDefault();
+                    this.clearDtmfInput();
+                }
+            }
+        });
+    }
+
+    /**
+     * 显示DTMF输入区域
+     */
+    showDtmfInputDisplay() {
+        if (this.elements.dtmfInputDisplay) {
+            this.elements.dtmfInputDisplay.classList.remove('d-none');
+        }
+        if (this.elements.dtmfStatusIndicator) {
+            this.elements.dtmfStatusIndicator.classList.remove('d-none');
+        }
+    }
+
+    /**
+     * 隐藏DTMF输入区域
+     */
+    hideDtmfInputDisplay() {
+        if (this.elements.dtmfInputDisplay) {
+            this.elements.dtmfInputDisplay.classList.add('d-none');
+        }
+        if (this.elements.dtmfStatusIndicator) {
+            this.elements.dtmfStatusIndicator.classList.add('d-none');
+        }
+    }
+
+    /**
+     * 添加DTMF输入到缓冲区
+     */
+    addDtmfInput(key) {
+        this.dtmfInputBuffer += key;
+        this.dtmfInputHistory.push({
+            key: key,
+            timestamp: new Date()
+        });
+
+        if (this.dtmfInputHistory.length > 100) {
+            this.dtmfInputHistory.shift();
+        }
+
+        this.updateDtmfDisplay();
+    }
+
+    /**
+     * 清空DTMF输入
+     */
+    async clearDtmfInput() {
+        this.dtmfInputBuffer = '';
+        this.dtmfInputHistory = [];
+        this.updateDtmfDisplay();
+
+        if (this.signalRManager && this.signalRManager.connection && this.callStateManager.isInCall()) {
+            try {
+                const callContext = this.callStateManager.getCallContext();
+                await this.signalRManager.connection.invoke("ClearDtmfInput", {
+                    CallId: callContext?.callId,
+                    ClearSequence: this.dtmfClearSequence // 发送配置的清空序列
+                });
+                console.log('已通知后端清空DTMF输入状态', this.dtmfClearSequence ? `，发送清空序列: ${this.dtmfClearSequence}` : '');
+            } catch (error) {
+                console.warn('通知后端清空DTMF失败:', error);
+            }
+        }
+    }
+
+    /**
+     * 删除最后一个DTMF输入
+     * 注意：DTMF信号一旦发送无法撤回，这里只是本地显示管理
+     */
+    backspaceDtmfInput() {
+        if (this.dtmfInputBuffer.length > 0) {
+            this.dtmfInputBuffer = this.dtmfInputBuffer.slice(0, -1);
+            this.dtmfInputHistory.pop();
+            this.updateDtmfDisplay();
+        }
+    }
+
+    /**
+     * 切换DTMF输入可见性
+     */
+    toggleDtmfVisibility() {
+        this.dtmfInputVisible = !this.dtmfInputVisible;
+        this.updateDtmfDisplay();
+
+        const icon = this.elements.dtmfToggleVisibility.querySelector('i');
+        if (icon) {
+            icon.className = this.dtmfInputVisible ? 'bi bi-eye' : 'bi bi-eye-slash';
+        }
+    }
+
+
+
+    /**
+     * 更新DTMF显示
+     */
+    updateDtmfDisplay() {
+        if (!this.elements.dtmfInputField) return;
+
+        // 更新输入字段
+        if (this.dtmfInputVisible) {
+            this.elements.dtmfInputField.value = this.dtmfInputBuffer;
+        } else {
+            this.elements.dtmfInputField.value = '*'.repeat(this.dtmfInputBuffer.length);
+        }
+
+        // 更新计数
+        if (this.elements.dtmfInputCount) {
+            this.elements.dtmfInputCount.textContent = this.dtmfInputBuffer.length;
+        }
+    }
+
+    /**
+     * 发送DTMF音频信号
+     * @param {string} key - 按键字符
+     */
+    async sendDtmfTone(key) {
+        try {
+            const callContext = this.callStateManager.getCallContext();
+            let dtmfSent = false;
+            let usedMethod = 'SIP';
+
+            if (!dtmfSent && this.signalRManager && this.signalRManager.connection) {
+                try {
+                    const result = await this.signalRManager.connection.invoke("SendDtmfTone", {
+                        CallId: callContext?.callId,
+                        Tone: key
+                    });
+
+                    if (result && result.success) {
+                        dtmfSent = true;
+                        usedMethod = 'SIP';
+                        console.log('DTMF通过SIP发送:', key);
+                    }
+                } catch (sipError) {
+                    console.warn('SIP DTMF发送失败:', sipError);
+                }
+            }
+
+            if (dtmfSent) {
+                this.addDtmfInput(key);
+
+                this.showDtmfFeedback(key);
+
+                if (this.signalRManager && this.signalRManager.connection) {
+                    try {
+                        await this.signalRManager.connection.invoke("LogDtmfTone", {
+                            CallId: callContext?.callId,
+                            Tone: key,
+                            Method: usedMethod // 使用明确的方法变量
+                        });
+                    } catch (logError) {
+                        console.warn('DTMF日志记录失败:', logError);
+                    }
+                }
+            } else {
+                console.warn('所有DTMF发送方式都不可用');
+                this.uiManager.updateStatus('DTMF功能不可用', 'warning');
+            }
+
+        } catch (error) {
+            console.error('发送DTMF失败:', error);
+            this.uiManager.updateStatus('DTMF发送失败', 'danger');
+        }
+    }
+
+    /**
+     * 显示DTMF按键反馈
+     * @param {string} key - 按键字符
+     */
+    showDtmfFeedback(key) {
+        const feedback = document.createElement('div');
+        feedback.className = 'dtmf-feedback';
+        feedback.textContent = key;
+        feedback.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 123, 255, 0.9);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 50%;
+            font-size: 2rem;
+            font-weight: bold;
+            z-index: 9999;
+            animation: dtmfPulse 0.3s ease-out;
+        `;
+
+        if (!document.getElementById('dtmf-styles')) {
+            const style = document.createElement('style');
+            style.id = 'dtmf-styles';
+            style.textContent = `
+                @keyframes dtmfPulse {
+                    0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+                    50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+                    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        document.body.appendChild(feedback);
+
+        setTimeout(() => {
+            if (feedback.parentNode) {
+                feedback.parentNode.removeChild(feedback);
+            }
+        }, 300);
     }
 
     setupContactEvents() {
@@ -185,6 +490,8 @@ class PhoneApp {
             if (this.callStateManager) {
                 this.callStateManager.resetToIdle();
             }
+            this.hideDtmfInputDisplay();
+            this.clearDtmfInput();
         });
 
         // 通话事件监听
@@ -192,12 +499,22 @@ class PhoneApp {
             console.log('收到通话结束事件:', event.detail);
             this.uiManager.showCallInfo(false);
             this.uiManager.stopCallTimer();
+            this.hideDtmfInputDisplay();
+            this.clearDtmfInput(); 
         });
 
         document.addEventListener('remoteHangup', (event) => {
             console.log('收到对方挂断事件:', event.detail);
             this.uiManager.showCallInfo(false);
             this.uiManager.stopCallTimer();
+            this.hideDtmfInputDisplay();
+            this.clearDtmfInput(); 
+        });
+
+        document.addEventListener('callConnected', (event) => {
+            console.log('收到通话连接事件:', event.detail);
+            this.showDtmfInputDisplay();
+            this.clearDtmfInput();
         });
     }
 
@@ -209,12 +526,12 @@ class PhoneApp {
         document.addEventListener('globalAnswerRequest', (event) => {
             const { callId } = event.detail;
             console.log('收到全局接听请求:', callId);
-            
+
             // 检查是否是当前来电
             const currentCall = this.callStateManager.getCallContext();
             if (currentCall && currentCall.callId === callId) {
                 console.log('匹配当前来电，自动触发接听');
-                
+
                 // 自动触发接听按钮
                 const answerButton = this.elements.answerButton;
                 if (answerButton && !answerButton.classList.contains('d-none')) {
@@ -231,7 +548,7 @@ class PhoneApp {
                 console.log('当前CallId:', currentCall?.callId);
             }
         });
-        
+
         console.log('全局监控事件监听已设置');
     }
 
@@ -258,8 +575,8 @@ class PhoneApp {
             const response = await fetch('/api/phone/call', {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ 
-                    Destination: destination, 
+                body: JSON.stringify({
+                    Destination: destination,
                     Offer: sdpOffer,
                     SelectedLineId: lineSelection.selectedLineId,
                     AutoSelectLine: lineSelection.autoSelectLine
@@ -290,7 +607,7 @@ class PhoneApp {
             window.ringtoneManager.stop();
         }
         // ==============================
-        
+
         this.uiManager.updateStatus('正在接听...', 'warning');
         try {
             const offerData = this.elements.answerButton.getAttribute('data-offer');
@@ -316,12 +633,18 @@ class PhoneApp {
             this.uiManager.startCallTimer();
             this.uiManager.showCallInfo(true);
 
+            this.showDtmfInputDisplay();
+            this.clearDtmfInput(); 
+
             // 检查安全状态
             this.checkSecureConnection();
 
         } catch (error) {
             this.uiManager.updateStatus(`接听失败: ${error.message}`, 'danger');
             this.callStateManager.resetToIdle();
+
+            this.hideDtmfInputDisplay();
+            this.clearDtmfInput();
         }
     }
 
@@ -343,6 +666,9 @@ class PhoneApp {
         this.callStateManager.resetToIdle();
         this.uiManager.showCallInfo(false);
         this.uiManager.updateStatus('已挂断...', 'success');
+
+        this.hideDtmfInputDisplay();
+        this.clearDtmfInput();
     }
 
     handleCallError(error) {
@@ -359,6 +685,9 @@ class PhoneApp {
         this.uiManager.updateStatus(`呼叫失败: ${errorMessage}`, 'danger');
         this.callStateManager.resetToIdle();
         this.uiManager.showCallInfo(false);
+
+        this.hideDtmfInputDisplay();
+        this.clearDtmfInput();
     }
 
     async checkSecureConnection() {
@@ -401,6 +730,9 @@ class PhoneApp {
         if (this.recordingManager && window.isRecording) {
             this.recordingManager.stopRecording();
         }
+
+        this.hideDtmfInputDisplay();
+        this.clearDtmfInput();
 
         console.log('PhoneApp: UI清理完成');
     }

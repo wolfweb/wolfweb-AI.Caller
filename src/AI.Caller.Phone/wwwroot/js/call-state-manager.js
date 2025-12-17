@@ -158,6 +158,22 @@ class CallStateManager {
         console.log('清除通话上下文');
     }
 
+    /**
+     * 检查是否在通话中
+     * @returns {boolean} 是否在通话中
+     */
+    isInCall() {
+        return this.currentState === CallState.CONNECTED;
+    }
+
+    /**
+     * 检查是否可以发送DTMF
+     * @returns {boolean} 是否可以发送DTMF
+     */
+    canSendDtmf() {
+        return this.isInCall() && this.callContext && this.callContext.callId;
+    }
+
     testState(stateName) {
         if (!CallState[stateName]) {
             console.error(`Invalid state name: ${stateName}`);

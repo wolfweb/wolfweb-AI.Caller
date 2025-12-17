@@ -1,6 +1,7 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Interfaces;
 using AI.Caller.Phone.Entities;
+using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 
 namespace AI.Caller.Phone.Services {
@@ -63,19 +64,15 @@ namespace AI.Caller.Phone.Services {
 
                     var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
                     
-                    // 设置DTMF输入服务（如果需要收集DTMF）
-                    try {
-                        var dtmfInputService = scope.ServiceProvider.GetService<IDtmfInputService>();
-                        if (dtmfInputService != null) {
-                            autoResponder.SetDtmfInputService(dtmfInputService);
-                            if (!string.IsNullOrEmpty(callId)) {
-                                autoResponder.SetCallContext(callId);
-                                _logger.LogDebug("已设置CallContext: {CallId}", callId);
-                            }
-                        }
-                    } catch (Exception ex) {
-                        _logger.LogWarning(ex, "设置DtmfInputService失败，DTMF输入将不会保存到数据库");
+                    if (!string.IsNullOrEmpty(callId)) {
+                        autoResponder.SetCallContext(callId);
+                        _logger.LogDebug("已设置CallContext: {CallId}", callId);
                     }
+                    
+                    Action<AI.Caller.Core.DtmfInputEventArgs> dtmfHandler = async (dtmfEventArgs) => {
+                        await HandleDtmfInputCollectedAsync(dtmfEventArgs);
+                    };
+                    autoResponder.OnDtmfInputCollected += dtmfHandler;
                     
                     Action<byte[]> audioGeneratedHandler = (audioFrame) => {
                         sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
@@ -99,6 +96,7 @@ namespace AI.Caller.Phone.Services {
                         ScriptText = scriptText,
                         StartTime = DateTime.UtcNow,
                         AudioGeneratedHandler = audioGeneratedHandler,
+                        DtmfInputHandler = dtmfHandler,
                         Scope = scope // Store scope
                     };
 
@@ -142,6 +140,21 @@ namespace AI.Caller.Phone.Services {
                     session.AutoResponder.OutgoingAudioGenerated -= session.AudioGeneratedHandler;
                 }
 
+                if (session.DtmfInputHandler != null) {
+                    session.AutoResponder.OnDtmfInputCollected -= session.DtmfInputHandler;
+                }
+
+                if (session.PlaybackTask != null && !session.PlaybackTask.IsCompleted) {
+                    try {
+                        await session.PlaybackTask.WaitAsync(TimeSpan.FromSeconds(2));
+                        _logger.LogDebug("播放任务已正常完成");
+                    } catch (TimeoutException) {
+                        _logger.LogWarning("播放任务超时，强制停止");
+                    } catch (Exception ex) {
+                        _logger.LogWarning(ex, "等待播放任务完成时出错");
+                    }
+                }
+
                 await session.AutoResponder.StopAsync();
                 session.AudioBridge.Stop();
 
@@ -179,20 +192,97 @@ namespace AI.Caller.Phone.Services {
             return _activeSessions.Values.ToList();
         }
 
+        /// <summary>
+        /// 获取会话的播放状态
+        /// </summary>
+        /// <param name="userId">用户ID</param>
+        /// <returns>播放状态信息</returns>
+        public (bool IsPlaying, TaskStatus? TaskStatus, string? StatusMessage) GetPlaybackStatus(int userId) {
+            if (!_activeSessions.TryGetValue(userId, out var session)) {
+                return (false, null, "会话不存在");
+            }
+
+            if (session.PlaybackTask == null) {
+                return (false, null, "无播放任务");
+            }
+
+            var taskStatus = session.PlaybackTask.Status;
+            var isPlaying = taskStatus == TaskStatus.Running || taskStatus == TaskStatus.WaitingForActivation;
+            
+            var statusMessage = taskStatus switch {
+                TaskStatus.Running => "正在播放",
+                TaskStatus.RanToCompletion => "播放完成",
+                TaskStatus.Canceled => "播放已取消",
+                TaskStatus.Faulted => $"播放失败: {session.PlaybackTask.Exception?.GetBaseException().Message}",
+                TaskStatus.WaitingForActivation => "等待开始",
+                _ => taskStatus.ToString()
+            };
+
+            return (isPlaying, taskStatus, statusMessage);
+        }
+
         public void Dispose() {
             var sessions = _activeSessions.Values.ToList();
             _activeSessions.Clear();
 
-            foreach (var session in sessions) {
+            var disposeTasks = sessions.Select(async session => {
                 try {
-                    session.AutoResponder.StopAsync().Wait(TimeSpan.FromSeconds(5));
+                    var stopTask = session.AutoResponder.StopAsync();
+                    var disposeTask = session.AutoResponder.DisposeAsync().AsTask();
+                    
+                    await Task.WhenAll(
+                        stopTask.WaitAsync(TimeSpan.FromSeconds(3)),
+                        disposeTask.WaitAsync(TimeSpan.FromSeconds(3))
+                    );
+                    
                     session.AudioBridge.Stop();
-                    session.AutoResponder.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5));
                     session.AudioBridge.Dispose();
-                    session.Scope?.Dispose(); // Dispose scope
+                    session.Scope?.Dispose();
+                    
+                    _logger.LogDebug("Successfully disposed session for user {Username}", session.User.Username);
                 } catch (Exception ex) {
-                    _logger.LogError(ex, $"Error disposing AI customer service session for user {session.User.Username}");
+                    _logger.LogError(ex, "Error disposing AI customer service session for user {Username}", session.User.Username);
                 }
+            });
+
+            try {
+                Task.WaitAll(disposeTasks.ToArray(), TimeSpan.FromSeconds(10));
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Timeout or error during bulk session disposal");
+            }
+        }
+
+        /// <summary>
+        /// 处理DTMF输入收集完成事件
+        /// </summary>
+        private async Task HandleDtmfInputCollectedAsync(AI.Caller.Core.DtmfInputEventArgs eventArgs) {
+            try {
+                using var scope = _scopeFactory.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                var dtmfRecord = new DtmfInputRecord {
+                    CallId = eventArgs.CallId,
+                    SegmentId = eventArgs.SegmentId,
+                    TemplateId = eventArgs.TemplateId,
+                    InputValue = eventArgs.InputValue,
+                    IsValid = eventArgs.IsValid,
+                    ValidationMessage = eventArgs.ValidationMessage,
+                    InputTime = eventArgs.InputTime,
+                    RetryCount = eventArgs.RetryCount,
+                    Duration = eventArgs.Duration
+                };
+
+                dbContext.DtmfInputRecords.Add(dtmfRecord);
+                await dbContext.SaveChangesAsync();
+
+                _logger.LogInformation("DTMF输入记录已保存: CallId={CallId}, SegmentId={SegmentId}, IsValid={IsValid}, RetryCount={RetryCount}", eventArgs.CallId, eventArgs.SegmentId, eventArgs.IsValid, eventArgs.RetryCount);
+
+                if (!string.IsNullOrEmpty(eventArgs.VariableName)) {
+                    _logger.LogDebug("DTMF输入变量: {VariableName} = {Value}", eventArgs.VariableName, eventArgs.InputValue);
+                }
+
+            } catch (Exception ex) {
+                _logger.LogError(ex, "保存DTMF输入记录失败: CallId={CallId}, SegmentId={SegmentId}", eventArgs.CallId, eventArgs.SegmentId);
             }
         }
     }
@@ -207,9 +297,11 @@ namespace AI.Caller.Phone.Services {
         public string ScriptText { get; set; } = string.Empty;
         public DateTime StartTime { get; set; }
         public Action<byte[]>? AudioGeneratedHandler { get; set; }
-        public string? CallId { get; set; }  // 通话ID
-        public int? ScenarioRecordingId { get; set; }  // 场景录音ID
-        public ScenarioRecording? ScenarioRecording { get; set; }  // 场景录音对象
-        public IServiceScope? Scope { get; set; } // Service scope for the session
+        public Action<DtmfInputEventArgs>? DtmfInputHandler { get; set; }
+        public string? CallId { get; set; }
+        public int? ScenarioRecordingId { get; set; }
+        public ScenarioRecording? ScenarioRecording { get; set; }
+        public IServiceScope? Scope { get; set; }
+        public Task? PlaybackTask { get; set; }
     }
 }

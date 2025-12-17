@@ -11,6 +11,16 @@ public sealed partial class AIAutoResponder {
     private HashSet<int> _skippedSegmentIds = new();  // 要跳过的片段ID集合
 
     /// <summary>
+    /// 场景执行进度事件
+    /// </summary>
+    public event Action<ScenarioProgressInfo>? OnScenarioProgress;
+
+    /// <summary>
+    /// DTMF输入收集完成事件
+    /// </summary>
+    public event Action<DtmfInputEventArgs>? OnDtmfInputCollected;
+
+    /// <summary>
     /// 设置要跳过的片段ID列表
     /// </summary>
     public void SetSkippedSegments(List<int> segmentIds) {
@@ -36,19 +46,35 @@ public sealed partial class AIAutoResponder {
         Dictionary<string, string> variables,
         CancellationToken ct = default) {
         if (_audioFilePlayer == null) {
+            _logger.LogError("AudioFilePlayer未设置，无法播放录音片段");
             throw new InvalidOperationException("AudioFilePlayer未设置");
+        }
+        
+        var hasDtmfSegments = segments.Any(s => s.Type == ScenarioSegmentType.DtmfInput);
+        if (hasDtmfSegments) {
+            if (_dtmfService == null) {
+                _logger.LogError("DtmfService未设置，但场景包含DTMF片段");
+                throw new InvalidOperationException("DtmfService未设置，无法处理DTMF输入");
+            }
+            if (string.IsNullOrEmpty(_currentCallId)) {
+                _logger.LogError("CallId未设置，无法处理DTMF输入");
+                throw new InvalidOperationException("CallId未设置，无法处理DTMF输入");
+            }
         }
 
         _logger.LogInformation("开始播放场景，共 {SegmentCount} 个片段", segments.Count);
+        
+        if (_isPaused) {
+            _logger.LogWarning("AIAutoResponder处于暂停状态，自动恢复播放");
+            await ResumeAsync();
+        }
 
+        var orderedSegments = segments.OrderBy(s => s.Order).ToList();
+        int currentIndex = 0;
         try {
-            var orderedSegments = segments.OrderBy(s => s.Order).ToList();
-            int currentIndex = 0;
-
             while (currentIndex < orderedSegments.Count && !ct.IsCancellationRequested) {
                 var segment = orderedSegments[currentIndex];
                 
-                // 检查是否应该跳过该片段
                 if (_skippedSegmentIds.Contains(segment.Id)) {
                     _logger.LogInformation("跳过片段 {Order}/{Total}: {Type} (SegmentId={SegmentId})",
                         segment.Order, orderedSegments.Count, segment.Type, segment.Id);
@@ -56,10 +82,16 @@ public sealed partial class AIAutoResponder {
                     continue;
                 }
                 
-                _logger.LogInformation("播放片段 {Order}/{Total}: {Type}",
-                    segment.Order, orderedSegments.Count, segment.Type);
+                _logger.LogInformation("播放片段 {Order}/{Total}: {Type} (SegmentId={SegmentId})", segment.Order, orderedSegments.Count, segment.Type, segment.Id);
 
                 try {
+                    OnScenarioProgress?.Invoke(new ScenarioProgressInfo {
+                        CurrentSegmentIndex = currentIndex,
+                        TotalSegments = orderedSegments.Count,
+                        CurrentSegment = segment,
+                        Status = ScenarioExecutionStatus.ExecutingSegment
+                    });
+
                     switch (segment.Type) {
                         case ScenarioSegmentType.Recording:
                             await PlayRecordingSegmentAsync(segment, ct);
@@ -72,6 +104,13 @@ public sealed partial class AIAutoResponder {
                             break;
 
                         case ScenarioSegmentType.DtmfInput:
+                            OnScenarioProgress?.Invoke(new ScenarioProgressInfo {
+                                CurrentSegmentIndex = currentIndex,
+                                TotalSegments = orderedSegments.Count,
+                                CurrentSegment = segment,
+                                Status = ScenarioExecutionStatus.WaitingForDtmfInput
+                            });
+                            
                             await PlayDtmfInputSegmentAsync(segment, variables, ct);
                             currentIndex++;
                             break;
@@ -86,19 +125,46 @@ public sealed partial class AIAutoResponder {
                             break;
 
                         default:
-                            _logger.LogWarning("未知的片段类型: {Type}", segment.Type);
+                            _logger.LogWarning("未知的片段类型: {Type}，跳过该片段", segment.Type);
                             currentIndex++;
                             break;
                     }
-                } catch (Exception ex) {
-                    _logger.LogError(ex, "播放片段失败: {SegmentId}, {Type}", segment.Id, segment.Type);
+                } catch (OperationCanceledException) {
+                    _logger.LogInformation("场景播放被取消");
                     throw;
+                } catch (Exception ex) {
+                    _logger.LogError(ex, "播放片段失败: {SegmentId}, {Type}，尝试继续执行下一片段", segment.Id, segment.Type);
+                    
+                    if (segment.Type == ScenarioSegmentType.DtmfInput) {
+                        _logger.LogError("DTMF片段执行失败，停止场景播放");
+                        throw;
+                    } else {
+                        _logger.LogWarning("非关键片段失败，继续执行下一片段");
+                        currentIndex++;
+                    }
                 }
             }
 
             _logger.LogInformation("场景播放完成");
+            
+            OnScenarioProgress?.Invoke(new ScenarioProgressInfo {
+                CurrentSegmentIndex = orderedSegments.Count,
+                TotalSegments = orderedSegments.Count,
+                CurrentSegment = null,
+                Status = ScenarioExecutionStatus.Completed
+            });
+            
         } catch (Exception ex) {
             _logger.LogError(ex, "场景播放失败");
+            
+            OnScenarioProgress?.Invoke(new ScenarioProgressInfo {
+                CurrentSegmentIndex = currentIndex,
+                TotalSegments = orderedSegments.Count,
+                CurrentSegment = orderedSegments.ElementAtOrDefault(currentIndex),
+                Status = ScenarioExecutionStatus.Failed,
+                ErrorMessage = ex.Message
+            });
+            
             throw;
         }
     }
@@ -108,12 +174,21 @@ public sealed partial class AIAutoResponder {
     /// </summary>
     private async Task PlayRecordingSegmentAsync(ScenarioSegment segment, CancellationToken ct) {
         if (string.IsNullOrEmpty(segment.FilePath)) {
-            _logger.LogWarning("录音片段文件路径为空");
+            _logger.LogWarning("录音片段文件路径为空，SegmentId: {SegmentId}", segment.Id);
             return;
         }
 
+        if (!File.Exists(segment.FilePath)) {
+            _logger.LogError("录音文件不存在: {FilePath}", segment.FilePath);
+            return;
+        }
+
+        var fileInfo = new FileInfo(segment.FilePath);
+        
         await PlayRecordingAsync(segment.FilePath, ct);
         await WaitForPlaybackToCompleteAsync();
+        
+        await Task.Delay(50, ct);
     }
 
     /// <summary>
@@ -159,6 +234,8 @@ public sealed partial class AIAutoResponder {
                     var promptText = ReplaceVariables(config.PromptText, variables);
                     await PlayScriptAsync(promptText, ct: ct);
                     await WaitForPlaybackToCompleteAsync();
+                    
+                    await Task.Delay(200, ct);
                 }
 
                 // 收集输入
@@ -240,58 +317,25 @@ public sealed partial class AIAutoResponder {
         string? validationMessage,
         int retryCount,
         int durationMs) {
-        // 如果没有设置服务或CallId，跳过保存
-        if (_dtmfInputService == null || string.IsNullOrEmpty(_currentCallId)) {
-            _logger.LogDebug("DtmfInputService或CallId未设置，跳过数据库保存");
-            return;
-        }
-
-        try {
-            // 使用反射调用IDtmfInputService.RecordInputAsync
-            // 这样可以避免Core层依赖Phone层
-            var serviceType = _dtmfInputService.GetType();
-            var recordInputMethod = serviceType.GetMethod("RecordInputAsync");
-
-            if (recordInputMethod == null) {
-                _logger.LogWarning("未找到RecordInputAsync方法");
-                return;
-            }
-
-            // 创建DtmfInputRecord实例
-            var recordType = serviceType.Assembly.GetType("AI.Caller.Phone.Entities.DtmfInputRecord");
-            if (recordType == null) {
-                _logger.LogWarning("未找到DtmfInputRecord类型");
-                return;
-            }
-
-            var record = Activator.CreateInstance(recordType);
-            if (record == null) {
-                _logger.LogWarning("无法创建DtmfInputRecord实例");
-                return;
-            }
-
-            // 设置属性
-            recordType.GetProperty("CallId")?.SetValue(record, _currentCallId);
-            recordType.GetProperty("SegmentId")?.SetValue(record, segment.Id);
-            recordType.GetProperty("TemplateId")?.SetValue(record, config.TemplateId);
-            recordType.GetProperty("InputValue")?.SetValue(record, input);
-            recordType.GetProperty("IsValid")?.SetValue(record, isValid);
-            recordType.GetProperty("ValidationMessage")?.SetValue(record, validationMessage);
-            recordType.GetProperty("RetryCount")?.SetValue(record, retryCount);
-            recordType.GetProperty("Duration")?.SetValue(record, durationMs);
-            recordType.GetProperty("InputTime")?.SetValue(record, DateTime.UtcNow);
-
-            // 调用RecordInputAsync
-            var task = recordInputMethod.Invoke(_dtmfInputService, new[] { record }) as Task;
-            if (task != null) {
-                await task;
-                _logger.LogInformation("DTMF输入已保存到数据库: CallId={CallId}, Input={Input}, IsValid={IsValid}",
-                    _currentCallId, input, isValid);
-            }
-        } catch (Exception ex) {
-            _logger.LogError(ex, "保存DTMF输入到数据库失败");
-            // 不影响主流程，继续执行
-        }
+        
+        _logger.LogInformation("DTMF输入收集完成: CallId={CallId}, Input={MaskedInput}, IsValid={IsValid}, RetryCount={RetryCount}, Duration={Duration}ms",
+            _currentCallId, MaskInput(input), isValid, retryCount, durationMs);
+        
+        // 触发事件，让上层处理数据库保存
+        OnDtmfInputCollected?.Invoke(new DtmfInputEventArgs {
+            CallId = _currentCallId ?? string.Empty,
+            SegmentId = segment.Id,
+            TemplateId = config.TemplateId,
+            InputValue = input,
+            IsValid = isValid,
+            ValidationMessage = validationMessage,
+            RetryCount = retryCount,
+            Duration = durationMs,
+            InputTime = DateTime.UtcNow,
+            VariableName = config.VariableName
+        });
+        
+        await Task.CompletedTask;
     }
 
     /// <summary>
@@ -395,4 +439,73 @@ public sealed partial class AIAutoResponder {
             return false;
         }
     }
+
+    /// <summary>
+    /// 脱敏输入（用于日志）
+    /// </summary>
+    private static string MaskInput(string input) {
+        if (string.IsNullOrEmpty(input))
+            return string.Empty;
+
+        if (input.Length <= 4)
+            return new string('*', input.Length);
+
+        // 显示前2位和后2位
+        return $"{input.Substring(0, 2)}{"".PadLeft(input.Length - 4, '*')}{input.Substring(input.Length - 2)}";
+    }
+}
+
+/// <summary>
+/// DTMF输入事件参数
+/// </summary>
+public class DtmfInputEventArgs {
+    /// <summary>
+    /// 通话ID
+    /// </summary>
+    public string CallId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 场景片段ID
+    /// </summary>
+    public int SegmentId { get; set; }
+
+    /// <summary>
+    /// 模板ID（可选）
+    /// </summary>
+    public int? TemplateId { get; set; }
+
+    /// <summary>
+    /// 输入值
+    /// </summary>
+    public string InputValue { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否有效
+    /// </summary>
+    public bool IsValid { get; set; }
+
+    /// <summary>
+    /// 验证消息
+    /// </summary>
+    public string? ValidationMessage { get; set; }
+
+    /// <summary>
+    /// 重试次数
+    /// </summary>
+    public int RetryCount { get; set; }
+
+    /// <summary>
+    /// 输入持续时间（毫秒）
+    /// </summary>
+    public int Duration { get; set; }
+
+    /// <summary>
+    /// 输入时间
+    /// </summary>
+    public DateTime InputTime { get; set; }
+
+    /// <summary>
+    /// 变量名（用于存储结果）
+    /// </summary>
+    public string? VariableName { get; set; }
 }

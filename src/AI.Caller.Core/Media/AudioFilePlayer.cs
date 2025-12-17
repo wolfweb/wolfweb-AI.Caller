@@ -46,14 +46,17 @@ public class AudioFilePlayer : IDisposable {
         }
 
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
-        _logger.LogInformation("加载音频文件: {FilePath}, 格式: {Extension}", filePath, extension);
 
         try {
-            return extension switch {
+            var result = extension switch {
                 ".pcm" or ".raw" => await LoadPcmAsync(filePath),
                 ".wav" or ".mp3" or ".ogg" or ".flac" or ".m4a" => await LoadWithFFmpegAsync(filePath),
                 _ => throw new NotSupportedException($"不支持的音频格式: {extension}")
             };
+            
+            _logger.LogDebug("音频文件加载完成: {FilePath}, 帧数: {FrameCount}", filePath, result.Count);
+            
+            return result;
         } catch (Exception ex) {
             _logger.LogError(ex, "加载音频文件失败: {FilePath}", filePath);
             return new List<byte[]>();
@@ -66,10 +69,15 @@ public class AudioFilePlayer : IDisposable {
     public async Task<List<byte[]>> LoadPcmAsync(string filePath) {
         try {
             var pcmData = await File.ReadAllBytesAsync(filePath);
-            _logger.LogInformation("已加载PCM文件: {Size} 字节", pcmData.Length);
+            _logger.LogDebug("已加载PCM文件: {Size} 字节", pcmData.Length);
+
+            if (pcmData.Length == 0) {
+                _logger.LogError("PCM文件为空: {FilePath}", filePath);
+                return new List<byte[]>();
+            }
 
             var frames = ConvertPcmToFrames(pcmData);
-            _logger.LogInformation("PCM文件已分割成 {Count} 帧", frames.Count);
+            _logger.LogDebug("PCM文件已分割成 {Count} 帧", frames.Count);
 
             return frames;
         } catch (Exception ex) {
@@ -143,7 +151,7 @@ public class AudioFilePlayer : IDisposable {
         int totalSamples = pcmData.Length / 2; // 16-bit PCM = 2 bytes per sample
         int totalFrames = (totalSamples + SamplesPerFrame - 1) / SamplesPerFrame; // 向上取整
 
-        _logger.LogDebug("转换PCM数据: {TotalSamples} 采样点, {TotalFrames} 帧", totalSamples, totalFrames);
+        _logger.LogDebug("🔥 [DEBUG] 转换PCM数据: {TotalSamples} 采样点, {TotalFrames} 帧, 原始数据大小: {DataSize} 字节", totalSamples, totalFrames, pcmData.Length);
 
         for (int i = 0; i < totalFrames; i++) {
             int offset = i * BytesPerFrame;
@@ -163,10 +171,10 @@ public class AudioFilePlayer : IDisposable {
                 if (g711Frame != null && g711Frame.Length > 0) {
                     frames.Add(g711Frame);
                 } else {
-                    _logger.LogWarning("G711编码返回空结果，帧索引: {FrameIndex}", i);
+                    _logger.LogError("🔥 [DEBUG] G711编码返回空结果，帧索引: {FrameIndex}", i);
                 }
             } catch (Exception ex) {
-                _logger.LogError(ex, "G711编码失败，帧索引: {FrameIndex}", i);
+                _logger.LogError(ex, "🔥 [DEBUG] G711编码失败，帧索引: {FrameIndex}", i);
             }
         }
 
