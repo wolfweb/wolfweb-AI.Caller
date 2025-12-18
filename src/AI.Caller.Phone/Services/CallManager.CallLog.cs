@@ -20,7 +20,7 @@ public partial class CallManager {
         using var scope = _serviceScopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var callLog = new Entities.CallLog {
+        var callLog = dbContext.CallLogs.FirstOrDefault(x=>x.CallId == ctx.CallId) ?? new Entities.CallLog {
             CallId = ctx.CallId,
             CallScenario = ctx.Type,
             Direction = Entities.CallDirection.Outbound,
@@ -66,7 +66,7 @@ public partial class CallManager {
         using var scope = _serviceScopeFactory.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var callLog = new Entities.CallLog {
+        var callLog = dbContext.CallLogs.FirstOrDefault(x => x.CallId == ctx.CallId) ?? new Entities.CallLog {
             CallId = ctx.CallId,
             Direction = Entities.CallDirection.Inbound,
             Status = Entities.CallStatus.InProgress,

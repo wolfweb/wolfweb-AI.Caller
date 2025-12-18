@@ -82,8 +82,12 @@ public class CallProcessor : ICallProcessor {
                 selectedLineId = callLog.BatchCallJob.SelectedLineId;
                 autoSelectLine = callLog.BatchCallJob.AutoSelectLine;
             }
-            
-            callContext = await callManager.MakeCallAsync($"sip:{callLog.CalleeNumber}", agent, null, webUser != null ? CallScenario.ServerToWeb : CallScenario.ServerToMobile, selectedLineId, autoSelectLine);
+
+            callLog.CallScenario = webUser != null ? CallScenario.ServerToWeb : CallScenario.ServerToMobile;
+
+            callContext = await callManager.MakeCallAsync($"sip:{callLog.CalleeNumber}", agent, null, callLog.CallScenario.Value, selectedLineId, autoSelectLine);
+            callLog.CallId = callContext.CallId;
+            await context.SaveChangesAsync();
 
             callAnsweredHandler = async (sc) => {
                 _logger.LogInformation("Call answered for CallLogId {CallLogId}. Starting AI Customer Service.", callLogId);
@@ -177,7 +181,6 @@ public class CallProcessor : ICallProcessor {
 
             var callResult = await tcs.Task;
             _logger.LogInformation("Waiting for call completion for CallLogId {CallLogId}.", callLogId);
-
             if (callResult.Status == CallOutcome.Completed) {
                 callLog.Status = Entities.CallStatus.Completed;
                 _logger.LogInformation("Call to {PhoneNumber} completed successfully for CallLogId {CallLogId}.", callLog.CalleeNumber, callLogId);

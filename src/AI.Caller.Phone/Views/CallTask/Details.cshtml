@@ -80,6 +80,7 @@
                 <th>@Html.DisplayNameFor(model => model.CallLogs.First().FailureReason)</th>
                 <th>@Html.DisplayNameFor(model => model.CallLogs.First().CreatedAt)</th>
                 <th>@Html.DisplayNameFor(model => model.CallLogs.First().CompletedAt)</th>
+                <th>操作</th>
             </tr>
         </thead>
         <tbody>
@@ -90,8 +91,227 @@
                     <td>@Html.DisplayFor(modelItem => log.FailureReason)</td>
                     <td>@Html.DisplayFor(modelItem => log.CreatedAt)</td>
                     <td>@Html.DisplayFor(modelItem => log.CompletedAt)</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#details-@log.Id" aria-expanded="false">
+                            <i class="bi bi-chevron-down"></i> 详情
+                        </button>
+                    </td>
+                </tr>
+                <tr>
+                    <td colspan="6" class="p-0">
+                        <div class="collapse" id="details-@log.Id">
+                            <div class="card border-top-0">
+                                <!-- DTMF输入记录 -->
+                                <div class="card-header bg-dark text-light">
+                                    <h5 class="mb-0">
+                                        <i class="bi bi-keyboard me-2"></i>DTMF输入记录
+                                        <span class="badge bg-primary float-end">@log.DtmfInputs.Count 条</span>
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    @if (log.DtmfInputs.Any())
+                                    {
+                                        <div class="table-responsive">
+                                            <table class="table table-dark table-striped">
+                                                <thead>
+                                                    <tr>
+                                                        <th>输入值</th>
+                                                        <th>时间</th>
+                                                        <th>有效性</th>
+                                                        <th>重试次数</th>
+                                                        <th>持续时间(ms)</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var input in log.DtmfInputs)
+                                                    {
+                                                        <tr>
+                                                            <td>@input.InputValue</td>
+                                                            <td>@input.InputTime.ToString("HH:mm:ss")</td>
+                                                            <td>
+                                                                <span class="badge @(input.IsValid ? "bg-success" : "bg-danger")">
+                                                                    @(input.IsValid ? "有效" : "无效")
+                                                                </span>
+                                                            </td>
+                                                            <td>@input.RetryCount</td>
+                                                            <td>@input.Duration</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="alert alert-info">
+                                            <i class="bi bi-info-circle me-2"></i>无DTMF输入记录
+                                        </div>
+                                    }
+                                </div>
+
+                                <!-- 监控会话 -->
+                                <div class="card-header bg-dark text-light">
+                                    <h5 class="mb-0">
+                                        <i class="bi bi-shield me-2"></i>监控会话
+                                        <span class="badge bg-info float-end">@log.MonitoringSessions.Count 条</span>
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    @if (log.MonitoringSessions.Any())
+                                    {
+                                        <div class="table-responsive">
+                                            <table class="table table-dark table-striped">
+                                                <thead>
+                                                    <tr>
+                                                        <th>监控者</th>
+                                                        <th>开始时间</th>
+                                                        <th>结束时间</th>
+                                                        <th>状态</th>
+                                                        <th>接入情况</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var session in log.MonitoringSessions)
+                                                    {
+                                                        <tr>
+                                                            <td>@session.MonitorUserName</td>
+                                                            <td>@session.StartTime.ToString("HH:mm:ss")</td>
+                                                            <td>@(session.EndTime?.ToString("HH:mm:ss") ?? "进行中")</td>
+                                                            <td>
+                                                                <span class="badge @(session.IsActive ? "bg-success" : "bg-secondary")">
+                                                                    @(session.IsActive ? "进行中" : "已结束")
+                                                                </span>
+                                                            </td>
+                                                            <td>
+                                                                @if (session.InterventionTime.HasValue)
+                                                                {
+                                                                    <div>
+                                                                        <span class="badge bg-warning">已接入</span>
+                                                                        <small class="text-muted d-block">@session.InterventionReason</small>
+                                                                    </div>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <span class="badge bg-secondary">仅监听</span>
+                                                                }
+                                                            </td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <div class="alert alert-info">
+                                            <i class="bi bi-info-circle me-2"></i>无监控会话记录
+                                        </div>
+                                    }
+
+                                    <!-- 播放控制 -->
+                                    <div class="card-header bg-dark text-light">
+                                        <h5 class="mb-0">
+                                            <i class="bi bi-play-circle me-2"></i>播放控制
+                                            <span class="badge bg-warning float-end">@log.PlaybackControls.Count 条</span>
+                                        </h5>
+                                    </div>
+                                    <div class="card-body">
+                                        @if (log.PlaybackControls.Any())
+                                        {
+                                            <div class="table-responsive">
+                                                <table class="table table-dark table-striped">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>播放状态</th>
+                                                            <th>创建时间</th>
+                                                            <th>最后更新</th>
+                                                            <th>暂停时间</th>
+                                                            <th>恢复时间</th>
+                                                            <th>操作</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var control in log.PlaybackControls)
+                                                        {
+                                                            <tr>
+                                                                <td>
+                                                                    <span class="badge bg-@(control.PlaybackState switch {
+                                                                        AI.Caller.Phone.Entities.PlaybackState.NotStarted => "secondary",
+                                                                        AI.Caller.Phone.Entities.PlaybackState.Playing => "success",
+                                                                        AI.Caller.Phone.Entities.PlaybackState.Paused => "warning",
+                                                                        AI.Caller.Phone.Entities.PlaybackState.Interrupted => "danger",
+                                                                        AI.Caller.Phone.Entities.PlaybackState.Completed => "info",
+                                                                        AI.Caller.Phone.Entities.PlaybackState.Failed => "danger",
+                                                                        _ => "secondary"
+                                                                    })">
+                                                                        @(control.PlaybackState switch {
+                                                                            AI.Caller.Phone.Entities.PlaybackState.NotStarted => "未开始",
+                                                                            AI.Caller.Phone.Entities.PlaybackState.Playing => "播放中",
+                                                                            AI.Caller.Phone.Entities.PlaybackState.Paused => "已暂停",
+                                                                            AI.Caller.Phone.Entities.PlaybackState.Interrupted => "已中断",
+                                                                            AI.Caller.Phone.Entities.PlaybackState.Completed => "已完成",
+                                                                            AI.Caller.Phone.Entities.PlaybackState.Failed => "失败",
+                                                                            _ => "未知"
+                                                                        })
+                                                                    </span>
+                                                                </td>
+                                                                <td>@control.CreatedAt.ToString("HH:mm:ss")</td>
+                                                                <td>@control.UpdatedAt.ToString("HH:mm:ss")</td>
+                                                                <td>@(control.PausedAt?.ToString("HH:mm:ss") ?? "-")</td>
+                                                                <td>@(control.ResumedAt?.ToString("HH:mm:ss") ?? "-")</td>
+                                                                <td>
+                                                                    <button class="btn btn-sm btn-outline-info" type="button" data-bs-toggle="collapse" data-bs-target="#playback-details-@control.Id">
+                                                                        <i class="bi bi-chevron-down"></i> 详情
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td colspan="6" class="p-0">
+                                                                    <div class="collapse" id="playback-details-@control.Id">
+                                                                        <div class="card border-top-0 bg-dark">
+                                                                            <div class="card-body">
+                                                                                <div class="row">
+                                                                                    <div class="col-md-6">
+                                                                                        <h6>片段信息</h6>
+                                                                                        <p><strong>当前片段ID:</strong> @(control.CurrentSegmentId?.ToString() ?? "无")</p>
+                                                                                        <p><strong>最后接入片段ID:</strong> @(control.LastInterventionSegmentId?.ToString() ?? "无")</p>
+                                                                                    </div>
+                                                                                    <div class="col-md-6">
+                                                                                        <h6>跳过的片段</h6>
+                                                                                        @if (!string.IsNullOrEmpty(control.SkippedSegments))
+                                                                                        {
+                                                                                            <p>@control.SkippedSegments</p>
+                                                                                        }
+                                                                                        else
+                                                                                        {
+                                                                                            <p class="text-muted">无跳过片段</p>
+                                                                                        }
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="alert alert-info">
+                                                <i class="bi bi-info-circle me-2"></i>无播放控制记录
+                                            </div>
+                                        }
+                                </div>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
                 </tr>
             }
         </tbody>
     </table>
+</div>
 </div>

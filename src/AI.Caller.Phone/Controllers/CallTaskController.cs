@@ -34,7 +34,9 @@ namespace AI.Caller.Phone.Controllers {
 
         public async Task<IActionResult> Details(int id) {
             var batchJob = await _context.BatchCallJobs
-                .Include(j => j.CallLogs)
+                .Include(j => j.CallLogs).ThenInclude(l => l.DtmfInputs)
+                .Include(j => j.CallLogs).ThenInclude(l => l.MonitoringSessions)
+                .Include(j => j.CallLogs).ThenInclude(l => l.PlaybackControls)
                 .Include(j => j.TtsTemplate)
                 .Include(j => j.ScenarioRecording)
                 .FirstOrDefaultAsync(j => j.Id == id);

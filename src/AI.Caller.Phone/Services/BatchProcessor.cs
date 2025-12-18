@@ -91,7 +91,8 @@ public class BatchProcessor : IBatchProcessor {
                     Status = Entities.CallStatus.Queued,
                     InitiationType = CallInitiationType.Batch,
                     BatchCallJobId = batchJob.Id,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    Direction = CallDirection.Outbound,
                 };
                 _context.CallLogs.Add(callLog);
             }

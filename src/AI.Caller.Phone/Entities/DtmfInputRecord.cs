@@ -38,5 +38,7 @@ namespace AI.Caller.Phone.Entities {
 
         [ForeignKey(nameof(TemplateId))]
         public virtual DtmfInputTemplate? Template { get; set; }
+
+        public virtual CallLog? CallLog { get; set; }
     }
 }

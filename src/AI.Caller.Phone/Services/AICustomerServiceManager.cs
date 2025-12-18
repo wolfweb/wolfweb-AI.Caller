@@ -255,13 +255,16 @@ namespace AI.Caller.Phone.Services {
         /// <summary>
         /// 处理DTMF输入收集完成事件
         /// </summary>
-        private async Task HandleDtmfInputCollectedAsync(AI.Caller.Core.DtmfInputEventArgs eventArgs) {
+        private async Task HandleDtmfInputCollectedAsync(DtmfInputEventArgs eventArgs) {
             try {
                 using var scope = _scopeFactory.CreateScope();
                 var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+                var callLog = dbContext.CallLogs.FirstOrDefault(x => x.CallId == eventArgs.CallId);
+
                 var dtmfRecord = new DtmfInputRecord {
-                    CallId = eventArgs.CallId,
+                    CallId = eventArgs.CallId,                    
+                    CallLog = callLog,
                     SegmentId = eventArgs.SegmentId,
                     TemplateId = eventArgs.TemplateId,
                     InputValue = eventArgs.InputValue,
@@ -269,7 +272,7 @@ namespace AI.Caller.Phone.Services {
                     ValidationMessage = eventArgs.ValidationMessage,
                     InputTime = eventArgs.InputTime,
                     RetryCount = eventArgs.RetryCount,
-                    Duration = eventArgs.Duration
+                    Duration = eventArgs.Duration,
                 };
 
                 dbContext.DtmfInputRecords.Add(dtmfRecord);

@@ -324,15 +324,15 @@ public sealed partial class AIAutoResponder {
         // 触发事件，让上层处理数据库保存
         OnDtmfInputCollected?.Invoke(new DtmfInputEventArgs {
             CallId = _currentCallId ?? string.Empty,
-            SegmentId = segment.Id,
-            TemplateId = config.TemplateId,
-            InputValue = input,
             IsValid = isValid,
-            ValidationMessage = validationMessage,
-            RetryCount = retryCount,
             Duration = durationMs,
             InputTime = DateTime.UtcNow,
-            VariableName = config.VariableName
+            SegmentId = segment.Id,
+            RetryCount = retryCount,
+            TemplateId = config.TemplateId,
+            InputValue = input,
+            VariableName = config.VariableName,
+            ValidationMessage = validationMessage,
         });
         
         await Task.CompletedTask;
