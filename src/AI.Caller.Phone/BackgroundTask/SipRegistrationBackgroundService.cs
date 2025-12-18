@@ -9,7 +9,7 @@ using System.Threading.Channels;
 namespace AI.Caller.Phone.BackgroundTask {
     public class SipRegistrationBackgroundService : IHostedService {
         private readonly ILogger _logger;
-        private readonly Channel<User> _channel;
+        private readonly Channel<SipRegisterModel> _channel;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ApplicationContext _applicationContext;
         private readonly SIPTransportManager _sipTransportManager;
@@ -18,7 +18,7 @@ namespace AI.Caller.Phone.BackgroundTask {
 
         public SipRegistrationBackgroundService(
             ILogger<SipRegistrationBackgroundService> logger,
-            Channel<User> channel,
+            Channel<SipRegisterModel> channel,
             IServiceScopeFactory scopeFactory,
             ApplicationContext applicationContext,
             SIPTransportManager sipTransportManager
@@ -41,22 +41,7 @@ namespace AI.Caller.Phone.BackgroundTask {
                 .ToListAsync();
 
             foreach (var sipAccount in sipAccounts) {
-                var agent = new SIPRegistrationUserAgent(
-                    _sipTransportManager.SIPTransport,
-                    sipAccount.SipUsername,
-                    sipAccount.SipPassword,
-                    sipAccount.SipServer,
-                    180 
-                );
-
-                agent.RegistrationFailed += (uri, resp, err) => _logger.LogError($"SIP Register Failed [User {sipAccount.SipUsername}]: {err}");
-
-                agent.RegistrationSuccessful += (uri, resp) => _logger.LogInformation($"SIP Register OK [User {sipAccount.SipUsername}]");
-
-                if (_activeAgents.TryAdd(sipAccount.Id, agent)) {
-                    agent.Start();
-                    _logger.LogInformation($"Started SIP Agent for User {sipAccount.Id}");
-                }
+                RegisterSipAccount(sipAccount);
             }
         }
 
@@ -78,17 +63,49 @@ namespace AI.Caller.Phone.BackgroundTask {
 
         private async Task UserActiviteCustome(CancellationToken cancellationToken) {
             while (await _channel.Reader.WaitToReadAsync(cancellationToken)) {
-                while (_channel.Reader.TryRead(out var user)) {
+                while (_channel.Reader.TryRead(out var model)) {
+                    var user = model.User;
+                    var sipAccount = model.SipAccount;
                     using var scope = _scopeFactory.CreateScope();
                     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                    if (user.RegisteredAt == null || user.RegisteredAt < DateTime.UtcNow.AddMicroseconds(-5) || user.RegisteredAt < _applicationContext.StartAt) {
-                        if(_activeAgents.Keys.Any(x=>x == user.SipAccount!.Id)) {
+
+                    if (user != null && (user.RegisteredAt == null || user.RegisteredAt < DateTime.UtcNow.AddMicroseconds(-5) || user.RegisteredAt < _applicationContext.StartAt)) {
+                        if (_activeAgents.Keys.Any(x => x == user.SipAccount!.Id)) {
                             user.SipRegistered = true;
                             user.RegisteredAt = DateTime.UtcNow;
                             await dbContext.SaveChangesAsync();
                         }
                     }
+                    if (sipAccount != null) {
+                        var sipData = await dbContext.SipAccounts.FindAsync(sipAccount.Id);
+                        if (_activeAgents.TryGetValue(sipAccount.Id, out var agent) && sipAccount.SipServer != sipData.SipServer) {
+                            _activeAgents.TryRemove(sipAccount.Id, out _);
+                            agent.Stop();
+                            RegisterSipAccount(sipData);
+                        } else {
+                            RegisterSipAccount(sipAccount);
+                        }
+                    }
                 }
+            }
+        }
+
+        private void RegisterSipAccount(SipAccount sipAccount) {
+            var agent = new SIPRegistrationUserAgent(
+                                _sipTransportManager.SIPTransport,
+                                sipAccount.SipUsername,
+                                sipAccount.SipPassword,
+                                sipAccount.SipServer,
+                                180
+                            );
+
+            agent.RegistrationFailed += (uri, resp, err) => _logger.LogError($"SIP Register Failed [User {sipAccount.SipUsername}]: {err}");
+
+            agent.RegistrationSuccessful += (uri, resp) => _logger.LogInformation($"SIP Register OK [User {sipAccount.SipUsername}]");
+
+            if (_activeAgents.TryAdd(sipAccount.Id, agent)) {
+                agent.Start();
+                _logger.LogInformation($"Started SIP Agent for User {sipAccount.Id}");
             }
         }
     }

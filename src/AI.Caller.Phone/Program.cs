@@ -44,7 +44,7 @@ namespace AI.Caller.Phone {
             builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
 
             builder.Services.AddScoped<IAICustomerServiceSettingsProvider, AICustomerServiceSettingsProvider>();
-            builder.Services.AddSingleton(_ => Channel.CreateUnbounded<User>());
+            builder.Services.AddSingleton(_ => Channel.CreateUnbounded<SipRegisterModel>());
             builder.Services.AddSingleton(_ => new ApplicationContext());
 
             builder.Services.AddHostedService<SipBackgroundTask>();

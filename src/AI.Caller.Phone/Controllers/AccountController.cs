@@ -1,27 +1,32 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Models;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Authorization;
 using AI.Caller.Phone.Services;
-using System.Security.Claims;
+using FFmpeg.AutoGen;
 using Microsoft.AspNetCore.Authentication;
-using AI.Caller.Phone.Entities;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
+using System.Threading.Channels;
 
 namespace AI.Caller.Phone.Controllers {
     [AllowAnonymous]
     public class AccountController : Controller {
         private readonly ILogger _logger;
         private readonly AppDbContext _context;
+        private readonly Channel<SipRegisterModel> _channel;
         private readonly UserService _userService;
         private readonly ContactService _contactService;
 
         public AccountController(
             AppDbContext context,
+            Channel<SipRegisterModel> channel,
             UserService userService,
             ContactService contactService,
             ILogger<AccountController> logger) {
             _logger         = logger;
             _context        = context;
+            _channel        = channel;
             _userService    = userService;
             _contactService = contactService;
         }
@@ -508,6 +513,8 @@ namespace AI.Caller.Phone.Controllers {
                 _context.SipAccounts.Add(sipAccount);
                 await _context.SaveChangesAsync();
 
+                _channel.Writer.TryWrite(new SipRegisterModel(sipAccount));
+
                 return Json(new { success = true, message = "SIP账户添加成功" });
             } catch (Exception ex) {
                 return Json(new { success = false, message = "添加SIP账户时发生错误: " + ex.Message });
@@ -537,6 +544,8 @@ namespace AI.Caller.Phone.Controllers {
                 sipAccount.IsActive = model.IsActive;
 
                 await _context.SaveChangesAsync();
+
+                _channel.Writer.TryWrite(new SipRegisterModel(sipAccount));
 
                 return Json(new { success = true, message = "SIP账户更新成功" });
             } catch (Exception ex) {
