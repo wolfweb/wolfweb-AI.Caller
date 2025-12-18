@@ -8,23 +8,24 @@ namespace AI.Caller.Phone.Controllers;
 
 [Authorize]
 public class MonitoringController : Controller {
-    private readonly AICustomerServiceManager _aiServiceManager;
-    private readonly IMonitoringService _monitoringService;
-    private readonly IPlaybackControlService _playbackControlService;
+    private readonly ILogger _logger;
     private readonly AppDbContext _context;
-    private readonly ILogger<MonitoringController> _logger;
+    private readonly IMonitoringService _monitoringService;
+    private readonly AICustomerServiceManager _aiServiceManager;
+    private readonly IPlaybackControlService _playbackControlService;
 
     public MonitoringController(
-        AICustomerServiceManager aiServiceManager,
-        IMonitoringService monitoringService,
-        IPlaybackControlService playbackControlService,
         AppDbContext context,
-        ILogger<MonitoringController> logger) {
+        ILogger<MonitoringController> logger,
+        IMonitoringService monitoringService,
+        AICustomerServiceManager aiServiceManager,
+        IPlaybackControlService playbackControlService
+     ) {
+        _logger = logger;
+        _context = context;
         _aiServiceManager = aiServiceManager;
         _monitoringService = monitoringService;
         _playbackControlService = playbackControlService;
-        _context = context;
-        _logger = logger;
     }
 
     // GET: Monitoring
@@ -32,6 +33,11 @@ public class MonitoringController : Controller {
         var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
         var sessions = await _monitoringService.GetUserSessionsAsync(userId);
         return View(sessions);
+    }
+
+    public async Task<IActionResult> MonitorStop(int id) {
+        await _monitoringService.StopMonitoringAsync(id);
+        return RedirectToAction("Index");
     }
 
     // GET: Monitoring/ActiveCalls

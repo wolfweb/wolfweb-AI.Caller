@@ -70,12 +70,17 @@
                             </td>
                             <td>@session.InterventionReason</td>
                             <td>
-                                @if (!session.EndTime.HasValue)
-                                {
-                                    <a asp-action="Monitor" asp-route-userId="@session.CallId" asp-route-callId="@session.CallId" class="btn btn-sm btn-primary" title="继续监听">
-                                        <i class="bi bi-eye"></i> 
-                                    </a>
-                                }
+                                <div class="btn-group btn-group-sm">
+                                    @if (!session.EndTime.HasValue)
+                                    {
+                                        <a asp-action="Monitor" asp-route-userId="@session.CallId" asp-route-callId="@session.CallId" class="btn btn-sm btn-primary" title="继续监听">
+                                            <i class="bi bi-eye"></i> 
+                                        </a>
+                                        <a asp-action="MonitorStop" asp-route-id="@session.Id" class="btn btn-sm btn-danger" title="停止监听">
+                                            <i class="bi bi-eye-slash"></i>
+                                        </a>
+                                    }
+                                </div>
                             </td>
                         </tr>
                     }
