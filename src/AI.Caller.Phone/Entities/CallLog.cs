@@ -27,9 +27,6 @@ public enum CallDirection {
 public class CallLog {
     public int Id { get; set; }
 
-    [Display(Name = "电话号码")]
-    public string? PhoneNumber { get; set; }
-
     [Display(Name = "呼叫状态")]
     public CallStatus Status { get; set; } = CallStatus.Queued;
 

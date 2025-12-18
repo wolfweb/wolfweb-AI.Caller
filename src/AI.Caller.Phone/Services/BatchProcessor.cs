@@ -80,15 +80,13 @@ public class BatchProcessor : IBatchProcessor {
                 string resolvedContent;
 
                 if (template != null) {
-                    // Legacy TTS Template mode
                     resolvedContent = _variableResolver.Resolve(template.Content, variables);
                 } else {
-                    // Scenario Recording mode: serialize variables to JSON
                     resolvedContent = System.Text.Json.JsonSerializer.Serialize(variables);
                 }
 
                 var callLog = new CallLog {
-                    PhoneNumber = phoneNumber,
+                    CalleeNumber = phoneNumber,
                     ResolvedContent = resolvedContent,
                     Status = Entities.CallStatus.Queued,
                     InitiationType = CallInitiationType.Batch,

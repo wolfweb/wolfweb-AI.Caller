@@ -75,7 +75,7 @@
     <table class="table">
         <thead>
             <tr>
-                <th>@Html.DisplayNameFor(model => model.CallLogs.First().PhoneNumber)</th>
+                <th>@Html.DisplayNameFor(model => model.CallLogs.First().CalleeNumber)</th>
                 <th>@Html.DisplayNameFor(model => model.CallLogs.First().Status)</th>
                 <th>@Html.DisplayNameFor(model => model.CallLogs.First().FailureReason)</th>
                 <th>@Html.DisplayNameFor(model => model.CallLogs.First().CreatedAt)</th>
@@ -85,7 +85,7 @@
         <tbody>
             @foreach (var log in Model.CallLogs.OrderByDescending(l => l.CreatedAt)) {
                 <tr>
-                    <td>@Html.DisplayFor(modelItem => log.PhoneNumber)</td>
+                    <td>@Html.DisplayFor(modelItem => log.CalleeNumber)</td>
                     <td>@Html.DisplayFor(modelItem => log.Status)</td>
                     <td>@Html.DisplayFor(modelItem => log.FailureReason)</td>
                     <td>@Html.DisplayFor(modelItem => log.CreatedAt)</td>

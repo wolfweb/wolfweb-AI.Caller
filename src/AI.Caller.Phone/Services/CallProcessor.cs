@@ -73,7 +73,7 @@ public class CallProcessor : ICallProcessor {
             Action<SIPClient> callAnsweredHandler = null!;
             Action<SIPClient, HangupEventContext> callFinishedHandler = null!;
 
-            var webUser = await context.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.SipAccount != null && x.SipAccount.SipUsername == callLog.PhoneNumber);
+            var webUser = await context.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.SipAccount != null && x.SipAccount.SipUsername == callLog.CalleeNumber);
             
             int? selectedLineId = null;
             bool autoSelectLine = true;
@@ -83,7 +83,7 @@ public class CallProcessor : ICallProcessor {
                 autoSelectLine = callLog.BatchCallJob.AutoSelectLine;
             }
             
-            callContext = await callManager.MakeCallAsync($"sip:{callLog.PhoneNumber}", agent, null, webUser != null ? CallScenario.ServerToWeb : CallScenario.ServerToMobile, selectedLineId, autoSelectLine);
+            callContext = await callManager.MakeCallAsync($"sip:{callLog.CalleeNumber}", agent, null, webUser != null ? CallScenario.ServerToWeb : CallScenario.ServerToMobile, selectedLineId, autoSelectLine);
 
             callAnsweredHandler = async (sc) => {
                 _logger.LogInformation("Call answered for CallLogId {CallLogId}. Starting AI Customer Service.", callLogId);
@@ -180,15 +180,15 @@ public class CallProcessor : ICallProcessor {
 
             if (callResult.Status == CallOutcome.Completed) {
                 callLog.Status = Entities.CallStatus.Completed;
-                _logger.LogInformation("Call to {PhoneNumber} completed successfully for CallLogId {CallLogId}.", callLog.PhoneNumber, callLogId);
+                _logger.LogInformation("Call to {PhoneNumber} completed successfully for CallLogId {CallLogId}.", callLog.CalleeNumber, callLogId);
             } else if (callResult.Status == CallOutcome.NoAnswer) {
                 callLog.Status = Entities.CallStatus.NoAnswer;
                 callLog.FailureReason = callResult.FailureReason ?? "No answer";
-                _logger.LogWarning("Call to {PhoneNumber} was not answered for CallLogId {CallLogId}.", callLog.PhoneNumber, callLogId);
+                _logger.LogWarning("Call to {PhoneNumber} was not answered for CallLogId {CallLogId}.", callLog.CalleeNumber, callLogId);
             } else {
                 callLog.Status = Entities.CallStatus.Failed;
                 callLog.FailureReason = callResult.FailureReason ?? "Unknown failure";
-                _logger.LogWarning("Call to {PhoneNumber} failed for CallLogId {CallLogId}: {FailureReason}", callLog.PhoneNumber, callLogId, callLog.FailureReason);
+                _logger.LogWarning("Call to {PhoneNumber} failed for CallLogId {CallLogId}: {FailureReason}", callLog.CalleeNumber, callLogId, callLog.FailureReason);
             }
         } catch (Exception ex) {
             _logger.LogError(ex, "An error occurred while processing CallLogId {CallLogId}.", callLogId);
