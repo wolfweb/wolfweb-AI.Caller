@@ -1,7 +1,7 @@
+using AI.Caller.Phone.Models;
+using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using AI.Caller.Phone.Services;
-
 using System.Security.Claims;
 
 namespace AI.Caller.Phone.Controllers {
@@ -35,39 +35,19 @@ namespace AI.Caller.Phone.Controllers {
         /// <summary>
         /// 录音管理主页面
         /// </summary>
-        public async Task<IActionResult> Index() {
+        public async Task<IActionResult> Index(RecordingFilter filter) {
             try {
                 var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);                
                 var isAdmin = User.HasClaim("isAdmin", "True");
                 
-                List<AI.Caller.Phone.Models.Recording> recordings;
-                if (isAdmin) {
-                    recordings = await _recordingService.GetAllRecordingsAsync();
-                } else {
-                    recordings = await _recordingService.GetRecordingsAsync(userId);
-                }
+                var recordings = await _recordingService.GetRecordingsAsync(filter, isAdmin ? null : userId);
 
+                // 计算统计信息
                 var autoRecordingEnabled = await _recordingService.IsAutoRecordingEnabledAsync(userId);
-
-                var totalSize = recordings.Sum(r => r.FileSize);
                 
-                var currentMonth = DateTime.Now;
-                var monthlyRecordings = recordings.Where(r => 
-                    r.StartTime.Year == currentMonth.Year && 
-                    r.StartTime.Month == currentMonth.Month).ToList();
-                
-                var monthlyCount = monthlyRecordings.Count;
-                var monthlySize = monthlyRecordings.Sum(r => r.FileSize);
-                
-                var totalDuration = recordings.Where(r => r.Duration != TimeSpan.Zero)
-                    .Sum(r => r.Duration.TotalMinutes);
-
                 ViewBag.AutoRecordingEnabled = autoRecordingEnabled;
-                ViewBag.IsAdmin = isAdmin;
-                ViewBag.TotalStorageFormatted = FormatFileSize(totalSize);
-                ViewBag.MonthlyRecordingCount = monthlyCount;
-                ViewBag.MonthlyDurationMinutes = Math.Round(monthlyRecordings.Where(r => r.Duration != TimeSpan.Zero).Sum(r => r.Duration.TotalMinutes), 0);
-                ViewBag.TotalDurationHours = Math.Round(totalDuration / 60.0, 1);
+                ViewBag.IsAdmin = isAdmin;                
+                ViewBag.Filter = filter;
 
                 return View("Simple", recordings);
             } catch (Exception ex) {
@@ -76,12 +56,16 @@ namespace AI.Caller.Phone.Controllers {
                 
                 ViewBag.AutoRecordingEnabled = false;
                 ViewBag.IsAdmin = false;
-                ViewBag.TotalStorageFormatted = "0 B";
-                ViewBag.MonthlyRecordingCount = 0;
-                ViewBag.MonthlyDurationMinutes = 0;
-                ViewBag.TotalDurationHours = 0.0;
+                ViewBag.Filter = filter;
                 
-                return View("Simple", new List<AI.Caller.Phone.Models.Recording>());
+                var emptyResult = new PagedResult<Recording> {
+                    Items = new List<Recording>(),
+                    TotalCount = 0,
+                    Page = 0,
+                    PageSize = 0
+                };
+                
+                return View("Simple", emptyResult);
             }
         }
 
@@ -206,13 +190,7 @@ namespace AI.Caller.Phone.Controllers {
                 var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
                 var isAdmin = User.HasClaim("isAdmin", "True");
 
-                List<AI.Caller.Phone.Models.Recording> recordings;
-                if (isAdmin) {
-                    recordings = await _recordingService.GetAllRecordingsAsync();
-                } else {
-                    recordings = await _recordingService.GetRecordingsAsync(userId);
-                }
-                var recording = recordings.FirstOrDefault(r => r.Id == recordingId);
+                var recording = await _recordingService.FindRecordingBy(r => r.Id == recordingId);
                 
                 if (recording == null) {
                     return Json(new { success = false, message = "录音文件不存在或无权限访问" });
@@ -312,13 +290,7 @@ namespace AI.Caller.Phone.Controllers {
                     return NotFound("录音文件不存在");
                 }
 
-                List<AI.Caller.Phone.Models.Recording> recordings;
-                if (isAdmin) {
-                    recordings = await _recordingService.GetAllRecordingsAsync();
-                } else {
-                    recordings = await _recordingService.GetRecordingsAsync(userId);
-                }
-                var recording = recordings.FirstOrDefault(r => r.FilePath == filePath);
+                var recording = await _recordingService.FindRecordingBy(x => x.FilePath == filePath);
 
                 if (recording == null) {
                     _logger.LogWarning("用户 {UserId} 尝试访问无权限的录音文件: {FilePath}", userId, filePath);
@@ -359,13 +331,7 @@ namespace AI.Caller.Phone.Controllers {
                     return NotFound("录音文件不存在");
                 }
 
-                List<AI.Caller.Phone.Models.Recording> recordings;
-                if (isAdmin) {
-                    recordings = await _recordingService.GetAllRecordingsAsync();
-                } else {
-                    recordings = await _recordingService.GetRecordingsAsync(userId);
-                }
-                var recording = recordings.FirstOrDefault(r => r.FilePath == filePath);
+                var recording = await _recordingService.FindRecordingBy(x => x.FilePath == filePath);
 
                 if (recording == null) {
                     _logger.LogWarning("用户 {UserId} 尝试下载无权限的录音文件: {FilePath}", userId, filePath);

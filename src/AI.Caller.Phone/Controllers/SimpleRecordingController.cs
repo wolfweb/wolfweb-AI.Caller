@@ -1,6 +1,7 @@
-﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
+﻿using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
 namespace AI.Caller.Phone.Controllers {
@@ -22,7 +23,7 @@ namespace AI.Caller.Phone.Controllers {
         public async Task<IActionResult> GetRecordings() {
             try {
                 var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
-                var recordings = await _recordingService.GetRecordingsAsync(userId);
+                var recordings = await _recordingService.GetRecordingsAsync(RecordingFilter.Empty, userId);
                 return Ok(new { success = true, data = recordings });
             } catch (Exception ex) {
                 _logger.LogError(ex, "获取录音列表时发生错误");

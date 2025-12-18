@@ -13,14 +13,11 @@ public class RecordingResult {
     public static RecordingResult CreateFailure(string callId, string message) => new() { Success = false, CallId = callId, Message = message };
 }
 
-public class RecordingFilter {
+public class RecordingFilter : PageModel {
     public DateTime? StartDate { get; set; }
-    public DateTime? EndDate { get; set; }
-    public string? CallerNumber { get; set; }
-    public string? CalleeNumber { get; set; }
+    public DateTime? EndDate { get; set; }    
     public RecordingStatus? Status { get; set; }
-    public int Page { get; set; } = 1;
-    public int PageSize { get; set; } = 10;
+    public static RecordingFilter Empty => new();
 }
 
 public class PagedResult<T> {

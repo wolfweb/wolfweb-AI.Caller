@@ -1,5 +1,6 @@
 using AI.Caller.Core;
 using AI.Caller.Phone.Models;
+using System.Linq.Expressions;
 
 namespace AI.Caller.Phone.Services {
     public interface ISimpleRecordingService {
@@ -7,9 +8,8 @@ namespace AI.Caller.Phone.Services {
 
         Task<bool> StopRecordingAsync(int userId, SIPClient sipClient);
 
-        Task<List<Recording>> GetRecordingsAsync(int userId);
-
-        Task<List<Recording>> GetAllRecordingsAsync();
+        Task<PagedResult<Recording>> GetRecordingsAsync(RecordingFilter filter, int? userId = null);
+        Task<Recording?> FindRecordingBy(Expression<Func<Recording, bool>> predict);
 
         Task<bool> DeleteRecordingAsync(int recordingId, int? userId = null);
 
@@ -17,7 +17,7 @@ namespace AI.Caller.Phone.Services {
 
         Task<bool> SetAutoRecordingAsync(int userId, bool enabled);
 
-        Task<Models.RecordingStatus?> GetRecordingStatusAsync(int userId);
+        Task<RecordingStatus?> GetRecordingStatusAsync(int userId);
         
         Task<bool> PauseRecordingAsync(int userId);
 

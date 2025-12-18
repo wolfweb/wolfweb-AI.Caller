@@ -2,13 +2,16 @@ using AI.Caller.Core;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Models;
 using FFmpeg.AutoGen;
+using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using NPOI.SS.UserModel;
 using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
 using System.CodeDom;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Linq.Expressions;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
@@ -107,33 +110,48 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        public async Task<List<Recording>> GetRecordingsAsync(int userId) {
+        public async Task<PagedResult<Recording>> GetRecordingsAsync(RecordingFilter filter, int? userId = null) {
             try {
                 using var scope = _serviceScopeFactory.CreateScope();
                 AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                return await _dbContext.Recordings
-                    .Where(r => r.UserId == userId)
+                IQueryable<Recording> query = _dbContext.Recordings;
+
+                if (filter.StartDate.HasValue) {
+                    query = query.Where(r => r.StartTime >= filter.StartDate.Value);
+                }
+                if (filter.EndDate.HasValue) {
+                    query = query.Where(r => r.StartTime <= filter.EndDate.Value.AddDays(1));
+                }                
+                if (filter.Status.HasValue) {
+                    query = query.Where(r => r.Status == filter.Status.Value);
+                }
+
+                if (userId.HasValue) {
+                    query = query.Where(r => r.UserId == userId);
+                }
+
+                var result = await query
                     .OrderByDescending(r => r.StartTime)
+                    .Skip((filter.Page - 1) * filter.PageSize)
+                    .Take(filter.PageSize)
                     .ToListAsync();
+                return new PagedResult<Recording> {
+                    Items = result,
+                    TotalCount = await query.CountAsync(),
+                    Page = filter.Page,
+                    PageSize = filter.PageSize
+                };
             } catch (Exception ex) {
                 _logger.LogError(ex, $"获取录音列表失败 - 用户ID: {userId}");
-                return new List<Recording>();
+                return new PagedResult<Recording>();
             }
         }
 
-        public async Task<List<Recording>> GetAllRecordingsAsync() {
-            try {
-                using var scope = _serviceScopeFactory.CreateScope();
-                AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-                return await _dbContext.Recordings
-                    .OrderByDescending(r => r.StartTime)
-                    .ToListAsync();
-            } catch (Exception ex) {
-                _logger.LogError(ex, "获取所有录音列表失败");
-                return new List<Recording>();
-            }
+        public async Task<Recording?> FindRecordingBy(Expression<Func<Recording, bool>> predict) {
+            using var scope = _serviceScopeFactory.CreateScope();
+            AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return await _dbContext.Recordings.FirstOrDefaultAsync(predict);
         }
 
         public async Task<bool> DeleteRecordingAsync(int recordingId, int? userId = null) {
