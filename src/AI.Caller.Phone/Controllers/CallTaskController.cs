@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using NPOI.SS.UserModel;
 using NPOI.XSSF.UserModel;
 using System.Security.Claims;
+using static SIPSorcery.Net.SrtpCipherF8;
 
 namespace AI.Caller.Phone.Controllers {
     [Authorize]
@@ -172,11 +173,19 @@ namespace AI.Caller.Phone.Controllers {
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Delete(int id) {
             var batchJob = await _context.BatchCallJobs
-                .Include(j => j.CallLogs)
+                .Include(j => j.CallLogs).ThenInclude(l => l.DtmfInputs)
+                .Include(j => j.CallLogs).ThenInclude(l => l.MonitoringSessions)
+                .Include(j => j.CallLogs).ThenInclude(l => l.PlaybackControls)
                 .FirstOrDefaultAsync(j => j.Id == id);
 
             if (batchJob == null) {
                 return NotFound();
+            }
+
+            foreach (var logs in batchJob.CallLogs) {
+                _context.DtmfInputRecords.RemoveRange(logs.DtmfInputs);
+                _context.PlaybackControls.RemoveRange(logs.PlaybackControls);
+                _context.MonitoringSessions.RemoveRange(logs.MonitoringSessions);
             }
 
             _context.CallLogs.RemoveRange(batchJob.CallLogs);
