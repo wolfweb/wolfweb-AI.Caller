@@ -123,7 +123,7 @@
                                             @(System.IO.Path.GetFileName(recording.FilePath) ?? "未知文件.mp3")
                                         </td>
                                         <td>@(recording.SipUsername ?? "未知联系人")</td>
-                                        <td>@recording.StartTime.ToString("yyyy-MM-dd HH:mm")</td>
+                                        <td>@recording.StartTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                                         <td>@recording.Duration.ToString(@"mm\:ss")</td>
                                         <td>@(recording.FileSize > 0 ? $"{recording.FileSize / 1024.0:F1} KB" : "0 KB")</td>
                                         <td>

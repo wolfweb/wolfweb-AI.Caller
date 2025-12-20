@@ -1,3 +1,4 @@
+using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -10,6 +11,7 @@ namespace AI.Caller.Phone.Hubs {
     [Authorize]
     public class WebRtcHub : Hub {
         private readonly ILogger _logger;
+        private readonly G711Codec _g711Codec;
         private readonly ICallManager _callManager;
         private readonly AppDbContext _appDbContext;
         private readonly ApplicationContext _applicationContext;
@@ -20,6 +22,7 @@ namespace AI.Caller.Phone.Hubs {
 
         public WebRtcHub(
             ILogger<WebRtcHub> logger,
+            G711Codec g711Codec,
             ICallManager callManager,
             AppDbContext appDbContext,
             ApplicationContext applicationContext,
@@ -29,6 +32,7 @@ namespace AI.Caller.Phone.Hubs {
             IPlaybackControlService playbackControlService
             ) {
             _logger           = logger;
+            _g711Codec        = g711Codec;
             _callManager      = callManager;
             _appDbContext     = appDbContext;
             _recordingService = recordingService;
@@ -166,55 +170,19 @@ namespace AI.Caller.Phone.Hubs {
         private async Task SendMonitoringAudioAsync(int monitorUserId, byte[] g711AudioData) {
             try {
                 // G.711 A-law解码为PCM（服务端解码）
-                var pcmData = DecodeG711ALaw(g711AudioData);
-                
+                var pcmData = _g711Codec.DecodeG711ALaw(g711AudioData); //DecodeG711ALaw(g711AudioData);
+
                 // Base64编码PCM数据
                 var base64Audio = Convert.ToBase64String(pcmData);
 
                 // 发送给特定监听者
-                await Clients.User(monitorUserId.ToString())
-                    .SendAsync("monitoringAudio", base64Audio);
+                await Clients.User(monitorUserId.ToString()).SendAsync("monitoringAudio", base64Audio);
 
                 _logger.LogTrace("音频已发送到监听者: UserId {UserId}, G.711大小 {G711Size} 字节, PCM大小 {PcmSize} 字节",
                     monitorUserId, g711AudioData.Length, pcmData.Length);
             } catch (Exception ex) {
                 _logger.LogError(ex, "发送监听音频失败: UserId {UserId}", monitorUserId);
             }
-        }
-
-        /// <summary>
-        /// G.711 A-law解码为PCM（16位，8000Hz）
-        /// </summary>
-        private byte[] DecodeG711ALaw(byte[] alawData) {
-            var pcmData = new byte[alawData.Length * 2];  // 16位PCM = 2字节per sample
-            
-            for (int i = 0; i < alawData.Length; i++) {
-                short pcmSample = DecodeALawSample(alawData[i]);
-                // 小端序写入
-                pcmData[i * 2] = (byte)(pcmSample & 0xFF);
-                pcmData[i * 2 + 1] = (byte)((pcmSample >> 8) & 0xFF);
-            }
-            
-            return pcmData;
-        }
-
-        /// <summary>
-        /// 解码单个A-law样本
-        /// </summary>
-        private short DecodeALawSample(byte alaw) {
-            alaw ^= 0x55;  // A-law反转
-            
-            int sign = (alaw & 0x80) != 0 ? -1 : 1;
-            int exponent = (alaw & 0x70) >> 4;
-            int mantissa = alaw & 0x0F;
-            
-            int sample = mantissa << 4;
-            if (exponent > 0) {
-                sample += 0x100;
-                sample <<= (exponent - 1);
-            }
-            
-            return (short)(sign * sample);
         }
 
         /// <summary>

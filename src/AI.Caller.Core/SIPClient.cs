@@ -26,6 +26,7 @@ namespace AI.Caller.Core {
         private readonly INetworkMonitoringService? _networkMonitoringService;
 
         public event Action<SIPClient, CallFinishStatus>? CallEnded;
+        public event Action<SIPClient, CallFinishStatus>? CallEnding;
         public event Action<SIPClient>? CallAnswered;
         public event Action<SIPClient>? CallHangup;
         public event Action<SIPClient>? CallTrying;
@@ -492,6 +493,7 @@ namespace AI.Caller.Core {
                 ReleaseMediaManager();
                 _lastRemoteSdp = null;
                 StatusMessage?.Invoke(this, "Call finished and MediaSessionManager disposed.");
+                CallEnding?.Invoke(this, status);
             } catch (Exception ex) {
                 _logger.LogError($"Error in CallFinished : {ex.Message}");
                 StatusMessage?.Invoke(this, $"Error during call cleanup: {ex.Message}");

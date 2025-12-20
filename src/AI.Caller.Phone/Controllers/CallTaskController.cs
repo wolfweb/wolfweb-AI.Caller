@@ -110,7 +110,7 @@ namespace AI.Caller.Phone.Controllers {
                 await _context.SaveChangesAsync();
 
                 var queuedLogs = await _context.CallLogs
-                    .Where(l => l.BatchCallJobId == id && l.Status == Entities.CallStatus.Queued)
+                    .Where(l => l.BatchCallJobId == id && (l.Status == Entities.CallStatus.Queued || l.Status == Entities.CallStatus.Failed))
                     .ToListAsync();
 
                 foreach (var callLog in queuedLogs) {

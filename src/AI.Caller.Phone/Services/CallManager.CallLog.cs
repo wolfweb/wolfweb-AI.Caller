@@ -50,7 +50,11 @@ public partial class CallManager {
             callLog.CalleeNumber = "AI客服";
         }
 
-        dbContext.CallLogs.Add(callLog);
+        if (callLog.Id > 0) {
+            dbContext.CallLogs.Update(callLog);
+        } else {
+            dbContext.CallLogs.Add(callLog);
+        }
         await dbContext.SaveChangesAsync();
 
         _logger.LogInformation("创建外呼CallLog: CallId={CallId}, Scenario={Scenario}, Caller={CallerUserId}, Callee={Callee}",
@@ -75,7 +79,6 @@ public partial class CallManager {
             CreatedAt = DateTime.UtcNow
         };
 
-        // 设置主叫信息
         if (routingResult.CallerUser != null) {
             callLog.CallerUserId = routingResult.CallerUser.Id;
             callLog.CallerNumber = routingResult.CallerUser.SipAccount?.SipUsername;
@@ -83,16 +86,17 @@ public partial class CallManager {
             callLog.CallerNumber = routingResult.CallerNumber;
         }
 
-        // 设置被叫信息和场景
         if (routingResult.TargetUser != null) {
             callLog.CalleeUserId = routingResult.TargetUser.Id;
             callLog.CalleeNumber = routingResult.TargetUser.SipAccount?.SipUsername;
         }
 
-        // 根据路由策略确定场景
         callLog.CallScenario = DetermineCallScenario(routingResult);
-
-        dbContext.CallLogs.Add(callLog);
+        if (callLog.Id > 0) {
+            dbContext.CallLogs.Update(callLog);
+        } else {
+            dbContext.CallLogs.Add(callLog);
+        }
         await dbContext.SaveChangesAsync();
 
         _logger.LogInformation("创建来电CallLog: CallId={CallId}, Scenario={Scenario}, Caller={Caller}, Callee={CalleeUserId}",

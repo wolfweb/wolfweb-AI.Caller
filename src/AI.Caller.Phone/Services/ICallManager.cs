@@ -367,6 +367,7 @@ namespace AI.Caller.Phone.Services {
             }
 
             _contexts.TryRemove(ctx.CallId, out _);
+            _logger.LogWarning($"OnHangupCall=>已清理会话:{ctx.CallId}");
         }
 
         private void OnMakeCalled(CallContext ctx) {
@@ -385,8 +386,9 @@ namespace AI.Caller.Phone.Services {
                 ctx.Callee != null &&
                 ctx.Caller.Client != null &&
                 ctx.Callee.Client != null &&
-                (!ctx.Caller.Client.Client.IsCallActive || !ctx.Callee.Client.Client.IsCallActive) &&
-                ctx.Duration > TimeSpan.FromMinutes(1)).ToList();
+                !ctx.Caller.Client.Client.IsCallActive &&
+                !ctx.Callee.Client.Client.IsCallActive &&
+                ctx.Duration > TimeSpan.FromSeconds(30)).ToList();
 
             foreach (var ctx in inactiveContexts) {
                 try {
@@ -396,18 +398,20 @@ namespace AI.Caller.Phone.Services {
                         } else if (item!.Callee!.Client!.Client.IsCallActive) {
                             item.Callee.Client.Dispose();
                         }
+                        _logger.LogWarning($"已清理会话:{ctx.CallId}");
                     }
-                }catch(Exception e) {
+                } catch(Exception e) {
                     _logger.LogError(e, "过期CallContext会话异常");
                 }
             }
 
-            inactiveContexts = _contexts.Values.Where(ctx=>
-                (ctx.Callee ==null || ctx.Callee.Client == null ) && ctx.Duration > TimeSpan.FromSeconds(30)
+            inactiveContexts = _contexts.Values.Where(ctx =>
+               ctx.Caller !=null && ctx.Caller.Client!=null && !ctx.Caller.Client.Client.IsCallActive && (ctx.Callee == null || ctx.Callee.Client == null) && ctx.Duration > TimeSpan.FromSeconds(30)
             ).ToList();
 
             foreach (var ctx in inactiveContexts) {
                 _contexts.TryRemove(ctx.CallId, out _);
+                _logger.LogWarning($"已清理无效会话:{ctx.CallId}");
             }
         }
 
@@ -975,6 +979,8 @@ namespace AI.Caller.Phone.Services {
                 Client = handle
             };
 
+            await Task.Delay(1500);
+
             await handle.Client.AnswerAsync();
 
             _ = _orchestrator.HandleInboundCallAsync(callContext);
@@ -1084,6 +1090,8 @@ namespace AI.Caller.Phone.Services {
                 type = RTCSdpType.offer,
                 sdp = sipRequest.Body
             });
+
+            await Task.Delay(1500);
 
             await handle.Client.AnswerAsync();
 

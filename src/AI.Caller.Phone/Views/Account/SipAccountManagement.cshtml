@@ -103,7 +103,7 @@
                                             <span class="badge bg-secondary">禁用</span>
                                         }
                                     </td>
-                                    <td>@sipAccount.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>@sipAccount.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                                     <td>
                                         <span class="badge bg-info">@sipAccount.Users.Count</span>
                                     </td>

@@ -71,7 +71,7 @@ public class CallProcessor : ICallProcessor {
 
         try {
             Action<SIPClient> callAnsweredHandler = null!;
-            Action<SIPClient, HangupEventContext> callFinishedHandler = null!;
+            Action<SIPClient, CallFinishStatus> callEndedHandler = null!;
 
             var webUser = await context.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.SipAccount != null && x.SipAccount.SipUsername == callLog.CalleeNumber);
             
@@ -88,6 +88,17 @@ public class CallProcessor : ICallProcessor {
             callContext = await callManager.MakeCallAsync($"sip:{callLog.CalleeNumber}", agent, null, callLog.CallScenario.Value, selectedLineId, autoSelectLine);
             callLog.CallId = callContext.CallId;
             await context.SaveChangesAsync();
+
+            try {
+                if (callLog.BatchCallJob != null && callLog.BatchCallJob.ScenarioRecordingId.HasValue) {
+                     // 
+                } else {
+                     var ttsTemplate = await context.TtsTemplates.FindAsync(callLog.BatchCallJob?.TtsTemplateId);
+                     await ttsPlayer.PreloadTtsAsync(callLog.ResolvedContent, agent, callLog.CallId, ttsTemplate?.SpeechRate);
+                }
+            } catch(Exception ex) {
+                _logger.LogWarning(ex, "Preload failed for CallLogId {CallLogId}", callLogId);
+            }
 
             callAnsweredHandler = async (sc) => {
                 _logger.LogInformation("Call answered for CallLogId {CallLogId}. Starting AI Customer Service.", callLogId);
@@ -112,14 +123,17 @@ public class CallProcessor : ICallProcessor {
                         if(await aiManager.StartScenarioServiceAsync(agent, sc, scenario, variables, callContext.CallId)) {
                             await aiManager.GetSessionByCallId(callContext.CallId)!.PlaybackTask!;
                         }
-                        await aiManager.StopAICustomerServiceAsync(agent.Id);
-                        await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
+                        await aiManager.StopAICustomerServiceAsync(agent.Id);                        
                     } else {
                         // Legacy TTS Template Mode
                         var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
 
-                        var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate?.SpeechRate);
-                        
+                        var ttsGenerationTime = await ttsPlayer.PlayPreloadedTtsAsync(agent, sc);                        
+                        var session = scope.ServiceProvider.GetRequiredService<AICustomerServiceManager>().GetActiveSession(agent.Id);
+                        if (session == null || session.PlaybackTask == null) {
+                             ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate?.SpeechRate);
+                        }
+
                         if (ttsTemplate?.PlayCount > 1) {
                             for (var i = 0; i < ttsTemplate.PlayCount - 1; i++) {
                                 var desiredPause = TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds);
@@ -147,20 +161,18 @@ public class CallProcessor : ICallProcessor {
                         }
 
                         await ttsPlayer.StopPlayoutAsync(agent);
-                        await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
                     }
 
                     tcs.TrySetResult(new CallResult { Status = CallOutcome.Completed });
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Error starting AI Customer Service after call answered for CallLogId {CallLogId}.", callLogId);
                     tcs.TrySetResult(new CallResult { Status = CallOutcome.Failed, FailureReason = ex.Message });
-                    await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
                 }
+                await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
             };
-
-            callFinishedHandler = (sc, hangupContext) => {
+            callEndedHandler = (sc, status) => {
                 sc.CallAnswered -= callAnsweredHandler;
-                sc.CallFinishedWithContext -= callFinishedHandler;
+                sc.CallEnding -= callEndedHandler;
 
                 if (callWasAnswered) {
                     tcs.TrySetResult(new CallResult { Status = CallOutcome.Completed });
@@ -175,7 +187,7 @@ public class CallProcessor : ICallProcessor {
             sipClient = callContext.Caller.Client.Client;
 
             sipClient.CallAnswered += callAnsweredHandler;
-            sipClient.CallFinishedWithContext += callFinishedHandler;
+            sipClient.CallEnding += callEndedHandler;
 
             _logger.LogInformation("Call initiated for CallLogId {CallLogId}. Waiting for answer to start AI service.", callLogId);
 
@@ -197,9 +209,6 @@ public class CallProcessor : ICallProcessor {
             _logger.LogError(ex, "An error occurred while processing CallLogId {CallLogId}.", callLogId);
             callLog.Status = Entities.CallStatus.Failed;
             callLog.FailureReason = $"An unexpected error occurred: {ex.Message}";
-            if (callContext != null) {
-                await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
-            }
         } finally {
             callLog.CompletedAt = DateTime.UtcNow;
             await context.SaveChangesAsync();

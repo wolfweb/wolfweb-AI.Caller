@@ -310,7 +310,7 @@ namespace AI.Caller.Phone.Services {
                 _sipClient.MediaSessionManager.AudioDataSent += OnAudioPacketSent;         // 本地用户的声音（WebRTC → SIP）
             }
 
-            _sipClient.CallEnded += OnCallEnded;
+            _sipClient.CallEnding += OnCallEnded;
         }
 
         private void UnsubscribeFromAudioEvents() {
@@ -318,7 +318,7 @@ namespace AI.Caller.Phone.Services {
                 _sipClient.MediaSessionManager.AudioDataReceived -= OnAudioPacketReceived;
                 _sipClient.MediaSessionManager.AudioDataSent -= OnAudioPacketSent;
             }
-            _sipClient.CallEnded -= OnCallEnded;
+            _sipClient.CallEnding -= OnCallEnded;
         }
 
         private void OnAudioPacketReceived(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {

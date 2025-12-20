@@ -44,6 +44,24 @@ public class TtsPlayerService : ITtsPlayerService {
         return ttsGenerationTime;
     }
 
+    public Task PreloadTtsAsync(string text, User user, string callId, float? speed = 1.0f, int speakerId = 0) {
+        return _aiCustomerServiceManager.PreloadAICustomerServiceAsync(user, text, speakerId, speed ?? 1.0f, callId);
+    }
+
+    public async Task<TimeSpan> PlayPreloadedTtsAsync(User user, SIPClient sipClient) {
+        var connected = await _aiCustomerServiceManager.ConnectAICustomerServiceAsync(user, sipClient);
+        if (connected) {
+             var session = _aiCustomerServiceManager.GetActiveSession(user.Id);
+             
+             if (session?.PlaybackTask != null) {
+                 await session.AutoResponder.WaitForPlaybackToCompleteAsync(); 
+             }
+             
+             return TimeSpan.Zero; 
+        }
+        return TimeSpan.Zero;
+    }
+
     public async Task StopPlayoutAsync(User user) {
         var session = _aiCustomerServiceManager.GetActiveSession(user.Id);
         if (session != null) {

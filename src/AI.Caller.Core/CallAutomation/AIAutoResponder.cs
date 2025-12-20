@@ -80,12 +80,13 @@ namespace AI.Caller.Core {
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             _isStarted = true;
-            _audioBuffer = Array.Empty<byte>();
+            // _audioBuffer = Array.Empty<byte>(); // Removed to preserve pre-generated audio
             _shouldSendAudio = true;
+
+            _logger.LogInformation("AIAutoResponder started. Jitter Buffer Count: {Count}", _jitterBuffer.Reader.Count);
 
             _playoutTask = Task.Run(() => PlayoutLoop(_cts.Token));
 
-            _logger.LogInformation("AIAutoResponder started successfully with Jitter Buffer Playout Loop.");
             return Task.CompletedTask;
         }
 
@@ -128,7 +129,7 @@ namespace AI.Caller.Core {
             _playbackCompletionSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _isTtsStreamFinished = false;
 
-            var token = _cts?.Token ?? ct;
+            var token = ct != default ? ct : (_cts?.Token ?? CancellationToken.None);
             var ttsGenerationStopwatch = Stopwatch.StartNew();
             var stopwatch = Stopwatch.StartNew();
             int chunkCount = 0;

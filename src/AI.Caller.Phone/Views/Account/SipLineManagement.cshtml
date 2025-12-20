@@ -95,7 +95,7 @@
                                             <span class="badge bg-secondary">禁用</span>
                                         }
                                     </td>
-                                    <td>@line.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>@line.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
                                     <td>
                                         <div class="btn-group btn-group-sm" role="group">
                                             <button class="btn btn-outline-primary edit-line-btn" data-id="@line.Id"
