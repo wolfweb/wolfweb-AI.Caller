@@ -1,5 +1,6 @@
 using AI.Caller.Core.Network;
 using AI.Caller.Core.Models;
+using AI.Caller.Core.Media;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
@@ -23,6 +24,8 @@ namespace AI.Caller.Core {
 
         private readonly string _clientId;
         private readonly bool _enableWebRtcBridging;
+        private readonly AudioCodecFactory? _codecFactory;
+        private readonly CodecHealthMonitor? _codecHealthMonitor;
         private readonly INetworkMonitoringService? _networkMonitoringService;
 
         public event Action<SIPClient, CallFinishStatus>? CallEnded;
@@ -59,7 +62,9 @@ namespace AI.Caller.Core {
             WebRTCSettings? webRTCSettings = null,
             INetworkMonitoringService? networkMonitoringService = null,
             bool enableWebRtcBridging = true,
-            SipRoutingInfo? routingInfo = null
+            SipRoutingInfo? routingInfo = null,
+            AudioCodecFactory? codecFactory = null,
+            CodecHealthMonitor? codecHealthMonitor = null
         ) {
             _logger = logger;
             _sipServer = sipServer;
@@ -73,6 +78,8 @@ namespace AI.Caller.Core {
             _networkMonitoringService = networkMonitoringService;
             _enableWebRtcBridging = enableWebRtcBridging;
             _clientId = $"SIPClient_{Guid.NewGuid():N}[{sipServer}]";
+            _codecFactory = codecFactory;
+            _codecHealthMonitor = codecHealthMonitor;
 
             m_userAgent = new(m_sipTransport, null);
 
@@ -559,7 +566,8 @@ namespace AI.Caller.Core {
         private void RegisterWithNetworkMonitoring() {
             try {
                 if (_networkMonitoringService != null) {
-                    _networkMonitoringService.RegisterSipClient(_clientId, this);
+                    _networkMonitoringService.RegisterSipClient(_clientId, this);                    
+                    _networkMonitoringService.NetworkQualityChanged += OnNetworkQualityChanged;
                     _logger.LogDebug("SIP client {ClientId} registered with network monitoring service", _clientId);
                 }
             } catch (Exception ex) {
@@ -571,6 +579,7 @@ namespace AI.Caller.Core {
         private void UnregisterFromNetworkMonitoring() {
             try {
                 if (_networkMonitoringService != null) {
+                    _networkMonitoringService.NetworkQualityChanged -= OnNetworkQualityChanged;
                     _networkMonitoringService.UnregisterSipClient(_clientId);
                     _logger.LogDebug("SIP client {ClientId} unregistered from network monitoring service", _clientId);
                 }
@@ -589,11 +598,26 @@ namespace AI.Caller.Core {
             return context;
         }
 
+        /// <summary>
+        /// Handle network quality changes and adapt codec accordingly
+        /// </summary>
+        private async void OnNetworkQualityChanged(object? sender, NetworkQualityChangedEventArgs e) {
+            try {
+                if (_mediaManager != null) {
+                    _logger.LogDebug("Network quality changed to {Quality} for SIP client {ClientId}", e.CurrentQuality, _clientId);
+                    await _mediaManager.OnNetworkQualityChanged(e.CurrentQuality);
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error handling network quality change in SIPClient {ClientId}: {Message}", 
+                    _clientId, ex.Message);
+            }
+        }
+
         private void EnsureMediaSessionInitialized() {
             if (_mediaManager == null) {
-                _mediaManager = new MediaSessionManager(_logger, _enableWebRtcBridging, _webRTCSettings);
+                _mediaManager = new MediaSessionManager(_logger, _enableWebRtcBridging, _webRTCSettings, _codecFactory, _codecHealthMonitor);
                 SetupMediaSessionEvents();
-                _logger.LogDebug($"Created new MediaSessionManager for call (WebRTC bridging: {_enableWebRtcBridging})");
+                _logger.LogDebug($"Created MediaSessionManager with codec factory support: {_codecFactory != null}");
             }
         }
 

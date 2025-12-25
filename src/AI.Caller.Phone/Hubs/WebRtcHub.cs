@@ -1,3 +1,4 @@
+using AI.Caller.Core;
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
@@ -376,6 +377,52 @@ namespace AI.Caller.Phone.Hubs {
             } catch (Exception ex) {
                 _logger.LogError(ex, "跳过片段失败");
                 return new { success = false, message = $"跳过片段失败: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// 发送人工接入音频到客户（直接接收二进制数据，提高性能）
+        /// </summary>
+        public Task<object> SendInterventionAudioBinary(int targetUserId, string callId, byte[] audioData) {
+            try {
+                var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+
+                var session = _aiServiceManager.GetActiveSession(targetUserId);
+                if (session?.AudioBridge is AudioBridge audioBridge) {
+                    audioBridge.ProcessInterventionAudio(audioData);
+                    
+                    _logger.LogTrace("人工接入音频已发送（二进制）: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}, 大小 {Size} 字节",
+                        monitorUserId, targetUserId, audioData.Length);
+                }
+
+                return Task.FromResult<object>(new { success = true });
+            } catch (Exception ex) {
+                _logger.LogError(ex, "发送人工接入音频失败（二进制）");
+                return Task.FromResult<object>(new { success = false, message = $"发送音频失败: {ex.Message}" });
+            }
+        }
+
+        /// <summary>
+        /// 发送人工接入音频到客户（Base64格式，向后兼容）
+        /// </summary>
+        public Task<object> SendInterventionAudio(int targetUserId, string callId, string base64Audio) {
+            try {
+                var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+
+                var audioData = Convert.FromBase64String(base64Audio);
+
+                var session = _aiServiceManager.GetActiveSession(targetUserId);
+                if (session?.AudioBridge is AudioBridge audioBridge) {
+                    audioBridge.ProcessInterventionAudio(audioData);
+                    
+                    _logger.LogTrace("人工接入音频已发送（Base64）: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}, 大小 {Size} 字节",
+                        monitorUserId, targetUserId, audioData.Length);
+                }
+
+                return Task.FromResult<object>(new { success = true });
+            } catch (Exception ex) {
+                _logger.LogError(ex, "发送人工接入音频失败（Base64）");
+                return Task.FromResult<object>(new { success = false, message = $"发送音频失败: {ex.Message}" });
             }
         }
 

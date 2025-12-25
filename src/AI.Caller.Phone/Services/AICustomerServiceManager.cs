@@ -1,5 +1,7 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Interfaces;
+using AI.Caller.Core.Media;
+using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Phone.Entities;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
@@ -29,127 +31,15 @@ namespace AI.Caller.Phone.Services {
         }
 
         /// <summary>
-        /// 预加载AI客服会话（生成TTS但不播放）
-        /// </summary>
-        public async Task PreloadAICustomerServiceAsync(User user, string scriptText, int speakerId, float speed, string? callId, CancellationToken ct = default) {
-            if (_activeSessions.ContainsKey(user.Id)) {
-                _logger.LogInformation($"AI customer service session already exists for user {user.Username}, skipping preload.");
-                return;
-            }
-
-            var scope = _scopeFactory.CreateScope();
-            try {
-                var mediaProfile = new MediaProfile(
-                    codec: AudioCodec.PCMA,
-                    payloadType: 0,
-                    sampleRate: 8000,
-                    ptimeMs: 20,
-                    channels: 1
-                );
-
-                var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
-                
-                if (!string.IsNullOrEmpty(callId)) {
-                    autoResponder.SetCallContext(callId);
-                }
-
-                var session = new AIAutoResponderSession {
-                    User = user,
-                    AutoResponder = autoResponder,
-                    ScriptText = scriptText,
-                    StartTime = DateTime.UtcNow,
-                    Scope = scope,
-                    IsPreloading = true,
-                    PreloadCts = CancellationTokenSource.CreateLinkedTokenSource(ct)
-                };
-
-                _activeSessions[user.Id] = session;
-
-                session.PlaybackTask = Task.Run(async () => {
-                   try {
-                       await autoResponder.PlayScriptAsync(scriptText, speakerId, speed, session.PreloadCts.Token);
-                       _logger.LogInformation($"Preloaded script generation completed for user {user.Username}");
-                   } catch (OperationCanceledException) {
-                       _logger.LogInformation($"Preloaded script generation cancelled for user {user.Username}");
-                   } catch (Exception ex) {
-                       _logger.LogError(ex, $"Error during preloaded script generation for user {user.Username}");
-                   }
-                });
-
-                _logger.LogInformation($"AI customer service preload initiated for user {user.Username}");
-            } catch (Exception ex) {
-                _logger.LogError(ex, $"Failed to preloaded AI customer service for user {user.Username}");
-                scope.Dispose();
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// 连接已预加载的会话到SIP通话
-        /// </summary>
-        public async Task<bool> ConnectAICustomerServiceAsync(User user, SIPClient sipClient) {
-            if (!_activeSessions.TryGetValue(user.Id, out var session)) {
-                return false;
-            }
-
-            if (!session.IsPreloading) {
-                 _logger.LogWarning($"Session for user {user.Username} is not in preloading state or already connected.");
-                 return true; 
-            }
-
-            try {
-                 var audioBridge = session.Scope!.ServiceProvider.GetRequiredService<IAudioBridge>();
-                 var mediaProfile = new MediaProfile(AudioCodec.PCMA, 0, 8000, 20, 1);
-                 audioBridge.Initialize(mediaProfile);
-
-                if (sipClient.MediaSessionManager == null) {
-                    _logger.LogError("MediaSessionManager is null during connect for user {Username}", user.Username);
-                    await StopAICustomerServiceAsync(user.Id);
-                    return false;
-                }
-
-                session.AudioGeneratedHandler = (audioFrame) => sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
-                session.AutoResponder.OutgoingAudioGenerated += session.AudioGeneratedHandler;
-
-                Action<DtmfInputEventArgs> dtmfHandler = async (dtmfEventArgs) => {
-                        await HandleDtmfInputCollectedAsync(dtmfEventArgs);
-                };
-                session.DtmfInputHandler = dtmfHandler;
-                session.AutoResponder.OnDtmfInputCollected += dtmfHandler;
-
-                audioBridge.IncomingAudioReceived += (audioFrame) => {
-                     try {
-                         session.AutoResponder.OnUplinkPcmFrame(audioFrame);
-                     } catch (Exception ex) {
-                         _logger.LogError(ex, "Error processing incoming audio in AutoResponder");
-                     }
-                };
-
-                sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
-                session.AudioBridge = audioBridge;
-                
-                session.IsPreloading = false;
-
-                await session.AutoResponder.StartAsync(); 
-                audioBridge.Start();
-
-                _logger.LogInformation($"Preloaded session successfully connected for user {user.Username}");
-                return true;
-            } catch (Exception ex) {
-                _logger.LogError(ex, $"Failed to connect preloaded session for user {user.Username}");
-                await StopAICustomerServiceAsync(user.Id);
-                return false;
-            }
-        }
-
-        /// <summary>
         /// 为用户启动AI客服会话
         /// </summary>
         /// <param name="user">用户</param>
         /// <param name="sipClient">SIP客户端</param>
         /// <param name="scriptText">脚本文本</param>
+        /// <param name="speakerId">说话人ID</param>
+        /// <param name="speed">语速</param>
         /// <param name="callId">通话ID（可选，用于关联DTMF记录）</param>
-        public async Task<bool> StartAICustomerServiceAsync(User user, SIPClient sipClient, string scriptText, string? callId = null) {
+        public async Task<bool> StartAICustomerServiceAsync(User user, SIPClient sipClient, string scriptText, int speakerId = 0, float speed = 1.0f, string? callId = null) {
             try {
                 if (_activeSessions.ContainsKey(user.Id)) {
                     _logger.LogWarning($"AI customer service already active for user {user.Username}");
@@ -159,22 +49,19 @@ namespace AI.Caller.Phone.Services {
                 var scope = _scopeFactory.CreateScope(); // Create scope for the session
                 
                 try {
-                    var mediaProfile = new MediaProfile(
-                        codec: AudioCodec.PCMA,
-                        payloadType: 0,
-                        sampleRate: 8000,
-                        ptimeMs: 20,
-                        channels: 1
-                    );
-
-                    var audioBridge = scope.ServiceProvider.GetRequiredService<IAudioBridge>();
-                    audioBridge.Initialize(mediaProfile);
-
                     if (sipClient.MediaSessionManager == null) {
                         _logger.LogError("MediaSessionManager is null, cannot start AI customer service for user {Username}", user.Username);
                         scope.Dispose(); // Dispose if failed
                         return false;
                     }
+                    //是在answer后调用，因此编解码协商已完成
+                    var codec = sipClient.MediaSessionManager.SelectedCodec;
+                    var sampleRate = sipClient.MediaSessionManager.SelectedSampleRate;
+                    var payloadType = sipClient.MediaSessionManager.SelectedPayloadType;
+                    var mediaProfile = MediaProfile.FromNegotiation(codec, payloadType, sampleRate);
+
+                    var audioBridge = scope.ServiceProvider.GetRequiredService<IAudioBridge>();
+                    audioBridge.Initialize(mediaProfile);
 
                     var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
                     
@@ -201,6 +88,17 @@ namespace AI.Caller.Phone.Services {
                         }
                     };
 
+                    if (audioBridge is AudioBridge ab) {
+                        ab.InterventionAudioSend += (audioFrame) => {
+                            try {
+                                sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
+                                _logger.LogTrace("人工接入音频已发送到SIP通话: {Size} 字节", audioFrame.Length);
+                            } catch (Exception ex) {
+                                _logger.LogError(ex, "发送人工接入音频失败");
+                            }
+                        };
+                    }
+
                     sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
 
                     var session = new AIAutoResponderSession {
@@ -211,20 +109,14 @@ namespace AI.Caller.Phone.Services {
                         StartTime = DateTime.UtcNow,
                         AudioGeneratedHandler = audioGeneratedHandler,
                         DtmfInputHandler = dtmfHandler,
+                        CallId = callId, // 设置CallId
                         Scope = scope // Store scope
                     };
 
                     await autoResponder.StartAsync();
                     audioBridge.Start();
 
-                    _ = Task.Run(async () => {
-                        try {
-                            await autoResponder.PlayScriptAsync(scriptText);
-                            _logger.LogInformation($"AI customer service script completed for user {user.Username}");
-                        } catch (Exception ex) {
-                            _logger.LogError(ex, $"Error playing script for user {user.Username}");
-                        }
-                    });
+                    _logger.LogInformation($"AI customer service started for user {user.Username}, waiting for codec negotiation to complete TTS generation");
 
                     _activeSessions[user.Id] = session;
                     _logger.LogInformation($"AI customer service started for user {user.Username}");
@@ -275,10 +167,8 @@ namespace AI.Caller.Phone.Services {
                 session.AudioBridge?.Stop();
                 session.AudioBridge?.Dispose();
                 session.Scope?.Dispose(); // Dispose scope
-                session.PreloadCts?.Cancel();
-                session.PreloadCts?.Dispose();
 
-                _logger.LogInformation($"AI customer service stopped for user {session.User.Username}");
+                _logger.LogInformation("AI customer service stopped for user {Username}", session.User.Username);
                 return true;
             } catch (Exception ex) {
                 _logger.LogError(ex, $"Error stopping AI customer service for user ID {userId}");
@@ -422,7 +312,5 @@ namespace AI.Caller.Phone.Services {
         public ScenarioRecording? ScenarioRecording { get; set; }
         public IServiceScope? Scope { get; set; }
         public Task? PlaybackTask { get; set; }
-        public CancellationTokenSource? PreloadCts { get; set; }
-        public bool IsPreloading { get; set; }
     }
 }

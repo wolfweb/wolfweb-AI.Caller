@@ -89,22 +89,11 @@ public class CallProcessor : ICallProcessor {
             callLog.CallId = callContext.CallId;
             await context.SaveChangesAsync();
 
-            try {
-                if (callLog.BatchCallJob != null && callLog.BatchCallJob.ScenarioRecordingId.HasValue) {
-                     // 
-                } else {
-                     var ttsTemplate = await context.TtsTemplates.FindAsync(callLog.BatchCallJob?.TtsTemplateId);
-                     await ttsPlayer.PreloadTtsAsync(callLog.ResolvedContent, agent, callLog.CallId, ttsTemplate?.SpeechRate);
-                }
-            } catch(Exception ex) {
-                _logger.LogWarning(ex, "Preload failed for CallLogId {CallLogId}", callLogId);
-            }
-
             callAnsweredHandler = async (sc) => {
                 _logger.LogInformation("Call answered for CallLogId {CallLogId}. Starting AI Customer Service.", callLogId);
                 callWasAnswered = true;
                 
-                try {
+                try {                    
                     var batchCall = await context.BatchCallJobs.FindAsync(callLog.BatchCallJobId);
                     
                     if (batchCall != null && batchCall.ScenarioRecordingId.HasValue) {
@@ -118,21 +107,16 @@ public class CallProcessor : ICallProcessor {
                             throw new InvalidOperationException($"Scenario Recording with ID {batchCall.ScenarioRecordingId} not found.");
                         }
 
-                        var variables = JsonSerializer.Deserialize<Dictionary<string, string>>(callLog.ResolvedContent) ?? new Dictionary<string, string>();
+                        var variables = JsonSerializer.Deserialize<Dictionary<string, string>>(callLog.ResolvedContent ?? "{}") ?? new Dictionary<string, string>();
 
                         if(await aiManager.StartScenarioServiceAsync(agent, sc, scenario, variables, callContext.CallId)) {
                             await aiManager.GetSessionByCallId(callContext.CallId)!.PlaybackTask!;
                         }
                         await aiManager.StopAICustomerServiceAsync(agent.Id);                        
                     } else {
-                        // Legacy TTS Template Mode
                         var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
 
-                        var ttsGenerationTime = await ttsPlayer.PlayPreloadedTtsAsync(agent, sc);                        
-                        var session = scope.ServiceProvider.GetRequiredService<AICustomerServiceManager>().GetActiveSession(agent.Id);
-                        if (session == null || session.PlaybackTask == null) {
-                             ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate?.SpeechRate);
-                        }
+                        var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate?.SpeechRate);
 
                         if (ttsTemplate?.PlayCount > 1) {
                             for (var i = 0; i < ttsTemplate.PlayCount - 1; i++) {
@@ -144,7 +128,7 @@ public class CallProcessor : ICallProcessor {
                                     await Task.Delay(actualWaitTime);
                                 }
                                 
-                                ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent, agent, sc, ttsTemplate.SpeechRate);
+                                ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate.SpeechRate);
                             }
                         }
 
@@ -188,6 +172,10 @@ public class CallProcessor : ICallProcessor {
 
             sipClient.CallAnswered += callAnsweredHandler;
             sipClient.CallEnding += callEndedHandler;
+
+            callContext.Caller!.Client!.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
+                _ = callContext.Callee!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
+            };
 
             _logger.LogInformation("Call initiated for CallLogId {CallLogId}. Waiting for answer to start AI service.", callLogId);
 

@@ -5,6 +5,7 @@ using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using AI.Caller.Phone.Models;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
@@ -27,6 +28,16 @@ namespace AI.Caller.Phone.Services {
         Task ResetDtmfCollectionAsync(string callId);
         Task<string> GetCurrentDtmfInputAsync(string callId);
         Task<bool> IsDtmfCollectingAsync(string callId);
+
+        Task<AudioCodec> GetCurrentCodecAsync(string callId);
+        /// <summary>
+        /// 切换编码
+        /// </summary>
+        /// <param name="callId"></param>
+        /// <param name="targetCodec"></param>
+        /// <param name="reason"></param>
+        /// <returns></returns>
+        Task<bool> SwitchCodecAsync(string callId, AudioCodec targetCodec, string reason);
     }
 
     public partial class CallManager : ICallManager, IDisposable {
@@ -345,6 +356,28 @@ namespace AI.Caller.Phone.Services {
             return await _dtmfService.IsCollectingAsync(callId);
         }
 
+        public Task<AudioCodec> GetCurrentCodecAsync(string callId) {
+            if (!_contexts.TryGetValue(callId, out var ctx)) {
+                return Task.FromResult(AudioCodec.PCMA); // Default value
+            }
+
+            var client = ctx.Caller?.Client?.Client ?? ctx.Callee?.Client?.Client;
+            return Task.FromResult(client?.MediaSessionManager?.SelectedCodec ?? AudioCodec.PCMA);
+        }
+
+        public Task<bool> SwitchCodecAsync(string callId, AudioCodec targetCodec, string reason) {
+            if (!_contexts.TryGetValue(callId, out var ctx)) {
+                return Task.FromResult(false);
+            }
+
+            var client = ctx.Caller?.Client?.Client ?? ctx.Callee?.Client?.Client;
+            if (client?.MediaSessionManager != null) {
+                return client.MediaSessionManager.SwitchCodec(targetCodec, reason);
+            }
+            
+            return Task.FromResult(false);
+        }
+
         private void OnHangupCall(CallContext ctx) {
             CleanRingback(ctx);
 
@@ -527,6 +560,7 @@ namespace AI.Caller.Phone.Services {
                 ctx.RingbackPlayer = new RingbackTonePlayer(
                     _logger,
                     mediaSessionManager,
+                    GetAudioCodecFactory(), // 通过服务容器获取
                     audioFilePath
                 );
                 ctx.RingbackPlayer.Start();
@@ -552,6 +586,15 @@ namespace AI.Caller.Phone.Services {
             } finally {
                 _semaphoreSlim.Release();
             }
+        }
+
+        /// <summary>
+        /// 通过服务容器获取AudioCodecFactory实例
+        /// </summary>
+        private AudioCodecFactory GetAudioCodecFactory() {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var codecFactory = scope.ServiceProvider.GetRequiredService<AudioCodecFactory>();
+            return codecFactory;
         }
 
         public void Dispose() {
@@ -953,17 +996,20 @@ namespace AI.Caller.Phone.Services {
         private readonly SIPClientPoolManager _poolManager;
         private readonly IHubContext<WebRtcHub> _hubContext;
         private readonly ICallFlowOrchestrator _orchestrator;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
 
         public WebToServerScenario(
             ILogger<WebToServerScenario> logger,
             IHubContext<WebRtcHub> hubContext,
             SIPClientPoolManager poolManager,
-            ICallFlowOrchestrator orchestrator
+            ICallFlowOrchestrator orchestrator,
+            IServiceScopeFactory serviceScopeFactory
             ) : base(logger) {
             _logger = logger;
             _hubContext = hubContext;
             _poolManager = poolManager;
             _orchestrator = orchestrator;
+            _serviceScopeFactory = serviceScopeFactory;
         }
 
         public override async Task<bool> HandleInboundCallAsync(SIPRequest sipRequest, CallRoutingResult routingResult, CallContext callContext) {
@@ -977,6 +1023,14 @@ namespace AI.Caller.Phone.Services {
             callContext.Callee = new Callee {
                 User = routingResult.TargetUser,
                 Client = handle
+            };
+
+            callContext.Caller!.Client!.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
+                _ = callContext.Callee!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
+            };
+
+            callContext.Callee.Client.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
+                _ = callContext.Caller!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
             };
 
             await Task.Delay(1500);
@@ -1094,6 +1148,14 @@ namespace AI.Caller.Phone.Services {
             await Task.Delay(1500);
 
             await handle.Client.AnswerAsync();
+
+            callContext.Caller!.Client!.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
+                _ = callContext.Callee!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
+            };
+
+            callContext.Callee.Client.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
+                _ = callContext.Caller!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
+            };
 
             _ = _orchestrator.HandleInboundCallAsync(callContext);
 

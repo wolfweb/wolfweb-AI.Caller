@@ -19,11 +19,7 @@ public partial class AICustomerServiceManager {
     /// <param name="monitorUserId">监听者用户ID</param>
     /// <param name="monitorUserName">监听者用户名</param>
     /// <param name="callId">通话ID</param>
-    public async Task<MonitoringSession> StartMonitoringAsync(
-        int userId,
-        int monitorUserId,
-        string monitorUserName,
-        string callId) {
+    public async Task<MonitoringSession> StartMonitoringAsync(int userId, int monitorUserId, string monitorUserName, string callId) {
         try {
             // 检查会话是否存在
             var session = GetActiveSession(userId);
@@ -98,12 +94,7 @@ public partial class AICustomerServiceManager {
     /// <param name="sessionId">监听会话ID</param>
     /// <param name="reason">接入原因</param>
     /// <param name="callId">通话ID</param>
-    public async Task InterventAsync(
-        int userId,
-        int monitorUserId,
-        int sessionId,
-        string reason,
-        string callId) {
+    public async Task InterventAsync(int userId, int monitorUserId, int sessionId, string reason, string callId) {
         try {
             var session = GetActiveSession(userId);
             if (session == null) {
@@ -143,11 +134,7 @@ public partial class AICustomerServiceManager {
     /// <param name="callId">通话ID</param>
     /// <param name="skipSegmentIds">要跳过的片段ID列表</param>
     /// <param name="resumePlayback">是否恢复播放</param>
-    public async Task ExitInterventionAsync(
-        int userId,
-        string callId,
-        List<int>? skipSegmentIds = null,
-        bool resumePlayback = true) {
+    public async Task ExitInterventionAsync(int userId, string callId, List<int>? skipSegmentIds = null, bool resumePlayback = true) {
         try {
             var session = GetActiveSession(userId);
             if (session == null) {
@@ -167,8 +154,7 @@ public partial class AICustomerServiceManager {
                     foreach (var segmentId in skipSegmentIds) {
                         await playbackControlService.SkipSegmentAsync(callId, segmentId);
                     }
-                    _logger.LogInformation("已标记跳过片段: CallId {CallId}, Count {Count}",
-                        callId, skipSegmentIds.Count);
+                    _logger.LogInformation("已标记跳过片段: CallId {CallId}, Count {Count}", callId, skipSegmentIds.Count);
                 }
 
                 // 恢复AI播放
@@ -181,12 +167,10 @@ public partial class AICustomerServiceManager {
                     _logger.LogInformation("AI播放已停止: UserId {UserId}", userId);
                 }
 
-                _logger.LogInformation("退出人工接入成功: UserId {UserId}, CallId {CallId}",
-                    userId, callId);
+                _logger.LogInformation("退出人工接入成功: UserId {UserId}, CallId {CallId}", userId, callId);
             }
         } catch (Exception ex) {
-            _logger.LogError(ex, "退出人工接入失败: UserId {UserId}, CallId {CallId}",
-                userId, callId);
+            _logger.LogError(ex, "退出人工接入失败: UserId {UserId}, CallId {CallId}", userId, callId);
             throw;
         }
     }
@@ -231,12 +215,7 @@ public partial class AICustomerServiceManager {
     /// <param name="scenarioRecording">场景录音</param>
     /// <param name="variables">变量字典</param>
     /// <param name="callId">通话ID（用于关联DTMF记录）</param>
-    public async Task<bool> StartScenarioServiceAsync(
-        User user,
-        SIPClient sipClient,
-        ScenarioRecording scenarioRecording,
-        Dictionary<string, string> variables,
-        string? callId = null) {
+    public async Task<bool> StartScenarioServiceAsync(User user, SIPClient sipClient, ScenarioRecording scenarioRecording, Dictionary<string, string> variables, string? callId = null) {
         try {
             if (_activeSessions.ContainsKey(user.Id)) {
                 _logger.LogWarning("AI客服已在运行: User {Username}", user.Username);
@@ -246,22 +225,21 @@ public partial class AICustomerServiceManager {
             var scope = _scopeFactory.CreateScope(); // Create scope
 
             try {
-                var mediaProfile = new MediaProfile(
-                    codec: AudioCodec.PCMA,
-                    payloadType: 0,
-                    sampleRate: 8000,
-                    ptimeMs: 20,
-                    channels: 1
-                );
-
-                var audioBridge = scope.ServiceProvider.GetRequiredService<IAudioBridge>();
-                audioBridge.Initialize(mediaProfile);
-
                 if (sipClient.MediaSessionManager == null) {
                     _logger.LogError("MediaSessionManager为空，无法启动AI客服: User {Username}", user.Username);
                     scope.Dispose();
                     return false;
                 }
+
+                //是在answer后调用，因此编解码协商已完成
+                var codec = sipClient.MediaSessionManager.SelectedCodec;
+                var sampleRate = sipClient.MediaSessionManager.SelectedSampleRate;
+                var payloadType = sipClient.MediaSessionManager.SelectedPayloadType;
+
+                var mediaProfile = MediaProfile.FromNegotiation(codec, payloadType, sampleRate);
+
+                var audioBridge = scope.ServiceProvider.GetRequiredService<IAudioBridge>();
+                audioBridge.Initialize(mediaProfile);
 
                 var autoResponder = _autoResponderFactory.CreateAutoResponder(mediaProfile);
 
@@ -295,6 +273,17 @@ public partial class AICustomerServiceManager {
                         _logger.LogError(ex, "处理来电音频失败");
                     }
                 };
+
+                if (audioBridge is AudioBridge ab2) {
+                    ab2.InterventionAudioSend += (audioFrame) => {
+                        try {
+                            sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
+                            _logger.LogTrace("人工接入音频已发送到SIP通话: {Size} 字节", audioFrame.Length);
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "发送人工接入音频失败");
+                        }
+                    };
+                }
 
                 sipClient.DtmfToneReceived += (client, tone) => {
                     autoResponder.OnDtmfToneReceived(tone);

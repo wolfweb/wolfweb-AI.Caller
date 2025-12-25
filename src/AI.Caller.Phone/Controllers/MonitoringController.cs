@@ -52,7 +52,7 @@ public class MonitoringController : Controller {
             var activeSessions = _aiServiceManager.GetAllActiveSessions();
             var sessionList = activeSessions.Select(session => new {
                 userId = session.User.Id,
-                callId = $"Call-{session.User.Id}-{session.StartTime:yyyyMMddHHmmss}",
+                callId = session.CallId,
                 userName = session.User.Username,
                 startTime = session.StartTime,
                 duration = (DateTime.Now - session.StartTime).TotalSeconds,

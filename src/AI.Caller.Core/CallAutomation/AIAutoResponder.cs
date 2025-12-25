@@ -1,5 +1,6 @@
 ﻿using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Encoders;
+using AI.Caller.Core.Media.Interfaces;
 using AI.Caller.Core.Media.Vad;
 using AI.Caller.Core.Services;
 using Microsoft.Extensions.Logging;
@@ -12,9 +13,7 @@ namespace AI.Caller.Core {
     public sealed partial class AIAutoResponder : IAsyncDisposable {
         private readonly ILogger _logger;
         private readonly ITTSEngine _tts;
-        private readonly MediaProfile _profile;
-        private readonly G711Codec _g711Codec;
-        private readonly byte[] _g711SilenceFrame;
+        private readonly AudioCodecFactory _codecFactory;
         private readonly IVoiceActivityDetector _vad;
         private readonly ILoggerFactory _loggerFactory;
         private readonly Channel<byte[]> _jitterBuffer;
@@ -22,20 +21,23 @@ namespace AI.Caller.Core {
         private readonly ConcurrentDictionary<int, AudioResamplerCrossType<float, byte>> _resamplerCache = new();
         private readonly Stopwatch _performanceStopwatch = new();
         private readonly object _audioBufferLock = new object();
-        
         private readonly IDtmfService? _dtmfService;
-        private string? _currentCallId;
+        
+        private TaskCompletionSource? _playbackCompletionSource;
+        private CancellationTokenSource? _cts;
+        private IAudioCodec _currentCodec;
+        private byte[] _silenceFrame;
+        private MediaProfile _profile;
+        private Task? _playoutTask;
         
         private bool _isStarted;
-        private Task? _playoutTask;
+        private string? _currentCallId;
         private long _totalBytesSent;
         private byte[]? _lastSentFrame;
         private int _emptyFrameCount = 0;
-        private long _totalBytesGenerated;
-        private CancellationTokenSource? _cts;
         private byte[] _audioBuffer = Array.Empty<byte>();
+        private long _totalBytesGenerated;
         private DateTime _lastVadStateChange = DateTime.MinValue;
-        private TaskCompletionSource? _playbackCompletionSource;
 
         private const int JitterBufferWaterline = 300;
         private const int LowWatermark = 100;
@@ -52,24 +54,19 @@ namespace AI.Caller.Core {
             ITTSEngine tts,
             IVoiceActivityDetector vad,
             MediaProfile profile,
-            G711Codec g711Codec,
+            AudioCodecFactory codecFactory,
             IDtmfService? dtmfService = null) {
             _tts = tts;
             _vad = vad;
             _logger = loggerFactory.CreateLogger<AIAutoResponder>();
             _profile = profile;
-            _g711Codec = g711Codec;
+            _codecFactory = codecFactory;
             _dtmfService = dtmfService;
             _loggerFactory = loggerFactory;
 
             _jitterBuffer = Channel.CreateUnbounded<byte[]>();
-
-            var silentPcmFrame = new byte[_profile.SamplesPerFrame * 2];
-            if (_profile.Codec == AudioCodec.PCMU) {
-                _g711SilenceFrame = _g711Codec.EncodeMuLaw(silentPcmFrame);
-            } else {
-                _g711SilenceFrame = _g711Codec.EncodeALaw(silentPcmFrame);
-            }
+            _currentCodec = _codecFactory.GetCodec(_profile.Codec);
+            _silenceFrame = _currentCodec.GenerateSilenceFrame(_profile.PtimeMs);
         }
 
         public Task StartAsync(CancellationToken ct = default) {
@@ -121,6 +118,34 @@ namespace AI.Caller.Core {
         public void SignalPlayoutComplete() {
             _shouldStopPlayout = true;
             _logger.LogInformation("Playout completion signal received.");
+        }
+
+        /// <summary>
+        /// Update media profile when codec configuration changes
+        /// </summary>
+        public void UpdateMediaProfile(AudioCodec codec, int sampleRate, int payloadType) {
+            try {
+                // 🔧 FIX: 使用工厂方法创建协商后的配置
+                var newProfile = MediaProfile.FromNegotiation(
+                    codec: codec,
+                    payloadType: payloadType,
+                    sampleRate: sampleRate,
+                    ptimeMs: _profile.PtimeMs,
+                    channels: _profile.Channels
+                );
+
+                if (_profile.Codec != codec) {
+                    _currentCodec = _codecFactory.GetCodec(codec);
+                    _silenceFrame = _currentCodec.GenerateSilenceFrame(newProfile.PtimeMs);                    
+                    _logger.LogInformation("Updated codec from {OldCodec} to {NewCodec}", _profile.Codec, codec);
+                }
+
+                _profile = newProfile;
+                _logger.LogInformation("Media profile updated: {Codec}@{SampleRate}Hz (PT:{PayloadType})", 
+                    codec, sampleRate, payloadType);
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Failed to update media profile");
+            }
         }
 
         public async Task<TimeSpan> PlayScriptAsync(string text, int speakerId = 0, float speed = 1.0f, CancellationToken ct = default) {
@@ -179,12 +204,7 @@ namespace AI.Caller.Core {
                 var finalFrame = new byte[frameSizeInBytes];
                 Array.Copy(_audioBuffer, finalFrame, Math.Min(_audioBuffer.Length, frameSizeInBytes));
 
-                byte[] payload;
-                if (_profile.Codec == AudioCodec.PCMU) {
-                    payload = _g711Codec.EncodeMuLaw(finalFrame.AsSpan());
-                } else {
-                    payload = _g711Codec.EncodeALaw(finalFrame.AsSpan());
-                }
+                byte[] payload = _currentCodec.Encode(finalFrame.AsSpan());
 
                 Interlocked.Add(ref _totalBytesGenerated, payload.Length);
                 if (!_jitterBuffer.Writer.TryWrite(payload)) {
@@ -258,10 +278,8 @@ namespace AI.Caller.Core {
                     var pcmFrame = new ReadOnlySpan<byte>(combinedBuffer, offset, frameSizeInBytes);
                     
                     byte[] payload;
-                    lock (_g711Codec) {
-                        payload = _profile.Codec == AudioCodec.PCMU
-                            ? _g711Codec.EncodeMuLaw(pcmFrame)
-                            : _g711Codec.EncodeALaw(pcmFrame);
+                    lock (_currentCodec) {
+                        payload = _currentCodec.Encode(pcmFrame);
                     }
                     
                     encodedFrames[i] = payload;
@@ -436,14 +454,14 @@ namespace AI.Caller.Core {
                     
                     if (_emptyFrameCount == 1) {
                         _logger.LogTrace("First empty frame, repeating last frame");
-                        return _lastSentFrame ?? _g711SilenceFrame;
+                        return _lastSentFrame ?? _silenceFrame;
                     } else {
                         _logger.LogTrace("Multiple empty frames, sending silence");
-                        return _g711SilenceFrame;
+                        return _silenceFrame;
                     }
                 }
             } else {
-                return _g711SilenceFrame;
+                return _silenceFrame;
             }
         }
 

@@ -20,7 +20,7 @@ public class TtsPlayerService : ITtsPlayerService {
         if (session == null) {
             _logger.LogInformation("No active session for user {UserId}, creating a new one.", user.Id);
             
-            bool sessionCreated = await _aiCustomerServiceManager.StartAICustomerServiceAsync(user, sipClient, string.Empty);
+            bool sessionCreated = await _aiCustomerServiceManager.StartAICustomerServiceAsync(user, sipClient, string.Empty, speakerId, speed ?? 1.0f);
 
             if (!sessionCreated) {
                 _logger.LogError("Failed to create AI customer service session for user {UserId}.", user.Id);
@@ -42,24 +42,6 @@ public class TtsPlayerService : ITtsPlayerService {
         _logger.LogDebug("Finished playing script and waiting for user {UserId}.", user.Id);
         
         return ttsGenerationTime;
-    }
-
-    public Task PreloadTtsAsync(string text, User user, string callId, float? speed = 1.0f, int speakerId = 0) {
-        return _aiCustomerServiceManager.PreloadAICustomerServiceAsync(user, text, speakerId, speed ?? 1.0f, callId);
-    }
-
-    public async Task<TimeSpan> PlayPreloadedTtsAsync(User user, SIPClient sipClient) {
-        var connected = await _aiCustomerServiceManager.ConnectAICustomerServiceAsync(user, sipClient);
-        if (connected) {
-             var session = _aiCustomerServiceManager.GetActiveSession(user.Id);
-             
-             if (session?.PlaybackTask != null) {
-                 await session.AutoResponder.WaitForPlaybackToCompleteAsync(); 
-             }
-             
-             return TimeSpan.Zero; 
-        }
-        return TimeSpan.Zero;
     }
 
     public async Task StopPlayoutAsync(User user) {

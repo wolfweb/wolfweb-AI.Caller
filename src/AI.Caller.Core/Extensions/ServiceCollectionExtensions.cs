@@ -11,6 +11,9 @@ namespace AI.Caller.Core.Extensions {
     public static class ServiceCollectionExtensions {
         public static IServiceCollection AddAIAutoResponder(this IServiceCollection services) {            
             services.TryAddSingleton<G711Codec>();
+            services.TryAddSingleton<G722Codec>();
+            services.TryAddSingleton<AudioCodecFactory>();
+            services.TryAddSingleton<CodecHealthMonitor>();
             services.TryAddSingleton<ITTSEngine, TTSEngineAdapter>();
             services.TryAddSingleton<IDtmfService, DtmfService>();
             services.TryAddSingleton<IAIAutoResponderFactory, AIAutoResponderFactory>();

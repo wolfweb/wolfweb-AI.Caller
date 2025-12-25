@@ -1,5 +1,6 @@
 using AI.Caller.Core.Models;
 using AI.Caller.Core.Network;
+using AI.Caller.Core.Media;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -65,6 +66,10 @@ namespace AI.Caller.Core {
             try {
                 using var scope = _serviceScopeFactory.CreateScope();
                 var clientLogger = scope.ServiceProvider.GetRequiredService<ILogger<SIPClient>>();
+                
+                // Get codec components from DI container
+                var codecFactory = scope.ServiceProvider.GetService<AudioCodecFactory>();
+                var codecHealthMonitor = scope.ServiceProvider.GetService<CodecHealthMonitor>();
 
                 client = new SIPClient(
                     sipServer,
@@ -73,7 +78,9 @@ namespace AI.Caller.Core {
                     _webRTCSettings,
                     _networkMonitoringService,
                     enableWebRtcBridging,
-                    routingInfo
+                    routingInfo,
+                    codecFactory,
+                    codecHealthMonitor
                 );
 
                 Interlocked.Increment(ref _totalClientsCreated);

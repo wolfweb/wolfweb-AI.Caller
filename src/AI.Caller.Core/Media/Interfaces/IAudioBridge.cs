@@ -6,7 +6,9 @@ namespace AI.Caller.Core {
         event Action<byte[]>? IncomingAudioReceived;
         
         void Initialize(MediaProfile profile);
-        
+
+        void SetMediaSessionManager(MediaSessionManager manager);
+
         void ProcessIncomingAudio(byte[] audioData, int sampleRate, int payloadType);
         
         void Start();

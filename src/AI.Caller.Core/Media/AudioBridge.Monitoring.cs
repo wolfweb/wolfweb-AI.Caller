@@ -20,6 +20,11 @@ public sealed partial class AudioBridge {
     public event Action<byte[]>? OutgoingAudioGenerated;
 
     /// <summary>
+    /// 人工接入音频发送事件（监听者说话的音频需要发送到SIP通话）
+    /// </summary>
+    public event Action<byte[]>? InterventionAudioSend;
+
+    /// <summary>
     /// 添加监听者
     /// </summary>
     /// <param name="userId">监听用户ID</param>
@@ -112,6 +117,73 @@ public sealed partial class AudioBridge {
         } catch (Exception ex) {
             _logger.LogError(ex, "广播来电音频到监听者失败");
         }
+    }
+
+    /// <summary>
+    /// 处理人工接入音频（监听者说话的音频）
+    /// 这个方法会将监听者的音频发送给客户
+    /// </summary>
+    /// <param name="audioData">音频数据（PCM格式）</param>
+    public void ProcessInterventionAudio(byte[] audioData) {
+        if (!_isStarted) {
+            _logger.LogWarning("AudioBridge未启动，无法处理人工接入音频");
+            return;
+        }
+
+        try {
+            _logger.LogTrace("处理人工接入音频: 大小 {Size} 字节 (PCM格式)", audioData.Length);
+            
+            byte[] encodedAudioData = ConvertPcmToCurrentCodec(audioData);
+            
+            if (encodedAudioData != null && encodedAudioData.Length > 0) {
+                InterventionAudioSend?.Invoke(encodedAudioData);
+                _logger.LogDebug("人工接入音频已转发到SIP通话: 编码后大小 {Size} 字节", encodedAudioData.Length);
+            } else {
+                _logger.LogWarning("PCM到当前编码格式转换失败，无法发送人工接入音频");
+            }
+            
+        } catch (Exception ex) {
+            _logger.LogError(ex, "处理人工接入音频失败");
+        }
+    }
+
+    /// <summary>
+    /// 将PCM音频转换为当前协商的编码格式
+    /// </summary>
+    /// <param name="pcmData">PCM音频数据（16位）</param>
+    /// <returns>编码后的音频数据</returns>
+    private byte[] ConvertPcmToCurrentCodec(byte[] pcmData) {
+        try {
+            if (pcmData == null || pcmData.Length == 0) {
+                _logger.LogWarning("PCM音频数据为空");
+                return Array.Empty<byte>();
+            }
+
+            _logger.LogTrace("开始转换PCM音频到当前协商编码: 输入大小 {Size} 字节", pcmData.Length);
+
+            var currentCodec = GetCurrentNegotiatedCodec();
+            _logger.LogDebug("使用当前协商的编码器: {Codec}", currentCodec);
+
+            var codec = _codecFactory.GetCodec(currentCodec);
+            var encodedData = codec.Encode(pcmData);
+            
+            _logger.LogTrace("音频编码完成: {Codec}, 输出大小 {Size} 字节", currentCodec, encodedData.Length);
+            return encodedData;
+
+        } catch (Exception ex) {
+            _logger.LogError(ex, "PCM音频编码失败");
+            return Array.Empty<byte>();
+        }
+    }
+
+    /// <summary>
+    /// 获取当前协商的编码器类型
+    /// 从MediaSessionManager获取当前使用的编码器
+    /// </summary>
+    private AudioCodec GetCurrentNegotiatedCodec() {
+        var currentCodec = _mediaSessionManager?.SelectedCodec ?? AudioCodec.PCMA;
+        _logger.LogTrace("获取当前协商的编码器: {Codec}", currentCodec);
+        return currentCodec;
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ using AI.Caller.Core.Interfaces;
 using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Vad;
+using AI.Caller.Core.Services;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
@@ -9,7 +10,7 @@ namespace AI.Caller.Core {
     public class AIAutoResponderFactory : IAIAutoResponderFactory {
         private readonly ILogger _logger;
         private readonly ITTSEngine _ttsEngine;
-        private readonly G711Codec _g711;
+        private readonly AudioCodecFactory _codecFactory;
         private readonly ILoggerFactory _loggerFactory;
         private readonly Services.IDtmfService? _dtmfService;
 
@@ -17,12 +18,13 @@ namespace AI.Caller.Core {
             ILogger<AIAutoResponder> logger,
             ITTSEngine ttsEngine,
             ILoggerFactory loggerFactory,
-            Services.IDtmfService? dtmfService = null) {
+            AudioCodecFactory codecFactory,
+            IDtmfService? dtmfService = null) {
             _logger = logger;
             _ttsEngine = ttsEngine;
-            _loggerFactory = loggerFactory;
             _dtmfService = dtmfService;
-            _g711 = new G711Codec(loggerFactory.CreateLogger<G711Codec>());
+            _codecFactory = codecFactory;
+            _loggerFactory = loggerFactory;
         }
 
         public AIAutoResponder CreateAutoResponder(MediaProfile profile) {
@@ -51,7 +53,7 @@ namespace AI.Caller.Core {
                 _ttsEngine, 
                 vad, 
                 profile, 
-                _g711,
+                _codecFactory,
                 _dtmfService);
 
             return autoResponder;

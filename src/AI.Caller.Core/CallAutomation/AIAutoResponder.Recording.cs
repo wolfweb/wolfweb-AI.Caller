@@ -40,7 +40,12 @@ public sealed partial class AIAutoResponder {
             _logger.LogInformation("开始播放录音文件: {FilePath}", filePath);
 
             // 创建AudioFilePlayer实例来加载音频文件
-            using var audioFilePlayer = new AudioFilePlayer(_loggerFactory);
+            using var audioFilePlayer = new AudioFilePlayer(_loggerFactory, _codecFactory);
+            
+            // 如果有MediaSessionManager，设置引用以获取当前协商的编码器
+            // 注意：这里可能需要从SIPClient或其他地方获取MediaSessionManager引用
+            // audioFilePlayer.SetMediaSessionManager(mediaSessionManager);
+            
             var frames = await audioFilePlayer.LoadAsync(filePath);
 
             if (frames == null || frames.Count == 0) {

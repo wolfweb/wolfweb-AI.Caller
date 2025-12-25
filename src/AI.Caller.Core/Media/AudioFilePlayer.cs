@@ -1,48 +1,52 @@
 using AI.Caller.Core.Media.Encoders;
+using AI.Caller.Core.Media.Interfaces;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
 namespace AI.Caller.Core.Media;
 
 /// <summary>
-/// 通用音频文件播放器 - 支持多种音频格式加载和转换
+/// 通用音频文件播放器 - 支持多种音频格式加载和转换，动态适配当前协商的编码器
 /// </summary>
 public class AudioFilePlayer : IDisposable {
     private readonly ILogger _logger;
-    private readonly G711Codec _g711Codec;
+    private readonly AudioCodecFactory _codecFactory;
+    private readonly Dictionary<AudioCodec, IAudioCodec> _codecCache = new();
+    
+    private MediaSessionManager? _mediaSessionManager;
+    private AudioCodec _fallbackCodec = AudioCodec.PCMA;
 
-    private const int SampleRate = 8000;  // 8kHz
     private const int FrameSizeMs = 20;   // 20ms per frame
-    private const int SamplesPerFrame = SampleRate * FrameSizeMs / 1000; // 160 samples
-    private const int BytesPerFrame = SamplesPerFrame * 2; // 16-bit PCM = 2 bytes per sample
 
-    public AudioFilePlayer(ILoggerFactory loggerFactory) {
+    public AudioFilePlayer(ILoggerFactory loggerFactory, AudioCodecFactory codecFactory) {
         _logger = loggerFactory.CreateLogger<AudioFilePlayer>();
-
-        try {
-            var g711Logger = loggerFactory.CreateLogger<G711Codec>();
-            _g711Codec = new G711Codec(g711Logger, SampleRate, 1);
-            _logger.LogDebug("G711Codec initialized for AudioFilePlayer");
-        } catch (Exception ex) {
-            _logger.LogError(ex, "Failed to initialize G711Codec");
-            throw;
-        }
+        _codecFactory = codecFactory ?? throw new ArgumentNullException(nameof(codecFactory));
+        
+        _logger.LogDebug("AudioFilePlayer initialized with dynamic codec support");
     }
 
     /// <summary>
-    /// 加载音频文件并转换为G.711 A-law编码的帧
+    /// 设置MediaSessionManager引用，用于获取当前协商的编码器
+    /// </summary>
+    public void SetMediaSessionManager(MediaSessionManager? mediaSessionManager) {
+        _mediaSessionManager = mediaSessionManager;
+        _logger.LogDebug("MediaSessionManager reference set for AudioFilePlayer");
+    }
+
+    /// <summary>
+    /// 加载音频文件并转换为当前协商编码格式的帧
     /// </summary>
     /// <param name="filePath">音频文件路径</param>
-    /// <returns>G.711编码的音频帧列表</returns>
+    /// <returns>编码后的音频帧列表</returns>
     public async Task<List<byte[]>> LoadAsync(string filePath) {
         if (string.IsNullOrEmpty(filePath)) {
             _logger.LogWarning("音频文件路径为空");
-            return new List<byte[]>();
+            return [];
         }
 
         if (!File.Exists(filePath)) {
             _logger.LogError("音频文件不存在: {FilePath}", filePath);
-            return new List<byte[]>();
+            return [];
         }
 
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
@@ -59,7 +63,7 @@ public class AudioFilePlayer : IDisposable {
             return result;
         } catch (Exception ex) {
             _logger.LogError(ex, "加载音频文件失败: {FilePath}", filePath);
-            return new List<byte[]>();
+            return [];
         }
     }
 
@@ -73,7 +77,7 @@ public class AudioFilePlayer : IDisposable {
 
             if (pcmData.Length == 0) {
                 _logger.LogError("PCM文件为空: {FilePath}", filePath);
-                return new List<byte[]>();
+                return [];
             }
 
             var frames = ConvertPcmToFrames(pcmData);
@@ -82,7 +86,7 @@ public class AudioFilePlayer : IDisposable {
             return frames;
         } catch (Exception ex) {
             _logger.LogError(ex, "加载PCM文件失败: {FilePath}", filePath);
-            return new List<byte[]>();
+            return [];
         }
     }
 
@@ -91,12 +95,16 @@ public class AudioFilePlayer : IDisposable {
     /// </summary>
     public async Task<List<byte[]>> LoadWithFFmpegAsync(string filePath) {
         try {
+            // 获取当前编码器信息
+            var currentCodec = GetCurrentCodec();
+            var sampleRate = GetSampleRateForCodec(currentCodec);
+            
             // 创建临时PCM文件
             var tempPcmFile = Path.GetTempFileName();
 
             try {
-                // 使用FFmpeg转换为PCM格式
-                var ffmpegArgs = $"-i \"{filePath}\" -ar {SampleRate} -ac 1 -f s16le -y \"{tempPcmFile}\"";
+                // 使用FFmpeg转换为PCM格式，使用正确的采样率
+                var ffmpegArgs = $"-i \"{filePath}\" -ar {sampleRate} -ac 1 -f s16le -y \"{tempPcmFile}\"";
 
                 _logger.LogDebug("执行FFmpeg转换: {Args}", ffmpegArgs);
 
@@ -112,7 +120,7 @@ public class AudioFilePlayer : IDisposable {
                 using var process = Process.Start(processStartInfo);
                 if (process == null) {
                     _logger.LogError("无法启动FFmpeg进程");
-                    return new List<byte[]>();
+                    return [];
                 }
 
                 await process.WaitForExitAsync();
@@ -120,7 +128,7 @@ public class AudioFilePlayer : IDisposable {
                 if (process.ExitCode != 0) {
                     var error = await process.StandardError.ReadToEndAsync();
                     _logger.LogError("FFmpeg转换失败: {Error}", error);
-                    return new List<byte[]>();
+                    return [];
                 }
 
                 _logger.LogInformation("FFmpeg转换成功，加载PCM数据");
@@ -139,42 +147,55 @@ public class AudioFilePlayer : IDisposable {
             }
         } catch (Exception ex) {
             _logger.LogError(ex, "使用FFmpeg加载音频失败: {FilePath}", filePath);
-            return new List<byte[]>();
+            return [];
         }
     }
 
     /// <summary>
-    /// 将PCM数据转换为G.711编码的帧
+    /// 将PCM数据转换为当前协商编码格式的帧
     /// </summary>
     private List<byte[]> ConvertPcmToFrames(byte[] pcmData) {
         var frames = new List<byte[]>();
+        var currentCodec = GetCurrentCodec();
+        var sampleRate = GetSampleRateForCodec(currentCodec);
+        var samplesPerFrame = sampleRate * FrameSizeMs / 1000;
+        var bytesPerFrame = samplesPerFrame * 2; // 16-bit PCM = 2 bytes per sample
+        
         int totalSamples = pcmData.Length / 2; // 16-bit PCM = 2 bytes per sample
-        int totalFrames = (totalSamples + SamplesPerFrame - 1) / SamplesPerFrame; // 向上取整
+        int totalFrames = (totalSamples + samplesPerFrame - 1) / samplesPerFrame; // 向上取整
 
-        _logger.LogDebug("🔥 [DEBUG] 转换PCM数据: {TotalSamples} 采样点, {TotalFrames} 帧, 原始数据大小: {DataSize} 字节", totalSamples, totalFrames, pcmData.Length);
+        _logger.LogDebug("转换PCM数据: {TotalSamples} 采样点, {TotalFrames} 帧, 原始数据大小: {DataSize} 字节, 使用编码器: {Codec}@{SampleRate}Hz", 
+            totalSamples, totalFrames, pcmData.Length, currentCodec, sampleRate);
+
+        // 获取编码器
+        var codec = GetCodecForType(currentCodec);
+        if (codec == null) {
+            _logger.LogError("无法获取编码器: {Codec}", currentCodec);
+            return frames;
+        }
 
         for (int i = 0; i < totalFrames; i++) {
-            int offset = i * BytesPerFrame;
+            int offset = i * bytesPerFrame;
             int remainingBytes = pcmData.Length - offset;
-            int bytesToCopy = Math.Min(BytesPerFrame, remainingBytes);
+            int bytesToCopy = Math.Min(bytesPerFrame, remainingBytes);
 
-            var pcmFrame = new byte[BytesPerFrame];
+            var pcmFrame = new byte[bytesPerFrame];
             Array.Copy(pcmData, offset, pcmFrame, 0, bytesToCopy);
 
             // 如果最后一帧不完整，用静音填充
-            if (bytesToCopy < BytesPerFrame) {
-                Array.Fill<byte>(pcmFrame, 0, bytesToCopy, BytesPerFrame - bytesToCopy);
+            if (bytesToCopy < bytesPerFrame) {
+                Array.Fill<byte>(pcmFrame, 0, bytesToCopy, bytesPerFrame - bytesToCopy);
             }
 
             try {
-                var g711Frame = _g711Codec.EncodeALaw(pcmFrame);
-                if (g711Frame != null && g711Frame.Length > 0) {
-                    frames.Add(g711Frame);
+                var encodedFrame = codec.Encode(pcmFrame);
+                if (encodedFrame != null && encodedFrame.Length > 0) {
+                    frames.Add(encodedFrame);
                 } else {
-                    _logger.LogError("🔥 [DEBUG] G711编码返回空结果，帧索引: {FrameIndex}", i);
+                    _logger.LogError("编码返回空结果，帧索引: {FrameIndex}", i);
                 }
             } catch (Exception ex) {
-                _logger.LogError(ex, "🔥 [DEBUG] G711编码失败，帧索引: {FrameIndex}", i);
+                _logger.LogError(ex, "编码失败，帧索引: {FrameIndex}", i);
             }
         }
 
@@ -188,15 +209,34 @@ public class AudioFilePlayer : IDisposable {
     public List<byte[]> GenerateSilence(int durationMs) {
         var frames = new List<byte[]>();
         int frameCount = durationMs / FrameSizeMs;
-
-        var silenceFrame = new byte[SamplesPerFrame];
-        Array.Fill<byte>(silenceFrame, 0xD5); // G.711 A-law静音值
-
-        for (int i = 0; i < frameCount; i++) {
-            frames.Add((byte[])silenceFrame.Clone());
+        
+        var currentCodec = GetCurrentCodec();
+        var sampleRate = GetSampleRateForCodec(currentCodec);
+        var samplesPerFrame = sampleRate * FrameSizeMs / 1000;
+        
+        // 生成PCM静音帧
+        var silencePcmFrame = new byte[samplesPerFrame * 2]; // 16-bit PCM
+        Array.Fill<byte>(silencePcmFrame, 0); // PCM静音值为0
+        
+        // 获取编码器
+        var codec = GetCodecForType(currentCodec);
+        if (codec == null) {
+            _logger.LogError("无法获取编码器生成静音: {Codec}", currentCodec);
+            return frames;
         }
 
-        _logger.LogDebug("生成静音: {Duration}ms, {FrameCount} 帧", durationMs, frameCount);
+        for (int i = 0; i < frameCount; i++) {
+            try {
+                var encodedFrame = codec.Encode(silencePcmFrame);
+                if (encodedFrame != null && encodedFrame.Length > 0) {
+                    frames.Add(encodedFrame);
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, "生成静音帧编码失败");
+            }
+        }
+
+        _logger.LogDebug("生成静音: {Duration}ms, {FrameCount} 帧, 编码器: {Codec}", durationMs, frameCount, currentCodec);
 
         return frames;
     }
@@ -209,15 +249,27 @@ public class AudioFilePlayer : IDisposable {
     /// <param name="amplitude">振幅（0.0-1.0）</param>
     public List<byte[]> GenerateTone(int frequency, int durationMs, double amplitude = 0.5) {
         var frames = new List<byte[]>();
+        var currentCodec = GetCurrentCodec();
+        var sampleRate = GetSampleRateForCodec(currentCodec);
+        var samplesPerFrame = sampleRate * FrameSizeMs / 1000;
+        var bytesPerFrame = samplesPerFrame * 2;
+        
         int frameCount = durationMs / FrameSizeMs;
+        
+        // 获取编码器
+        var codec = GetCodecForType(currentCodec);
+        if (codec == null) {
+            _logger.LogError("无法获取编码器生成音调: {Codec}", currentCodec);
+            return frames;
+        }
 
         for (int frameIndex = 0; frameIndex < frameCount; frameIndex++) {
-            var pcmBytes = new byte[BytesPerFrame];
-            int startSample = frameIndex * SamplesPerFrame;
+            var pcmBytes = new byte[bytesPerFrame];
+            int startSample = frameIndex * samplesPerFrame;
 
-            for (int i = 0; i < SamplesPerFrame; i++) {
+            for (int i = 0; i < samplesPerFrame; i++) {
                 int sampleIndex = startSample + i;
-                double time = (double)sampleIndex / SampleRate;
+                double time = (double)sampleIndex / sampleRate;
 
                 double value = Math.Sin(2 * Math.PI * frequency * time);
                 short sample = (short)(value * amplitude * short.MaxValue);
@@ -227,21 +279,71 @@ public class AudioFilePlayer : IDisposable {
             }
 
             try {
-                var encoded = _g711Codec.EncodeALaw(pcmBytes);
+                var encoded = codec.Encode(pcmBytes);
                 if (encoded != null && encoded.Length > 0) {
                     frames.Add(encoded);
                 }
             } catch (Exception ex) {
-                _logger.LogError(ex, "生成音调时G711编码失败");
+                _logger.LogError(ex, "生成音调时编码失败");
             }
         }
 
-        _logger.LogDebug("生成音调: {Frequency}Hz, {Duration}ms, {FrameCount} 帧", frequency, durationMs, frameCount);
+        _logger.LogDebug("生成音调: {Frequency}Hz, {Duration}ms, {FrameCount} 帧, 编码器: {Codec}", frequency, durationMs, frameCount, currentCodec);
 
         return frames;
     }
 
+    /// <summary>
+    /// 获取当前协商的编码器类型
+    /// </summary>
+    private AudioCodec GetCurrentCodec() {
+        var currentCodec = _mediaSessionManager?.SelectedCodec ?? _fallbackCodec;
+        _logger.LogTrace("获取当前编码器: {Codec}", currentCodec);
+        return currentCodec;
+    }
+
+    /// <summary>
+    /// 根据编码器类型获取采样率
+    /// </summary>
+    private int GetSampleRateForCodec(AudioCodec codec) {
+        return codec switch {
+            AudioCodec.G722 => 16000,
+            AudioCodec.PCMA => 8000,
+            AudioCodec.PCMU => 8000,
+            _ => 8000
+        };
+    }
+
+    /// <summary>
+    /// 获取指定类型的编码器实例
+    /// </summary>
+    private IAudioCodec? GetCodecForType(AudioCodec codecType) {
+        if (_codecCache.TryGetValue(codecType, out var cachedCodec)) {
+            return cachedCodec;
+        }
+
+        try {
+            var codec = _codecFactory.GetCodec(codecType);
+            _codecCache[codecType] = codec;
+            _logger.LogDebug("创建编码器: {CodecType}", codecType);
+            return codec;
+        } catch (Exception ex) {
+            _logger.LogError(ex, "创建编码器失败: {CodecType}", codecType);
+            return null;
+        }
+    }
+
     public void Dispose() {
-        _g711Codec?.Dispose();
+        // 清理缓存的编码器
+        foreach (var codec in _codecCache.Values) {
+            try {
+                codec?.Dispose();
+            } catch (Exception ex) {
+                _logger.LogWarning(ex, "释放编码器资源失败");
+            }
+        }
+        _codecCache.Clear();
+        
+        GC.SuppressFinalize(this);
     }
 }

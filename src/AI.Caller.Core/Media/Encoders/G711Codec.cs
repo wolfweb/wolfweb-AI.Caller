@@ -10,7 +10,7 @@ namespace AI.Caller.Core.Media.Encoders {
     /// 使用FFmpeg标准实现，保证音质和稳定性
     /// 支持A-Law和μ-Law编码/解码
     /// </summary>
-    public sealed unsafe class G711Codec : IAudioEncoder, IAudioDecoder, IDisposable {
+    public sealed unsafe class G711Codec : IAudioEncoder, IAudioDecoder, IAudioCodec {
         private readonly ILogger _logger;
         private readonly int _sampleRate;
         private readonly int _channels;
@@ -31,13 +31,20 @@ namespace AI.Caller.Core.Media.Encoders {
         private const byte ALAW_SILENCE = 0xD5;
         private const byte MULAW_SILENCE = 0xFF;
 
-        public G711Codec(ILogger<G711Codec> logger, int sampleRate = 8000, int channels = 1) {
+        public AudioCodec Type => _codecType;
+        public int SampleRate => _sampleRate;
+        public int Channels => _channels;
+
+        private readonly AudioCodec _codecType;
+
+        public G711Codec(ILogger<G711Codec> logger, AudioCodec codecType = AudioCodec.PCMA, int sampleRate = 8000, int channels = 1) {
             _logger = logger;
+            _codecType = codecType;
             _sampleRate = sampleRate;
             _channels = channels;
             
             InitializeCodecs();
-            _logger.LogInformation("G711Codec (FFmpeg) initialized: {SampleRate}Hz, {Channels} channel(s)", sampleRate, channels);
+            _logger.LogInformation("G711Codec (FFmpeg) initialized: Type={Type}, {SampleRate}Hz, {Channels} channel(s)", _codecType, sampleRate, channels);
         }
 
         private void InitializeCodecs() {
@@ -105,6 +112,19 @@ namespace AI.Caller.Core.Media.Encoders {
             if (ret < 0) {
                 throw new Exception($"Failed to open decoder: {codecName}, error: {GetErrorString(ret)}");
             }
+        }
+
+        public byte[] Encode(ReadOnlySpan<byte> pcm16) {
+            return _codecType == AudioCodec.PCMU ? EncodeMuLaw(pcm16) : EncodeALaw(pcm16);
+        }
+
+        public byte[] Decode(ReadOnlySpan<byte> encoded) {
+            return _codecType == AudioCodec.PCMU ? DecodeG711MuLaw(encoded) : DecodeG711ALaw(encoded);
+        }
+
+        public byte[] GenerateSilenceFrame(int durationMs) {
+             int samples = _sampleRate * durationMs / 1000;
+             return GenerateALawSilenceFrame(samples);
         }
 
         public byte[] EncodeALaw(ReadOnlySpan<byte> pcmBytes) {

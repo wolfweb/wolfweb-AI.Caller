@@ -68,6 +68,32 @@
                     </div>
                 </div>
             </div>
+
+            <!-- 人工接入音频控制 -->
+            <div class="card mt-3" id="interventionAudioCard" style="display:none;">
+                <div class="card-header">
+                    <h5>人工接入音频</h5>
+                </div>
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <p class="text-info">
+                            <i class="bi bi-info-circle"></i> 
+                            人工接入时，您可以直接与客户通话
+                        </p>
+                    </div>
+                    <div class="btn-group mb-3" role="group">
+                        <button id="startMicBtn" class="btn btn-success" onclick="startMicrophone()">
+                            <i class="bi bi-mic"></i> 开启麦克风
+                        </button>
+                        <button id="stopMicBtn" class="btn btn-danger" onclick="stopMicrophone()" style="display:none;">
+                            <i class="bi bi-mic-mute"></i> 关闭麦克风
+                        </button>
+                    </div>
+                    <div id="micStatus" class="text-muted">
+                        <small>麦克风未启用</small>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- 控制面板 -->
@@ -105,13 +131,19 @@
             <!-- 场景片段列表 -->
             @if (hasScenario)
             {
-                <div class="card mt-3" id="segmentListCard" style="display:none;">
+                <div class="card mt-3" id="segmentListCard">
                     <div class="card-header">
                         <h5 class="mb-0">场景片段列表</h5>
                         @if (!string.IsNullOrEmpty(scenarioName))
                         {
                             <small class="text-muted">场景: @scenarioName</small>
                         }
+                        <div class="mt-2">
+                            <small class="text-info">
+                                <i class="bi bi-info-circle"></i> 
+                                人工接入后可选择要跳过的片段
+                            </small>
+                        </div>
                     </div>
                     <div class="card-body" style="max-height: 300px; overflow-y: auto;">
                         <div class="list-group list-group-flush">
@@ -146,7 +178,7 @@
                                     <div class="d-flex align-items-start">
                                         <div class="form-check me-2">
                                             <input class="form-check-input segment-checkbox" type="checkbox" 
-                                                   value="@segment.Id" id="segment_@segment.Id">
+                                                   value="@segment.Id" id="segment_@segment.Id" disabled>
                                         </div>
                                         <div class="flex-grow-1">
                                             <div class="d-flex align-items-center mb-1">
@@ -163,8 +195,11 @@
                             }
                         </div>
                         <div class="mt-2 text-center">
-                            <button class="btn btn-sm btn-outline-primary" onclick="selectAllSegments()">全选</button>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="clearAllSegments()">清空</button>
+                            <button class="btn btn-sm btn-outline-primary" onclick="selectAllSegments()" disabled id="selectAllBtn">全选</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="clearAllSegments()" disabled id="clearAllBtn">清空</button>
+                            <div class="mt-2">
+                                <small class="text-muted" id="segmentHintText">需要先进行人工接入才能选择片段</small>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -203,6 +238,11 @@
         let isPlaying = false;
         let nextPlayTime = 0;
         let audioFrameCount = 0;
+
+        // 麦克风相关变量
+        let mediaStream = null;
+        let mediaRecorder = null;
+        let isRecording = false;
 
         // 初始化Web Audio API
         function initAudioContext() {
@@ -444,10 +484,11 @@
                     // 显示延迟恢复控制面板
                     document.getElementById('resumeDelayPanel').style.display = 'block';
                     
-                    // 显示场景片段列表（如果有）
-                    if (hasScenario) {
-                        document.getElementById('segmentListCard').style.display = 'block';
-                    }
+                    // 启用片段选择功能
+                    enableSegmentSelection();
+                    
+                    // 显示人工接入音频控制
+                    document.getElementById('interventionAudioCard').style.display = 'block';
                     
                     showToast(result.message, "success");
                 } else {
@@ -456,6 +497,43 @@
             } catch (err) {
                 console.error("人工接入失败:", err);
                 showToast("人工接入失败: " + err, "error");
+            }
+        }
+
+        // 启用片段选择功能
+        function enableSegmentSelection() {
+            // 启用所有片段复选框
+            document.querySelectorAll('.segment-checkbox').forEach(cb => {
+                cb.disabled = false;
+            });
+            
+            // 启用全选和清空按钮
+            document.getElementById('selectAllBtn').disabled = false;
+            document.getElementById('clearAllBtn').disabled = false;
+            
+            // 更新提示文本
+            const hintText = document.getElementById('segmentHintText');
+            if (hintText) {
+                hintText.textContent = '选择要跳过的片段，退出接入时将跳过选中的片段';
+            }
+        }
+
+        // 禁用片段选择功能
+        function disableSegmentSelection() {
+            // 禁用所有片段复选框
+            document.querySelectorAll('.segment-checkbox').forEach(cb => {
+                cb.disabled = true;
+                cb.checked = false;
+            });
+            
+            // 禁用全选和清空按钮
+            document.getElementById('selectAllBtn').disabled = true;
+            document.getElementById('clearAllBtn').disabled = true;
+            
+            // 恢复提示文本
+            const hintText = document.getElementById('segmentHintText');
+            if (hintText) {
+                hintText.textContent = '需要先进行人工接入才能选择片段';
             }
         }
 
@@ -481,6 +559,17 @@
                 // 隐藏延迟控制面板
                 document.getElementById('resumeDelayPanel').style.display = 'none';
                 
+                // 禁用片段选择功能
+                disableSegmentSelection();
+                
+                // 隐藏人工接入音频控制
+                document.getElementById('interventionAudioCard').style.display = 'none';
+                
+                // 停止麦克风（如果正在使用）
+                if (isRecording) {
+                    stopMicrophone();
+                }
+                
                 // 显示倒计时提示
                 showToast(`退出接入成功，${delaySeconds} 秒后恢复AI播放...`, "info");
                 
@@ -491,7 +580,6 @@
                 if (result.success) {
                     document.getElementById('interventBtn').style.display = 'block';
                     document.getElementById('exitInterventBtn').style.display = 'none';
-                    document.getElementById('segmentListCard').style.display = 'none';
                     
                     if (skipSegmentIds && skipSegmentIds.length > 0) {
                         showToast(`AI播放已恢复，跳过 ${skipSegmentIds.length} 个片段`, "success");
@@ -558,6 +646,94 @@
             const minutes = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
             const seconds = (diff % 60).toString().padStart(2, '0');
             document.getElementById('duration').textContent = `${hours}:${minutes}:${seconds}`;
+        }
+
+        // 麦克风控制函数
+        async function startMicrophone() {
+            try {
+                // 请求麦克风权限
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        sampleRate: 8000,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    } 
+                });
+
+                // 使用Web Audio API直接获取PCM数据
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 8000
+                });
+                
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                const processor = audioContext.createScriptProcessor(1024, 1, 1);
+                
+                processor.onaudioprocess = async (event) => {
+                    const inputBuffer = event.inputBuffer;
+                    const inputData = inputBuffer.getChannelData(0); // Float32Array PCM data
+                    
+                    // 转换Float32到Int16 PCM
+                    const int16Data = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+                    }
+                    
+                    const byteArray = new Uint8Array(int16Data.buffer);
+                    
+                    try {
+                        await connection.invoke("SendInterventionAudioBinary", targetUserId, callId, byteArray);
+                    } catch (err) {
+                        console.error("发送二进制音频失败:", err);
+                        // 降级到Base64方式
+                        try {
+                            const base64Audio = btoa(String.fromCharCode(...byteArray));
+                            await connection.invoke("SendInterventionAudio", targetUserId, callId, base64Audio);
+                        } catch (fallbackErr) {
+                            console.error("降级发送Base64音频也失败:", fallbackErr);
+                        }
+                    }
+                };
+                
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+                
+                isRecording = true;
+
+                // 更新UI
+                document.getElementById('startMicBtn').style.display = 'none';
+                document.getElementById('stopMicBtn').style.display = 'inline-block';
+                document.getElementById('micStatus').innerHTML = '<small class="text-success">麦克风已启用，正在传输二进制音频（高性能模式）</small>';
+
+                console.log("麦克风已启动 - 直接发送二进制PCM数据");
+            } catch (err) {
+                console.error("启动麦克风失败:", err);
+                showToast("启动麦克风失败: " + err.message, "error");
+            }
+        }
+
+        async function stopMicrophone() {
+            try {
+                if (mediaRecorder && isRecording) {
+                    mediaRecorder.stop();
+                    isRecording = false;
+                }
+
+                if (mediaStream) {
+                    mediaStream.getTracks().forEach(track => track.stop());
+                    mediaStream = null;
+                }
+
+                // 更新UI
+                document.getElementById('startMicBtn').style.display = 'inline-block';
+                document.getElementById('stopMicBtn').style.display = 'none';
+                document.getElementById('micStatus').innerHTML = '<small class="text-muted">麦克风未启用</small>';
+
+                console.log("麦克风已停止");
+            } catch (err) {
+                console.error("停止麦克风失败:", err);
+                showToast("停止麦克风失败: " + err.message, "error");
+            }
         }
 
         // 页面加载时初始化
