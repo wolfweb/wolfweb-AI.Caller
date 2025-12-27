@@ -92,6 +92,7 @@ public class CallProcessor : ICallProcessor {
             callAnsweredHandler = async (sc) => {
                 _logger.LogInformation("Call answered for CallLogId {CallLogId}. Starting AI Customer Service.", callLogId);
                 callWasAnswered = true;
+                await Task.Delay(1500);
                 
                 try {                    
                     var batchCall = await context.BatchCallJobs.FindAsync(callLog.BatchCallJobId);

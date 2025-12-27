@@ -35,9 +35,10 @@ namespace AI.Caller.Core {
         private long _totalBytesSent;
         private byte[]? _lastSentFrame;
         private int _emptyFrameCount = 0;
-        private byte[] _audioBuffer = Array.Empty<byte>();
         private long _totalBytesGenerated;
-        private DateTime _lastVadStateChange = DateTime.MinValue;
+        private byte[] _audioBuffer = Array.Empty<byte>();
+        private DateTime _lastSpeakingDetected = DateTime.MinValue;
+        private DateTime _lastSilenceDetected = DateTime.MinValue;
 
         private const int JitterBufferWaterline = 300;
         private const int LowWatermark = 100;
@@ -95,14 +96,28 @@ namespace AI.Caller.Core {
                 bool isSpeaking = result.State == VADState.Speaking;
 
                 var now = DateTime.UtcNow;
-                if (isSpeaking && _shouldSendAudio && (now - _lastVadStateChange).TotalMilliseconds >= VadDebounceMs) {
-                    _shouldSendAudio = false;
-                    _lastVadStateChange = now;
-                    _logger.LogDebug($"VAD: Detected speaking, pausing TTS audio playout. (Energy: {result.Energy:F4})");
-                } else if (!isSpeaking && !_shouldSendAudio && (now - _lastVadStateChange).TotalMilliseconds >= VadDebounceMs) {
-                    _shouldSendAudio = true;
-                    _lastVadStateChange = now;
-                    _logger.LogDebug($"VAD: Detected silence, resuming TTS audio playout. (Energy: {result.Energy:F4})");
+                if (isSpeaking) {
+                    if (_lastSpeakingDetected == DateTime.MinValue) {
+                        _lastSpeakingDetected = now;
+                    }
+                    _lastSilenceDetected = DateTime.MinValue;
+
+                    if (_shouldSendAudio && (now - _lastSpeakingDetected).TotalMilliseconds >= VadDebounceMs) {
+                        _shouldSendAudio = false;
+                        _lastSpeakingDetected = DateTime.MinValue;
+                        _logger.LogDebug("VAD: 用户开始说话，暂停TTS播放");
+                    }
+                } else {
+                    if (_lastSilenceDetected == DateTime.MinValue) {
+                        _lastSilenceDetected = now;
+                    }
+                    _lastSpeakingDetected = DateTime.MinValue; // 重置说话计时
+
+                    if (!_shouldSendAudio && (now - _lastSilenceDetected).TotalMilliseconds >= VadDebounceMs) {
+                        _shouldSendAudio = true;
+                        _lastSilenceDetected = DateTime.MinValue;
+                        _logger.LogDebug("VAD: 用户停止说话，恢复TTS播放");
+                    }
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error processing uplink PCM frame");

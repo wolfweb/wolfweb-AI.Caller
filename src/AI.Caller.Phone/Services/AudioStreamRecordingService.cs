@@ -14,6 +14,7 @@ using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Channels;
 
 namespace AI.Caller.Phone.Services {
@@ -244,14 +245,14 @@ namespace AI.Caller.Phone.Services {
                 if (_activeSessions.TryGetValue(userId, out var session)) {
                     session.SetPaused(true);
                     _logger.LogInformation("录音已暂停，用户ID: {UserId}", userId);
-                    return await Task.FromResult(true);
+                    return true;
                 }
 
                 _logger.LogWarning("未找到用户 {UserId} 的活动录音会话", userId);
-                return await Task.FromResult(false);
+                return false;
             } catch (Exception ex) {
                 _logger.LogError(ex, "暂停录音失败，用户ID: {UserId}", userId);
-                return await Task.FromResult(false);
+                return false;
             }
         }
 
@@ -260,14 +261,14 @@ namespace AI.Caller.Phone.Services {
                 if (_activeSessions.TryGetValue(userId, out var session)) {
                     session.SetPaused(false);
                     _logger.LogInformation("录音已恢复，用户ID: {UserId}", userId);
-                    return await Task.FromResult(true);
+                    return true;
                 }
 
                 _logger.LogWarning("未找到用户 {UserId} 的活动录音会话", userId);
-                return await Task.FromResult(false);
+                return false;
             } catch (Exception ex) {
                 _logger.LogError(ex, "恢复录音失败，用户ID: {UserId}", userId);
-                return await Task.FromResult(false);
+                return false;
             }
         }
     }
@@ -415,6 +416,7 @@ namespace AI.Caller.Phone.Services {
         private readonly int _outputSampleRate = 16000;
         private readonly string _codecName;
         private const int AVERROR_EAGAIN = -11;
+        private int _processedFrameCount = 0; // 添加计数器，用于跳过初始帧
 
         private unsafe AVCodecContext* _codecContext;
         private unsafe AVFilterGraph* _filterGraph;
@@ -434,41 +436,34 @@ namespace AI.Caller.Phone.Services {
 
         private unsafe void InitializeFFmpeg() {
             var codec = ffmpeg.avcodec_find_decoder_by_name(_codecName);
-            if (codec == null)
-                throw new Exception($"无法找到解码器: {_codecName}");
+            if (codec == null) throw new Exception($"无法找到解码器: {_codecName}");
 
             _codecContext = ffmpeg.avcodec_alloc_context3(codec);
-            if (_codecContext == null)
-                throw new Exception("无法分配解码器上下文");
+            if (_codecContext == null) throw new Exception("无法分配解码器上下文");
 
             _codecContext->sample_rate = _inputSampleRate;
             _codecContext->sample_fmt = AVSampleFormat.AV_SAMPLE_FMT_U8;
             _codecContext->ch_layout = new AVChannelLayout { order = AVChannelOrder.AV_CHANNEL_ORDER_NATIVE, nb_channels = 1, u = { mask = ffmpeg.AV_CH_LAYOUT_MONO } };
 
             int ret = ffmpeg.avcodec_open2(_codecContext, codec, null);
-            if (ret < 0)
-                throw new Exception($"无法打开解码器: {ret}");
+            if (ret < 0) throw new Exception($"无法打开解码器: {ret}");
 
             _filterGraph = ffmpeg.avfilter_graph_alloc();
-            if (_filterGraph == null)
-                throw new Exception("无法分配滤波器图");
+            if (_filterGraph == null) throw new Exception("无法分配滤波器图");
 
             var bufferSrc = ffmpeg.avfilter_get_by_name("abuffer");
             var bufferSrcArgs = $"time_base=1/{_inputSampleRate}:sample_rate={_inputSampleRate}:sample_fmt=s16:channels={_channels}:channel_layout=mono";
             AVFilterContext* bufferSrcCtx;
             ret = ffmpeg.avfilter_graph_create_filter(&bufferSrcCtx, bufferSrc, "in", bufferSrcArgs, null, _filterGraph);
-            if (ret < 0)
-                throw new Exception($"无法创建buffer source: {ret}");
+            if (ret < 0) throw new Exception($"无法创建buffer source: {ret}");
             _bufferSrcContext = bufferSrcCtx;
 
-            //var filterSpec = $"agate=threshold=0.02:range=0:attack=0.05:release=0.1,afftdn=nr=2:nt=white,highpass=f=100,lowpass=f=4000,volume=1.0,aresample={_outputSampleRate}";
-            var filterSpec = $"volume=1.0,aresample={_outputSampleRate}";
+            var filterSpec = $"aresample={_outputSampleRate},highpass=f=100,lowpass=f=5000,volume=1.0";
 
             var bufferSink = ffmpeg.avfilter_get_by_name("abuffersink");
             AVFilterContext* bufferSinkCtx;
             ret = ffmpeg.avfilter_graph_create_filter(&bufferSinkCtx, bufferSink, "out", null, null, _filterGraph);
-            if (ret < 0)
-                throw new Exception($"无法创建buffer sink: {ret}");
+            if (ret < 0) throw new Exception($"无法创建buffer sink: {ret}");
             _bufferSinkContext = bufferSinkCtx;
 
             AVSampleFormat[] outSampleFmts = new[] { _outputSampleFormat, (AVSampleFormat)(-1) };
@@ -589,12 +584,9 @@ namespace AI.Caller.Phone.Services {
 
                 ffmpeg.av_frame_unref(_frame);
 
-                byte[] result = Array.Empty<byte>();
-                int maxRetries = 3;
-                int retryCount = 0;
-                int retryDelayMs = 2;
+                var outputFrames = new List<byte[]>();
 
-                while (retryCount < maxRetries) {
+                while (true) {
                     ret = ffmpeg.av_buffersink_get_frame(_bufferSinkContext, _filteredFrame);
                     if (ret >= 0) {
                         AVFrame* filtered = _filteredFrame;
@@ -615,22 +607,15 @@ namespace AI.Caller.Phone.Services {
                         byte[] filteredData = new byte[dataSize];
                         try {
                             Marshal.Copy((IntPtr)filtered->data[0], filteredData, 0, dataSize);
-                            result = filteredData;
+                            outputFrames.Add(filteredData);
                             _logger.LogDebug($"处理帧: 样本数={filtered->nb_samples}, 通道数={nbChannels}, 数据大小={dataSize}, 耗时={stopwatch.ElapsedMilliseconds}ms");
                         } catch (Exception ex) {
                             _logger.LogError(ex, $"无法复制滤波帧数据: 数据大小={dataSize}");
                         } finally {
                             ffmpeg.av_frame_unref(_filteredFrame);
                         }
-                        break;
                     } else if (ret == AVERROR_EAGAIN) {
-                        retryCount++;
-                        _logger.LogDebug($"滤波器暂无数据 (EAGAIN), 重试 {retryCount}/{maxRetries}, 输入样本数={_frame->nb_samples}, 延迟={retryDelayMs}ms");
-                        if (retryCount < maxRetries) {
-                            Thread.Sleep(retryDelayMs);
-                            continue;
-                        }
-                        _logger.LogWarning($"达到最大重试次数 ({maxRetries}), 放弃当前帧, 输入数据大小={audioData.Length}, 样本数={_frame->nb_samples}");
+                        break;
                     } else if (ret == ffmpeg.AVERROR_EOF) {
                         _logger.LogDebug("滤波器链达到EOF");
                         break;
@@ -639,6 +624,16 @@ namespace AI.Caller.Phone.Services {
                         _logger.LogError($"无法获取滤波帧: {ret} ({errorStr}), 输入数据大小={audioData.Length}, 样本数={_frame->nb_samples}");
                         break;
                     }
+                }
+
+                if (outputFrames.Count == 0) return Array.Empty<byte>();
+
+                int totalSize = outputFrames.Sum(f => f.Length);
+                byte[] result = new byte[totalSize];
+                int offset = 0;
+                foreach (var f in outputFrames) {
+                    Buffer.BlockCopy(f, 0, result, offset, f.Length);
+                    offset += f.Length;
                 }
 
                 return result;
@@ -688,279 +683,249 @@ namespace AI.Caller.Phone.Services {
             }
         }
     }
-    
+
     internal class AudioRecorder : IDisposable {
         private readonly string _filePath;
         private readonly ILogger _logger;
-        private readonly int _inputSampleRate;
-        private readonly int _channels = 2;
-        private readonly int _bitsPerSample = 16;
-        private readonly int _outputSampleRate = 16000;
         private readonly FileStream _fileStream;
-        private readonly Channel<(byte[] Data, AudioDirection Direction, uint RtpTimestamp, int PayloadType)> _audioChannel;
+
+        private const int OutputSampleRate = 16000;
+        private const int Channels = 2;          // 立体声
+        private const int BitsPerSample = 16;
+        private const int BytesPerSample = BitsPerSample / 8;
+        private const int SamplesPer20ms = OutputSampleRate / 50; // 320
+        private const int BytesPer20msMono = SamplesPer20ms * BytesPerSample;
+        private const int BytesPer20msStereo = BytesPer20msMono * 2;
+
+        private readonly AudioBuffer _recvBuffer = new();
+        private readonly AudioBuffer _sentBuffer = new();
+
+        private readonly ConcurrentDictionary<int, FFmpegAudioProcessor> _processorsRecv = new();
+        private readonly ConcurrentDictionary<int, FFmpegAudioProcessor> _processorsSent = new();
+
+        private readonly Channel<(byte[] RtpPayload, AudioDirection Direction, uint RtpTimestamp, int PayloadType)> _inputChannel;
         private readonly Task _processingTask;
-        private readonly CancellationTokenSource _cts;
-        // 为避免跨通道耦合，收/发各自独立滤波（mono in/out）
-        private readonly FFmpegAudioProcessor _muLawProcessorRecv;
-        private readonly FFmpegAudioProcessor _aLawProcessorRecv;
-        private readonly FFmpegAudioProcessor _muLawProcessorSent;
-        private readonly FFmpegAudioProcessor _aLawProcessorSent;
-        private readonly ConcurrentDictionary<uint, (byte[] Data, uint RtpTimestamp, int PayloadType)> _receivedBuffer;
-        private readonly ConcurrentDictionary<uint, (byte[] Data, uint RtpTimestamp, int PayloadType)> _sentBuffer;
-        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
-        private readonly SemaphoreSlim _finalizeLock = new SemaphoreSlim(1, 1);
+        private readonly Task _mixingTask;
+        private readonly CancellationTokenSource _cts = new();
 
-        private const int _bufferSize = 200;
-
+        private long _totalStereoSamplesWritten = 0;
         private bool _disposed = false;
-        private long _totalSamplesWritten;
-        private uint _baseTimestampSent = uint.MaxValue;
-        private uint _baseTimestampReceived = uint.MaxValue;
 
         public bool IsDisposed => _disposed;
 
-        public AudioRecorder(string filePath, ILogger logger, int sampleRate = 8000) {
+        public AudioRecorder(string filePath, ILogger logger, int inputSampleRate = 8000) {
             _logger = logger;
             _filePath = filePath;
-            _inputSampleRate = sampleRate;
             _fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write);
-            _muLawProcessorRecv = new FFmpegAudioProcessor(logger, sampleRate, "pcm_mulaw");
-            _aLawProcessorRecv = new FFmpegAudioProcessor(logger, sampleRate, "pcm_alaw");
-            _muLawProcessorSent = new FFmpegAudioProcessor(logger, sampleRate, "pcm_mulaw");
-            _aLawProcessorSent = new FFmpegAudioProcessor(logger, sampleRate, "pcm_alaw");
-            _receivedBuffer = new ConcurrentDictionary<uint, (byte[], uint, int)>();
-            _sentBuffer = new ConcurrentDictionary<uint, (byte[], uint, int)>();
 
             WriteWavHeader(0);
 
-            _audioChannel = Channel.CreateUnbounded<(byte[], AudioDirection, uint, int)>();
-            _cts = new CancellationTokenSource();
-            _processingTask = Task.Run(() => ProcessAudioStreamAsync());
-            _logger.LogInformation("AudioRecorder initialized, FilePath: {FilePath}", filePath);
+            _inputChannel = Channel.CreateUnbounded<(byte[], AudioDirection, uint, int)>();
+
+            _processingTask = Task.Run(ProcessInputPacketsAsync, _cts.Token);
+
+            _mixingTask = Task.Run(MixingLoopAsync, _cts.Token);
+
+            _logger.LogInformation("AudioRecorder initialized: {FilePath}, Output: {SampleRate}Hz {Channels}ch {Bits}bit",
+                filePath, OutputSampleRate, Channels, BitsPerSample);
         }
 
         public async Task WriteAudioDataAsync(byte[] rtpPayload, AudioDirection direction, uint rtpTimestamp, int payloadType) {
             if (_disposed || rtpPayload == null || rtpPayload.Length == 0) return;
 
             try {
-                await _audioChannel.Writer.WriteAsync((rtpPayload, direction, rtpTimestamp, payloadType), _cts.Token);
-                _logger.LogDebug($"写入通道: 时间戳={rtpTimestamp}, 方向={direction}, 数据大小={rtpPayload.Length}");
-            } catch (OperationCanceledException) {
-                _logger.LogDebug($"WriteAudioDataAsync cancelled, 时间戳={rtpTimestamp}, 方向={direction}");
-            } catch (ChannelClosedException) {
-                _logger.LogDebug($"Channel closed while writing, 时间戳={rtpTimestamp}, 方向={direction}");
+                await _inputChannel.Writer.WriteAsync((rtpPayload, direction, rtpTimestamp, payloadType), _cts.Token);
             } catch (Exception ex) {
-                _logger.LogError(ex, $"写入音频数据失败: 时间戳={rtpTimestamp}, 方向={direction}");
+                _logger.LogError(ex, "WriteAudioDataAsync failed");
             }
         }
-        
-        private async Task ProcessAudioStreamAsync() {
-            long samplesPerPacket = _inputSampleRate / 50;
-            int bufferSize = (int)(samplesPerPacket * 2 * _channels);
-            uint lastRtpTimestampReceived = 0; // 接听方时间戳
-            uint lastRtpTimestampSent = 0;    // 呼叫方时间戳
-            int packetsProcessed = 0;
-            var receivedBuffer = new SortedList<uint, (byte[] Data, uint RtpTimestamp, int PayloadType)>(20);
-            var sentBuffer = new SortedList<uint, (byte[] Data, uint RtpTimestamp, int PayloadType)>(20);
 
-            while (await _audioChannel.Reader.WaitToReadAsync()) {
-                while(_audioChannel.Reader.TryRead(out var packet)) {
-                    try {
-                        packetsProcessed++;
-                        if (packet.Direction == AudioDirection.Received && _baseTimestampReceived == uint.MaxValue) {
-                            _baseTimestampReceived = packet.RtpTimestamp;
-                        } else if (packet.Direction == AudioDirection.Sent && _baseTimestampSent == uint.MaxValue) {
-                            _baseTimestampSent = packet.RtpTimestamp;
-                        }
+        private async Task ProcessInputPacketsAsync() {
+            await foreach (var packet in _inputChannel.Reader.ReadAllAsync(_cts.Token)) {
+                try {
+                    string codecName = GetCodecName(packet.PayloadType);
+                    var processor = GetProcessor(packet.Direction, packet.PayloadType, codecName);
 
-                        uint normalizedTimestamp = packet.Direction == AudioDirection.Received
-                            ? packet.RtpTimestamp - _baseTimestampReceived
-                            : packet.RtpTimestamp - _baseTimestampSent;                        
-                        var buffer = packet.Direction == AudioDirection.Received ? _receivedBuffer : _sentBuffer;
-                        buffer.TryAdd(normalizedTimestamp, (packet.Data, packet.RtpTimestamp, packet.PayloadType));
+                    byte[] pcmMono = await Task.Run(() => processor.ProcessAudioFrame(packet.RtpPayload, packet.Direction, packet.PayloadType));
 
-                        if (_receivedBuffer.Count >= _bufferSize || _sentBuffer.Count >= _bufferSize) {
-                            (lastRtpTimestampReceived, lastRtpTimestampSent) = await ProcessBuffersAsync(lastRtpTimestampReceived, lastRtpTimestampSent);
-                        }
-                    } catch (OperationCanceledException) {
-                        _logger.LogDebug("ProcessAudioStreamAsync cancelled");
-                        break;
-                    } catch (ChannelClosedException) {
-                        _logger.LogDebug("Audio channel closed, exiting ProcessAudioStreamAsync");
-                        break;
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, "处理音频流时出错");
+                    if (pcmMono.Length > 0) {
+                        var buffer = packet.Direction == AudioDirection.Received ? _recvBuffer : _sentBuffer;
+                        buffer.Enqueue(pcmMono);
                     }
+                } catch (Exception ex) {
+                    _logger.LogError(ex, "Process packet failed, direction={Direction}, pt={PayloadType}", packet.Direction, packet.PayloadType);
                 }
             }
-
-            await ProcessBuffersAsync(lastRtpTimestampReceived, lastRtpTimestampSent);
-
-            _logger.LogInformation("ProcessAudioStreamAsync exited, total packets processed: {PacketsProcessed}, total samples written: {TotalSamples}", packetsProcessed, _totalSamplesWritten);
         }
 
-        private async Task<(uint, uint)> ProcessBuffersAsync(uint lastRtpTimestampReceived, uint lastRtpTimestampSent) {
-            var receivedPackets = new List<(uint NormalizedTimestamp, byte[] Data, uint RtpTimestamp, int PayloadType)>();
-            var sentPackets = new List<(uint NormalizedTimestamp, byte[] Data, uint RtpTimestamp, int PayloadType)>();
-            try {
-                await _semaphore.WaitAsync();
-                foreach (var kvp in _receivedBuffer.OrderBy(kvp => kvp.Key)) {
-                    receivedPackets.Add((kvp.Key, kvp.Value.Data, kvp.Value.RtpTimestamp, kvp.Value.PayloadType));
+        private async Task MixingLoopAsync() {
+            var stopwatch = new Stopwatch();
+            var buffer = new byte[BytesPer20msStereo];
+
+            while (!_cts.IsCancellationRequested) {
+                stopwatch.Restart();
+
+                byte[] recvSlice = _recvBuffer.GetNextSlice(BytesPer20msMono);
+                byte[] sentSlice = _sentBuffer.GetNextSlice(BytesPer20msMono);
+
+                for (int i = 0; i < SamplesPer20ms; i++) {
+                    buffer[i * 4] = recvSlice[i * 2];
+                    buffer[i * 4 + 1] = recvSlice[i * 2 + 1];
+                    buffer[i * 4 + 2] = sentSlice[i * 2];
+                    buffer[i * 4 + 3] = sentSlice[i * 2 + 1];
                 }
-                foreach (var kvp in _sentBuffer.OrderBy(kvp => kvp.Key)) {
-                    sentPackets.Add((kvp.Key, kvp.Value.Data, kvp.Value.RtpTimestamp, kvp.Value.PayloadType));
-                }
-                _receivedBuffer.Clear();
-                _sentBuffer.Clear();
-            } finally {
-                _semaphore.Release();
+
+                await _fileStream.WriteAsync(buffer, 0, BytesPer20msStereo, _cts.Token);
+                _totalStereoSamplesWritten += SamplesPer20ms;
+
+                stopwatch.Stop();
+
+                int elapsedMs = (int)stopwatch.ElapsedMilliseconds;
+                int sleepMs = 20 - elapsedMs;
+                if (sleepMs > 0)
+                    await Task.Delay(sleepMs, _cts.Token);
             }
-
-            var recvBlocks = new List<byte[]>();
-            var sentBlocks = new List<byte[]>();
-
-            foreach (var packet in receivedPackets) {
-                if (packet.NormalizedTimestamp !=0 && packet.NormalizedTimestamp <= lastRtpTimestampReceived) {
-                    _logger.LogWarning($"RTP时间戳乱序: {packet.NormalizedTimestamp}, 上次: {lastRtpTimestampReceived}, 方向=Received");
-                    continue;
-                }
-                lastRtpTimestampReceived = packet.NormalizedTimestamp;
-
-                var processor = packet.PayloadType == 0 ? _muLawProcessorRecv : _aLawProcessorRecv;
-                var processStart = Stopwatch.StartNew();
-                byte[] filteredData = await Task.Run(() => processor.ProcessAudioFrame(packet.Data, AudioDirection.Received, packet.PayloadType));
-                processStart.Stop();
-                if (filteredData.Length > 0) {
-                    recvBlocks.Add(filteredData);
-                    _logger.LogDebug($"接收侧处理: 长度={filteredData.Length}, ts={packet.RtpTimestamp}, 耗时={processStart.ElapsedMilliseconds}ms");
-                }
-            }
-
-            foreach (var packet in sentPackets) {
-                if (packet.NormalizedTimestamp != 0 && packet.NormalizedTimestamp <= lastRtpTimestampSent) {
-                    _logger.LogWarning($"RTP时间戳乱序: {packet.NormalizedTimestamp}, 上次: {lastRtpTimestampSent}, 方向=Sent");
-                    continue;
-                }
-                lastRtpTimestampSent = packet.NormalizedTimestamp;
-
-                var processor = packet.PayloadType == 0 ? _muLawProcessorSent : _aLawProcessorSent;
-                var processStart = Stopwatch.StartNew();
-                byte[] filteredData = await Task.Run(() => processor.ProcessAudioFrame(packet.Data, AudioDirection.Sent, packet.PayloadType));
-                processStart.Stop();
-                if (filteredData.Length > 0) {
-                    sentBlocks.Add(filteredData);
-                    _logger.LogDebug($"发送侧处理: 长度={filteredData.Length}, ts={packet.RtpTimestamp}, 耗时={processStart.ElapsedMilliseconds}ms");
-                }
-            }
-
-            // 对齐并交织成立体声一次性写入（L=Received, R=Sent）
-            int recvTotal = recvBlocks.Sum(b => b.Length);
-            int sentTotal = sentBlocks.Sum(b => b.Length);
-            int monoLenBytes = Math.Max(recvTotal, sentTotal);
-            if (monoLenBytes > 0) {
-                byte[] recvMono = new byte[monoLenBytes];
-                byte[] sentMono = new byte[monoLenBytes];
-
-                int rOff = 0;
-                foreach (var b in recvBlocks) {
-                    int copy = Math.Min(b.Length, recvMono.Length - rOff);
-                    if (copy <= 0) break;
-                    Buffer.BlockCopy(b, 0, recvMono, rOff, copy);
-                    rOff += copy;
-                }
-                int sOff = 0;
-                foreach (var b in sentBlocks) {
-                    int copy = Math.Min(b.Length, sentMono.Length - sOff);
-                    if (copy <= 0) break;
-                    Buffer.BlockCopy(b, 0, sentMono, sOff, copy);
-                    sOff += copy;
-                }
-
-                int samples = monoLenBytes / 2; // 每通道样本数
-                byte[] stereo = new byte[samples * 4];
-                int o = 0;
-                for (int i = 0; i < samples; i++) {
-                    // L: Received
-                    stereo[o++] = recvMono[i * 2];
-                    stereo[o++] = recvMono[i * 2 + 1];
-                    // R: Sent
-                    stereo[o++] = sentMono[i * 2];
-                    stereo[o++] = sentMono[i * 2 + 1];
-                }
-
-                _fileStream.Write(stereo, 0, stereo.Length);
-                _totalSamplesWritten += samples; // 每通道写入样本数
-                _logger.LogDebug($"合成立体声写入: 字节={stereo.Length}, 样本/通道={samples}, 累计样本={_totalSamplesWritten}");
-            }
-
-            return (lastRtpTimestampReceived, lastRtpTimestampSent);
         }
+
+        private FFmpegAudioProcessor GetProcessor(AudioDirection direction, int payloadType, string codecName) {
+            var dict = direction == AudioDirection.Received ? _processorsRecv : _processorsSent;
+            return dict.GetOrAdd(payloadType, _ => new FFmpegAudioProcessor(_logger, GetInputSampleRate(payloadType), codecName));
+        }
+
+        private static int GetInputSampleRate(int payloadType) => payloadType switch {
+            9 => 16000, // G722
+            _ => 8000   // PCMU/PCMA
+        };
+
+        private static string GetCodecName(int payloadType) => payloadType switch {
+            0 => "pcm_mulaw",
+            8 => "pcm_alaw",
+            9 => "g722",
+            _ => throw new NotSupportedException($"Unsupported payload type: {payloadType}")
+        };
 
         public async Task FinalizeAsync() {
             if (_disposed) return;
 
-            await _finalizeLock.WaitAsync();
+            _logger.LogInformation("Finalizing AudioRecorder...");
+
+            _inputChannel.Writer.Complete();
+
             try {
-                if (_disposed) return;
-                _logger.LogInformation("Finalizing AudioRecorder...");
-                _audioChannel.Writer.TryComplete();
-
-                await _processingTask;
-                long audioDataSize = _totalSamplesWritten * _channels * (_bitsPerSample / 8);
-                _fileStream.Seek(0, SeekOrigin.Begin);
-                WriteWavHeader((int)audioDataSize);
-                await _fileStream.FlushAsync();
-
-                _cts.Cancel();
-                _logger.LogInformation($"AudioRecorder finalized, total data size: {audioDataSize} bytes");
+                await _processingTask.ConfigureAwait(false);
             } catch (Exception ex) {
-                _logger.LogError(ex, $"完成录音文件时发生错误, FilePath: {_filePath}");
-                throw;
-            } finally {
-                _finalizeLock.Release();
+                _logger.LogDebug(ex, "Processing task completed during shutdown (expected)");
             }
+            _cts.Cancel();
+
+            try {
+                await _mixingTask.ConfigureAwait(false);
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error waiting for recorder tasks");
+            }
+
+            while (_recvBuffer.HasData || _sentBuffer.HasData) {
+                byte[] recvSlice = _recvBuffer.GetNextSlice(BytesPer20msMono);
+                byte[] sentSlice = _sentBuffer.GetNextSlice(BytesPer20msMono);
+
+                var buffer = new byte[BytesPer20msStereo];
+                for (int i = 0; i < SamplesPer20ms; i++) {
+                    buffer[i * 4] = recvSlice[i * 2];
+                    buffer[i * 4 + 1] = recvSlice[i * 2 + 1];
+                    buffer[i * 4 + 2] = sentSlice[i * 2];
+                    buffer[i * 4 + 3] = sentSlice[i * 2 + 1];
+                }
+
+                await _fileStream.WriteAsync(buffer, 0, BytesPer20msStereo);
+                _totalStereoSamplesWritten += SamplesPer20ms;
+            }
+
+            long dataSize = _totalStereoSamplesWritten * Channels * BytesPerSample;
+            _fileStream.Seek(0, SeekOrigin.Begin);
+            WriteWavHeader((int)dataSize);
+            await _fileStream.FlushAsync();
+
+            _logger.LogInformation("AudioRecorder finalized. Duration: {Duration:F2}s, File: {FilePath}", _totalStereoSamplesWritten / (double)OutputSampleRate, _filePath);
         }
 
-        private void WriteWavHeader(int audioDataSize, int channels = 2, int bitsPerSample = 16) {
+        private void WriteWavHeader(int audioDataSize) {
             var header = new byte[44];
-            var byteRate = _outputSampleRate * channels * bitsPerSample / 8;
-            var blockAlign = (short)(channels * bitsPerSample / 8);
+            int byteRate = OutputSampleRate * Channels * BytesPerSample;
+            short blockAlign = (short)(Channels * BytesPerSample);
 
-            Array.Copy(System.Text.Encoding.ASCII.GetBytes("RIFF"), 0, header, 0, 4);
+            Encoding.ASCII.GetBytes("RIFF").CopyTo(header, 0);
             BitConverter.GetBytes(36 + audioDataSize).CopyTo(header, 4);
-            Array.Copy(System.Text.Encoding.ASCII.GetBytes("WAVE"), 0, header, 8, 4);
-            Array.Copy(System.Text.Encoding.ASCII.GetBytes("fmt "), 0, header, 12, 4);
+            Encoding.ASCII.GetBytes("WAVE").CopyTo(header, 8);
+
+            Encoding.ASCII.GetBytes("fmt ").CopyTo(header, 12);
             BitConverter.GetBytes(16).CopyTo(header, 16);
             BitConverter.GetBytes((short)1).CopyTo(header, 20); // PCM
-            BitConverter.GetBytes((short)channels).CopyTo(header, 22);
-            BitConverter.GetBytes(_outputSampleRate).CopyTo(header, 24);
+            BitConverter.GetBytes((short)Channels).CopyTo(header, 22);
+            BitConverter.GetBytes(OutputSampleRate).CopyTo(header, 24);
             BitConverter.GetBytes(byteRate).CopyTo(header, 28);
             BitConverter.GetBytes(blockAlign).CopyTo(header, 32);
-            BitConverter.GetBytes((short)bitsPerSample).CopyTo(header, 34);
-            Array.Copy(System.Text.Encoding.ASCII.GetBytes("data"), 0, header, 36, 4);
+            BitConverter.GetBytes((short)BitsPerSample).CopyTo(header, 34);
+
+            Encoding.ASCII.GetBytes("data").CopyTo(header, 36);
             BitConverter.GetBytes(audioDataSize).CopyTo(header, 40);
+
             _fileStream.Write(header, 0, 44);
         }
 
         public void Dispose() {
             if (_disposed) return;
-            _finalizeLock.Wait(TimeSpan.FromSeconds(10));
-            try {
-                if (_disposed) return;
-                _disposed = true;
 
-                try { _cts?.Dispose(); } catch { }
-                try { _fileStream?.Dispose(); } catch { }
-                try { _muLawProcessorRecv?.Dispose(); } catch { }
-                try { _aLawProcessorRecv?.Dispose(); } catch { }
-                try { _muLawProcessorSent?.Dispose(); } catch { }
-                try { _aLawProcessorSent?.Dispose(); } catch { }
-                try { _semaphore?.Dispose(); } catch { }
-                try { _finalizeLock?.Dispose(); } catch { }
-            } finally {
-                if (!_disposed) {
-                    _finalizeLock.Release();
+            try {
+                _cts.Cancel();
+                _processingTask?.Wait(TimeSpan.FromSeconds(5));
+                _mixingTask?.Wait(TimeSpan.FromSeconds(5));
+            } catch { }
+
+            _fileStream?.Dispose();
+            foreach (var p in _processorsRecv.Values) p.Dispose();
+            foreach (var p in _processorsSent.Values) p.Dispose();
+            _cts.Dispose();
+
+            _disposed = true;
+        }
+
+        private class AudioBuffer {
+            private readonly ConcurrentQueue<byte[]> _queue = new();
+            private byte[] _currentBlock = null;
+            private int _offsetInCurrent = 0;
+
+            public bool HasData => _queue.Count > 0 || (_currentBlock != null && _offsetInCurrent < _currentBlock.Length);
+
+            public void Enqueue(byte[] block) {
+                if (block?.Length > 0)
+                    _queue.Enqueue(block);
+            }
+
+            public byte[] GetNextSlice(int sliceBytes) {
+                var slice = new byte[sliceBytes];
+                int pos = 0;
+
+                while (pos < sliceBytes) {
+                    if (_currentBlock == null || _offsetInCurrent >= _currentBlock.Length) {
+                        if (!_queue.TryDequeue(out _currentBlock))
+                            break; 
+                        _offsetInCurrent = 0;
+                    }
+
+                    int available = _currentBlock.Length - _offsetInCurrent;
+                    int needed = sliceBytes - pos;
+                    int copy = Math.Min(available, needed);
+
+                    Buffer.BlockCopy(_currentBlock, _offsetInCurrent, slice, pos, copy);
+
+                    pos += copy;
+                    _offsetInCurrent += copy;
                 }
+
+                if (pos < sliceBytes)
+                    Array.Clear(slice, pos, sliceBytes - pos);
+
+                return slice;
             }
         }
     }

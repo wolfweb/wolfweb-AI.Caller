@@ -70,10 +70,7 @@ namespace AI.Caller.Core {
                 return;
             }
 
-            if (audioFrame != null && audioFrame.Length > 0) {
-                // RFC 3551: Even though the actual sampling rate for G.722 audio is 16,000 Hz, 
-                // the RTP clock rate for the G.722 payload format is 8,000 Hz.
-                // So both G.711 and G.722 use 160 ticks per 20ms frame.
+            if (audioFrame != null && audioFrame.Length > 0) {                
                 uint timestampIncrement = 160u;
 
                 _voipSession.SendAudio(timestampIncrement, audioFrame);                
@@ -114,7 +111,7 @@ namespace AI.Caller.Core {
                         SDPMediaTypesEnum.audio,
                         false,
                         [
-                            new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.G722),  // 优先G722
+                            //new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.G722),  // 优先G722
                             new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMA),  // 备选G711a
                             new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMU)   // 备选G711μ
                         ]
@@ -159,7 +156,7 @@ namespace AI.Caller.Core {
                         SDPMediaTypesEnum.audio,
                         false,
                         [
-                            new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.G722),
+                            //new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.G722),
                             new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMA),
                             new SDPAudioVideoMediaFormat(SDPWellKnownMediaFormatsEnum.PCMU)
                         ]

@@ -46,6 +46,7 @@ namespace AI.Caller.Core.Media.Vad {
         }
 
         public VADResult Update(byte[] pcmBytes) {
+            return new VADResult(VADState.Silence, 0f);
             if (pcmBytes == null || pcmBytes.Length < 2) return new VADResult(_state, 0f);
 
             if (pcmBytes.Length % 2 != 0) return new VADResult(_state, 0f);

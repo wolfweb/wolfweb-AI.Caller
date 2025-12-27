@@ -276,7 +276,8 @@ namespace AI.Caller.Phone.Services {
             if (!result) throw new Exception($"呼叫失败");
 
             // 创建外呼CallLog记录
-            _ = CreateOutboundCallLogAsync(ctx, caller, destination);
+            if (scenario != CallScenario.ServerToMobile && scenario != CallScenario.ServerToWeb)
+                _ = CreateOutboundCallLogAsync(ctx, caller, destination);
 
             if (ctx.Caller?.Client?.Client != null) {
                 ctx.Caller.Client.Client.CallRinging += (client) => {
