@@ -249,22 +249,17 @@ public sealed partial class AIAutoResponder {
                     ct);
                 var inputDuration = (int)(DateTime.UtcNow - inputStartTime).TotalMilliseconds;
 
-                // 验证输入
-                bool isValid = input.Length >= config.MinLength;
-                string? validationMessage = null;
+                var validationResult = ValidateInputByConfig(input, config);
+                
+                if (!validationResult.IsValid) {
+                    _logger.LogWarning("DTMF输入验证失败: {ValidationMessage}", validationResult.Message);
 
-                if (!isValid) {
-                    validationMessage = $"输入长度不足: {input.Length} < {config.MinLength}";
-                    _logger.LogWarning("DTMF输入长度不足: {Length} < {MinLength}",
-                        input.Length, config.MinLength);
+                    var errorText = !string.IsNullOrEmpty(config.ErrorText) ? config.ErrorText : GetDefaultErrorMessage(validationResult.ErrorType, config);
+                    
+                    await PlayScriptAsync(errorText, ct: ct);
+                    await WaitForPlaybackToCompleteAsync();
 
-                    if (!string.IsNullOrEmpty(config.ErrorText)) {
-                        await PlayScriptAsync(config.ErrorText, ct: ct);
-                        await WaitForPlaybackToCompleteAsync();
-                    }
-
-                    // 保存失败的输入到数据库
-                    await SaveDtmfInputToDatabase(segment, config, input, isValid, validationMessage, retryCount, inputDuration);
+                    await SaveDtmfInputToDatabase(segment, config, input, false, validationResult.Message, retryCount, inputDuration);
 
                     retryCount++;
                     continue;
@@ -276,10 +271,8 @@ public sealed partial class AIAutoResponder {
                     _logger.LogInformation("DTMF输入已保存到变量: {VariableName}", config.VariableName);
                 }
 
-                // 保存成功的输入到数据库
-                await SaveDtmfInputToDatabase(segment, config, input, isValid, validationMessage, retryCount, inputDuration);
+                await SaveDtmfInputToDatabase(segment, config, input, true, null, retryCount, inputDuration);
 
-                // 播放成功提示
                 if (!string.IsNullOrEmpty(config.SuccessText)) {
                     await PlayScriptAsync(config.SuccessText, ct: ct);
                     await WaitForPlaybackToCompleteAsync();
@@ -290,14 +283,13 @@ public sealed partial class AIAutoResponder {
                 _logger.LogWarning("DTMF输入超时，重试次数: {RetryCount}/{MaxRetries}",
                     retryCount + 1, config.MaxRetries);
 
-                // 保存超时记录到数据库
                 var timeoutDuration = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
                 await SaveDtmfInputToDatabase(segment, config, "", false, "输入超时", retryCount, timeoutDuration);
 
-                if (!string.IsNullOrEmpty(config.TimeoutText)) {
-                    await PlayScriptAsync(config.TimeoutText, ct: ct);
-                    await WaitForPlaybackToCompleteAsync();
-                }
+                var timeoutText = !string.IsNullOrEmpty(config.TimeoutText) ? config.TimeoutText : "输入超时，请重新输入。";
+                
+                await PlayScriptAsync(timeoutText, ct: ct);
+                await WaitForPlaybackToCompleteAsync();
 
                 retryCount++;
             }
@@ -453,6 +445,122 @@ public sealed partial class AIAutoResponder {
         // 显示前2位和后2位
         return $"{input.Substring(0, 2)}{"".PadLeft(input.Length - 4, '*')}{input.Substring(input.Length - 2)}";
     }
+
+    /// <summary>
+    /// 根据配置验证输入
+    /// </summary>
+    private static ValidationResult ValidateInputByConfig(string input, DtmfInputConfig config) {
+        var result = new ValidationResult { IsValid = true };
+
+        // 检查是否为空
+        if (string.IsNullOrEmpty(input)) {
+            result.IsValid = false;
+            result.ErrorType = ValidationErrorType.Empty;
+            result.Message = "未输入任何内容";
+            return result;
+        }
+
+        // 检查长度是否不足
+        if (input.Length < config.MinLength) {
+            result.IsValid = false;
+            result.ErrorType = ValidationErrorType.TooShort;
+            result.Message = $"输入长度不足，需要至少{config.MinLength}位，当前{input.Length}位";
+            return result;
+        }
+
+        // 检查长度是否超出（这是新增的验证）
+        if (input.Length > config.MaxLength) {
+            result.IsValid = false;
+            result.ErrorType = ValidationErrorType.TooLong;
+            result.Message = $"输入长度超出限制，最多{config.MaxLength}位，当前{input.Length}位";
+            return result;
+        }
+
+        // 根据验证器类型进行特定验证
+        switch (config.ValidatorType?.ToLower()) {
+            case "idcard":
+                if (!ValidateIdCard(input)) {
+                    result.IsValid = false;
+                    result.ErrorType = ValidationErrorType.InvalidFormat;
+                    result.Message = "身份证号格式不正确，应为18位数字，最后一位可以是X";
+                }
+                break;
+            case "phone":
+            case "phonenumber":
+                if (!ValidatePhoneNumber(input)) {
+                    result.IsValid = false;
+                    result.ErrorType = ValidationErrorType.InvalidFormat;
+                    result.Message = "手机号格式不正确，应为11位数字";
+                }
+                break;
+            case "numeric":
+            default:
+                if (!input.All(char.IsDigit)) {
+                    result.IsValid = false;
+                    result.ErrorType = ValidationErrorType.InvalidFormat;
+                    result.Message = "输入包含非数字字符";
+                }
+                break;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 身份证号验证
+    /// </summary>
+    private static bool ValidateIdCard(string idCard) {
+        if (string.IsNullOrEmpty(idCard) || idCard.Length != 18) {
+            return false;
+        }
+
+        // 前17位必须是数字
+        for (int i = 0; i < 17; i++) {
+            if (!char.IsDigit(idCard[i])) {
+                return false;
+            }
+        }
+
+        // 最后一位可以是数字或X
+        char lastChar = idCard[17];
+        return char.IsDigit(lastChar) || lastChar == 'X' || lastChar == 'x';
+    }
+
+    /// <summary>
+    /// 手机号验证
+    /// </summary>
+    private static bool ValidatePhoneNumber(string phone) {
+        if (string.IsNullOrEmpty(phone) || phone.Length != 11) {
+            return false;
+        }
+
+        // 必须全是数字且以1开头
+        return phone.All(char.IsDigit) && phone[0] == '1';
+    }
+
+    /// <summary>
+    /// 获取默认错误消息
+    /// </summary>
+    private static string GetDefaultErrorMessage(ValidationErrorType errorType, DtmfInputConfig config) {
+        return errorType switch {
+            ValidationErrorType.Empty => "未输入任何内容，请重新输入。",
+            ValidationErrorType.TooShort => $"输入长度不足，需要至少{config.MinLength}位，请重新输入。",
+            ValidationErrorType.TooLong => $"输入长度超出限制，最多{config.MaxLength}位，请重新输入。",
+            ValidationErrorType.InvalidFormat => GetFormatErrorMessage(config.ValidatorType),
+            _ => "输入有误，请重新输入。"
+        };
+    }
+
+    /// <summary>
+    /// 获取格式错误消息
+    /// </summary>
+    private static string GetFormatErrorMessage(string? validatorType) {
+        return validatorType?.ToLower() switch {
+            "idcard" => "身份证号格式不正确，请输入18位身份证号。",
+            "phone" or "phonenumber" => "手机号格式不正确，请输入11位手机号。",
+            _ => "输入格式不正确，请重新输入。"
+        };
+    }
 }
 
 /// <summary>
@@ -508,4 +616,24 @@ public class DtmfInputEventArgs {
     /// 变量名（用于存储结果）
     /// </summary>
     public string? VariableName { get; set; }
+}
+    
+
+/// <summary>
+/// 验证结果
+/// </summary>
+public class ValidationResult {
+    public bool IsValid { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public ValidationErrorType ErrorType { get; set; }
+}
+
+/// <summary>
+/// 验证错误类型
+/// </summary>
+public enum ValidationErrorType {
+    Empty,
+    TooShort,
+    TooLong,
+    InvalidFormat
 }

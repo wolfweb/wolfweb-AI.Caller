@@ -118,14 +118,7 @@ public class DtmfCollector {
             // 添加按键到缓冲区
             if (_inputBuffer.Length < _maxLength) {
                 _inputBuffer.Append(key);
-                _logger.LogDebug("添加按键，当前输入长度: {Length}/{MaxLength}", _inputBuffer.Length, _maxLength);
-
-                // 检查是否达到最大长度
-                if (_inputBuffer.Length >= _maxLength) {
-                    var input = _inputBuffer.ToString();
-                    _logger.LogInformation("达到最大长度，完成输入: {Input}", MaskInput(input));
-                    _completionSource.TrySetResult(input);
-                }
+                _logger.LogDebug("添加按键，当前输入长度: {Length}/{MaxLength}", _inputBuffer.Length, _maxLength);                
             } else {
                 _logger.LogWarning("输入已达到最大长度，忽略按键: {Key}", key);
             }
