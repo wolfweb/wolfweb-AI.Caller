@@ -286,19 +286,31 @@ namespace AI.Caller.Core {
                 int frameCount = totalLength / frameSizeInBytes;                
                 var encodedFrames = new byte[frameCount][];
 
-                Parallel.For(0, frameCount, new ParallelOptions { 
-                    MaxDegreeOfParallelism = Environment.ProcessorCount / 2 
-                }, i => {
-                    int offset = i * frameSizeInBytes;                    
-                    var pcmFrame = new ReadOnlySpan<byte>(combinedBuffer, offset, frameSizeInBytes);
-                    
-                    byte[] payload;
-                    lock (_currentCodec) {
-                        payload = _currentCodec.Encode(pcmFrame);
+                if(_currentCodec is G722Codec) {
+                    for (int i = 0; i < frameCount; i++) {
+                        int offset = i * frameSizeInBytes;
+                        var pcmFrame = new ReadOnlySpan<byte>(combinedBuffer, offset, frameSizeInBytes);
+                        byte[] payload;
+                        lock (_currentCodec) {
+                            payload = _currentCodec.Encode(pcmFrame);
+                        }
+                        encodedFrames[i] = payload;
                     }
-                    
-                    encodedFrames[i] = payload;
-                });
+                } else {
+                    Parallel.For(0, frameCount, new ParallelOptions {
+                        MaxDegreeOfParallelism = Environment.ProcessorCount / 2
+                    }, i => {
+                        int offset = i * frameSizeInBytes;
+                        var pcmFrame = new ReadOnlySpan<byte>(combinedBuffer, offset, frameSizeInBytes);
+
+                        byte[] payload;
+                        lock (_currentCodec) {
+                            payload = _currentCodec.Encode(pcmFrame);
+                        }
+
+                        encodedFrames[i] = payload;
+                    });
+                }
 
                 for (int i = 0; i < frameCount; i++) {
                     var payload = encodedFrames[i];

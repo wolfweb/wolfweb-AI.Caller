@@ -9,6 +9,7 @@ using AI.Caller.Core.Network;
 
 namespace AI.Caller.Core {
     public class MediaSessionManager : IDisposable {
+        private static readonly Random _random = new ();
         private readonly object _lock = new object();
         private readonly ILogger _logger;
         private readonly bool _enableWebRtcBridging;
@@ -19,6 +20,7 @@ namespace AI.Caller.Core {
         private readonly TimeSpan _codecSwitchCooldown = TimeSpan.FromSeconds(30);
         
         private bool _disposed = false;
+        private uint _outgoingRtpTimestamp;
         private IAudioBridge? _audioBridge;
         private VoIPMediaSession? _voipSession;
         private RTCPeerConnection? _peerConnection;
@@ -52,7 +54,9 @@ namespace AI.Caller.Core {
             _webRTCSettings = webRTCSettings;
             _codecFactory = codecFactory;
             _codecHealthMonitor = codecHealthMonitor;
-            
+
+            _outgoingRtpTimestamp = (uint)_random.Next(0, int.MaxValue);
+
             if (_codecHealthMonitor != null) {
                 _codecHealthMonitor.CodecHealthChanged += OnCodecHealthChanged;
             }
@@ -70,14 +74,18 @@ namespace AI.Caller.Core {
                 return;
             }
 
-            if (audioFrame != null && audioFrame.Length > 0) {                
-                uint timestampIncrement = 160u;
-
-                _voipSession.SendAudio(timestampIncrement, audioFrame);                
+            if (audioFrame != null && audioFrame.Length > 0) {
+                uint duration = (uint)audioFrame.Length;
+                _voipSession.SendAudio(duration, audioFrame);
                 if (_voipSession.AudioDestinationEndPoint != null) {
+                    uint packetTimestamp;
+                    lock (_lock) {
+                        packetTimestamp = _outgoingRtpTimestamp; // 1. 先拿到当前的时间戳给这个包用
+                        _outgoingRtpTimestamp += duration;
+                    }
                     var rtpPacket = new RTPPacket {
                         Header = new RTPHeader {
-                            Timestamp = (uint)DateTime.UtcNow.Ticks,
+                            Timestamp = packetTimestamp,
                             PayloadType = (byte)SelectedPayloadType
                         },
                         Payload = audioFrame
