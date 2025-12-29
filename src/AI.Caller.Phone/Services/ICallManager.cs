@@ -231,6 +231,8 @@ namespace AI.Caller.Phone.Services {
                 }
             }
 
+            OnMakeCalled(ctx);
+
             return result;
         }
 
@@ -405,11 +407,13 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void OnMakeCalled(CallContext ctx) {
-            if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.Client != null) {
+            if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.Client != null && !ctx.Caller.IsRecording) {
+                ctx.Caller.IsRecording = true;
                 _recordingManager.OnSipCalled(ctx.Caller.User.Id, ctx.Caller.Client.Client);
             }
 
-            if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.Client != null) {
+            if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.Client != null && !ctx.Callee.IsRecording) {
+                ctx.Callee.IsRecording = true;
                 _recordingManager.OnSipCalled(ctx.Callee.User.Id, ctx.Callee.Client.Client);
             }
         }
@@ -1026,13 +1030,13 @@ namespace AI.Caller.Phone.Services {
                 Client = handle
             };
 
-            callContext.Caller!.Client!.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
-                _ = callContext.Callee!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
-            };
+            //callContext.Caller!.Client!.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
+            //    _ = callContext.Callee!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
+            //};
 
-            callContext.Callee.Client.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
-                _ = callContext.Caller!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
-            };
+            //callContext.Callee.Client.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
+            //    _ = callContext.Caller!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
+            //};
 
             await Task.Delay(1500);
 
@@ -1149,14 +1153,6 @@ namespace AI.Caller.Phone.Services {
             await Task.Delay(1500);
 
             await handle.Client.AnswerAsync();
-
-            callContext.Caller!.Client!.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
-                _ = callContext.Callee!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
-            };
-
-            callContext.Callee.Client.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
-                _ = callContext.Caller!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
-            };
 
             _ = _orchestrator.HandleInboundCallAsync(callContext);
 

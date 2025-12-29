@@ -247,6 +247,7 @@ namespace AI.Caller.Core {
                 _logger.LogError($"*** ANSWER FAILED *** CallId: {sipRequest.Header.CallId}");
             } else {
                 await _mediaManager.MediaSession!.Start();
+                CallAnswered?.Invoke(this);
                 _logger.LogDebug($"*** CALL ANSWERED *** CallId: {sipRequest.Header.CallId}");
             }
 

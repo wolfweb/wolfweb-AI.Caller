@@ -280,6 +280,7 @@ namespace AI.Caller.Phone.Services {
         private readonly SIPClient _sipClient;
         private readonly AudioRecorder _audioRecorder;
         private readonly System.Timers.Timer _timeoutTimer;
+        private readonly SemaphoreSlim _semaphoreSlim = new(1,1);
         private readonly IServiceScopeFactory _serviceScopeFactory;
 
         private bool _disposed = false;
@@ -363,6 +364,7 @@ namespace AI.Caller.Phone.Services {
 
             using var scope = _serviceScopeFactory.CreateScope();
             AppDbContext _dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await _semaphoreSlim.WaitAsync();
             try {
                 UnsubscribeFromAudioEvents();
 
@@ -386,6 +388,8 @@ namespace AI.Caller.Phone.Services {
                 Recording.Status = Models.RecordingStatus.Failed;
                 _dbContext.Recordings.Update(Recording);
                 await _dbContext.SaveChangesAsync();
+            } finally {
+                _semaphoreSlim.Release();
             }
         }
 
@@ -805,7 +809,7 @@ namespace AI.Caller.Phone.Services {
         };
 
         public async Task FinalizeAsync() {
-            if (_disposed) return;
+            if (_disposed || _cts.IsCancellationRequested) return;
 
             _logger.LogInformation("Finalizing AudioRecorder...");
 

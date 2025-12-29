@@ -23,6 +23,8 @@ namespace AI.Caller.Phone.Models {
     }
 
     public class Caller {
+        internal volatile bool        IsRecording;
+
         public User?                User         { get; set; }
         public string?              Number       { get; set; }
         public SIPClientHandle?     Client       { get; set; }
@@ -30,6 +32,8 @@ namespace AI.Caller.Phone.Models {
     }
 
     public class Callee {
+        internal volatile bool IsRecording;
+
         public User?                User         { get; set; }
         public string?              Number       { get; set; }
         public SIPClientHandle?     Client       { get; set; }
