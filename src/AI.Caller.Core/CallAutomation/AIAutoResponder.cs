@@ -1,4 +1,5 @@
-﻿using AI.Caller.Core.Media;
+﻿using AI.Caller.Core.CallAutomation;
+using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Interfaces;
 using AI.Caller.Core.Media.Vad;
@@ -22,6 +23,7 @@ namespace AI.Caller.Core {
         private readonly Stopwatch _performanceStopwatch = new();
         private readonly object _audioBufferLock = new object();
         private readonly IDtmfService? _dtmfService;
+        private readonly IFrameTimer _frameTimer;
         
         private TaskCompletionSource? _playbackCompletionSource;
         private CancellationTokenSource? _cts;
@@ -67,6 +69,7 @@ namespace AI.Caller.Core {
 
             _jitterBuffer = Channel.CreateUnbounded<byte[]>();
             _currentCodec = _codecFactory.GetCodec(_profile.Codec);
+            _frameTimer = new HighPrecisionFrameTimer(_profile.PtimeMs);
             _silenceFrame = _currentCodec.GenerateSilenceFrame(_profile.PtimeMs);
         }
 
@@ -351,8 +354,10 @@ namespace AI.Caller.Core {
                 while (!ct.IsCancellationRequested && !_shouldStopPlayout) {
                     while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested && !_shouldStopPlayout) {
                         int initialCount = _jitterBuffer.Reader.Count;
-                        await Task.Delay(100, ct);
-                        
+                        await Task.Delay(50, ct);
+
+                        _frameTimer.Reset();
+
                         if (_shouldStopPlayout) {
                             _logger.LogInformation("Playout stop signal received, exiting loop.");
                             break;
@@ -384,7 +389,7 @@ namespace AI.Caller.Core {
                             int retryCount = 0;
                             while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested && retryCount++ < 5) {
                                 int delay = 50 + retryCount * 50;
-                                await Task.Delay(delay, ct);
+                                await _frameTimer.WaitForNextFrameAsync(ct);
                                 _logger.LogWarning("Jitter buffer low ({Count} frames), pausing {Delay}ms to re-buffer...", _jitterBuffer.Reader.Count, delay);
                             }
                             if (_jitterBuffer.Reader.Count >= JitterBufferWaterline) {
@@ -396,8 +401,7 @@ namespace AI.Caller.Core {
 
                         byte[]? frameToSend = await GetNextFrameOptimized(ct);
                         if (frameToSend == null) {
-                            _logger.LogInformation("Segment playback complete: Sent {Sent} >= Generated {Generated} bytes.", 
-                                Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));                            
+                            _logger.LogInformation("Segment playback complete: Sent {Sent} >= Generated {Generated} bytes.", Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));                            
                             _playbackCompletionSource?.TrySetResult();                            
                             break;
                         }
@@ -410,7 +414,14 @@ namespace AI.Caller.Core {
                         long elapsedInLoop = stopwatch.ElapsedMilliseconds - loopStartTime;
                         long adjustedDelay = (long)(smoothedDelayMs - elapsedInLoop);
                         if (adjustedDelay > 0) {
-                            await Task.Delay((int)adjustedDelay, ct);
+                            await _frameTimer.WaitForNextFrameAsync(ct);
+                            if (adjustedDelay > _profile.PtimeMs) {
+                                int extraDelay = (int)(adjustedDelay - _profile.PtimeMs);
+                                if (extraDelay > 0)
+                                    await Task.Delay(extraDelay, ct);
+                            }
+                        } else {
+                            await _frameTimer.WaitForNextFrameAsync(ct);
                         }
                         _logger.LogTrace($"Sending frame, buffer status: {_jitterBuffer.Reader.Count} frames, delay: {smoothedDelayMs:F2}ms");
                     }
@@ -470,7 +481,6 @@ namespace AI.Caller.Core {
                     _emptyFrameCount++;
                     
                     if (_emptyFrameCount == 1 && !_isTtsStreamFinished) {
-                        await Task.Delay(2, ct);
                         if (_jitterBuffer.Reader.TryRead(out audioFrame)) {
                             _emptyFrameCount = 0;
                             _lastSentFrame = audioFrame;

@@ -23,6 +23,8 @@ public class CallProcessor : ICallProcessor {
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var callManager = scope.ServiceProvider.GetRequiredService<ICallManager>();
         var ttsPlayer = scope.ServiceProvider.GetRequiredService<ITtsPlayerService>();
+        var settingProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
+        var settings = await settingProvider.GetSettingsAsync();
 
         var callLog = await context.CallLogs
             .Include(l => l.BatchCallJob)
@@ -117,7 +119,7 @@ public class CallProcessor : ICallProcessor {
                     } else {
                         var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
 
-                        var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate?.SpeechRate);
+                        var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate?.SpeechRate, settings.DefaultSpeakerId);
 
                         if (ttsTemplate?.PlayCount > 1) {
                             for (var i = 0; i < ttsTemplate.PlayCount - 1; i++) {
@@ -129,7 +131,7 @@ public class CallProcessor : ICallProcessor {
                                     await Task.Delay(actualWaitTime);
                                 }
                                 
-                                ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate.SpeechRate);
+                                ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate.SpeechRate, settings.DefaultSpeakerId);
                             }
                         }
 
@@ -142,7 +144,7 @@ public class CallProcessor : ICallProcessor {
                                 await Task.Delay(actualWaitTime);
                             }
                             
-                            await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sc, ttsTemplate.SpeechRate);
+                            await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sc, ttsTemplate.SpeechRate, settings.DefaultSpeakerId);
                         }
 
                         await ttsPlayer.StopPlayoutAsync(agent);

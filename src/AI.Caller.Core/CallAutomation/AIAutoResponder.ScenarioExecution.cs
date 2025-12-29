@@ -44,7 +44,8 @@ public sealed partial class AIAutoResponder {
     public async Task PlayScenarioAsync(
         List<ScenarioSegment> segments,
         Dictionary<string, string> variables,
-        CancellationToken ct = default) {
+        CancellationToken ct = default, 
+        int speakerId = 0) {
         if (_audioFilePlayer == null) {
             _logger.LogError("AudioFilePlayer未设置，无法播放录音片段");
             throw new InvalidOperationException("AudioFilePlayer未设置");
@@ -99,7 +100,7 @@ public sealed partial class AIAutoResponder {
                             break;
 
                         case ScenarioSegmentType.TTS:
-                            await PlayTtsSegmentAsync(segment, variables, ct);
+                            await PlayTtsSegmentAsync(segment, variables, speakerId, ct);
                             currentIndex++;
                             break;
 
@@ -111,7 +112,7 @@ public sealed partial class AIAutoResponder {
                                 Status = ScenarioExecutionStatus.WaitingForDtmfInput
                             });
                             
-                            await PlayDtmfInputSegmentAsync(segment, variables, ct);
+                            await PlayDtmfInputSegmentAsync(segment, variables, speakerId, ct);
                             currentIndex++;
                             break;
 
@@ -197,6 +198,7 @@ public sealed partial class AIAutoResponder {
     private async Task PlayTtsSegmentAsync(
         ScenarioSegment segment,
         Dictionary<string, string> variables,
+        int speakerId,
         CancellationToken ct) {
         if (string.IsNullOrEmpty(segment.TtsText)) {
             _logger.LogWarning("TTS片段文本为空");
@@ -207,7 +209,7 @@ public sealed partial class AIAutoResponder {
         var text = ReplaceVariables(segment.TtsText, variables);
         _logger.LogDebug("TTS文本（替换变量后）: {Text}", text);
 
-        await PlayScriptAsync(text, ct: ct);
+        await PlayScriptAsync(text, speakerId, ct: ct);
         await WaitForPlaybackToCompleteAsync();
     }
 
@@ -217,6 +219,7 @@ public sealed partial class AIAutoResponder {
     private async Task PlayDtmfInputSegmentAsync(
         ScenarioSegment segment,
         Dictionary<string, string> variables,
+        int speakerId,
         CancellationToken ct) {
         if (segment.DtmfConfig == null) {
             _logger.LogWarning("DTMF片段配置为空");
@@ -232,7 +235,7 @@ public sealed partial class AIAutoResponder {
                 // 播放提示
                 if (!string.IsNullOrEmpty(config.PromptText)) {
                     var promptText = ReplaceVariables(config.PromptText, variables);
-                    await PlayScriptAsync(promptText, ct: ct);
+                    await PlayScriptAsync(promptText, speakerId, ct: ct);
                     await WaitForPlaybackToCompleteAsync();
                     
                     await Task.Delay(200, ct);
@@ -256,7 +259,7 @@ public sealed partial class AIAutoResponder {
 
                     var errorText = !string.IsNullOrEmpty(config.ErrorText) ? config.ErrorText : GetDefaultErrorMessage(validationResult.ErrorType, config);
                     
-                    await PlayScriptAsync(errorText, ct: ct);
+                    await PlayScriptAsync(errorText, speakerId, ct: ct);
                     await WaitForPlaybackToCompleteAsync();
 
                     await SaveDtmfInputToDatabase(segment, config, input, false, validationResult.Message, retryCount, inputDuration);
@@ -274,7 +277,7 @@ public sealed partial class AIAutoResponder {
                 await SaveDtmfInputToDatabase(segment, config, input, true, null, retryCount, inputDuration);
 
                 if (!string.IsNullOrEmpty(config.SuccessText)) {
-                    await PlayScriptAsync(config.SuccessText, ct: ct);
+                    await PlayScriptAsync(config.SuccessText, speakerId, ct: ct);
                     await WaitForPlaybackToCompleteAsync();
                 }
 
@@ -288,7 +291,7 @@ public sealed partial class AIAutoResponder {
 
                 var timeoutText = !string.IsNullOrEmpty(config.TimeoutText) ? config.TimeoutText : "输入超时，请重新输入。";
                 
-                await PlayScriptAsync(timeoutText, ct: ct);
+                await PlayScriptAsync(timeoutText, speakerId, ct: ct);
                 await WaitForPlaybackToCompleteAsync();
 
                 retryCount++;

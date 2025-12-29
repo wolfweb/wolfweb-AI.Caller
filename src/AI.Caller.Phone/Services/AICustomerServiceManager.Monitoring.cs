@@ -223,6 +223,8 @@ public partial class AICustomerServiceManager {
             }
 
             var scope = _scopeFactory.CreateScope(); // Create scope
+            var settingProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
+            var settings = await settingProvider.GetSettingsAsync();
 
             try {
                 if (sipClient.MediaSessionManager == null) {
@@ -325,7 +327,7 @@ public partial class AICustomerServiceManager {
                             }
                         }, callStatusCts.Token);
                         
-                        var scenarioTask = autoResponder.PlayScenarioAsync(segments, variables, callStatusCts.Token);
+                        var scenarioTask = autoResponder.PlayScenarioAsync(segments, variables, callStatusCts.Token, settings.DefaultSpeakerId);
                         await Task.WhenAny(scenarioTask, callStatusTask);
                         
                         callStatusCts.Cancel(); // 停止状态检查

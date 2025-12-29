@@ -38,7 +38,7 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
 
         _logger.LogInformation("Found TTS template '{TemplateName}' for call {CallId}", template.Name, callContext.CallId);
         
-        var ttsGenerationTime = await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate);
+        var ttsGenerationTime = await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate, settings.DefaultSpeakerId);
         
         if (template.PlayCount > 1) {
             for(var i = 0; i < template.PlayCount - 1; i++) {
@@ -54,7 +54,7 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
                         ttsGenerationTime.TotalMilliseconds, desiredPause.TotalMilliseconds);
                 }
                 
-                ttsGenerationTime = await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate);
+                ttsGenerationTime = await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate, settings.DefaultSpeakerId);
             }
         }
         
@@ -71,7 +71,7 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
                     ttsGenerationTime.TotalMilliseconds, desiredPause.TotalMilliseconds);
             }
             
-            await _ttsPlayer.PlayTtsAsync(template.EndingSpeech, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate);
+            await _ttsPlayer.PlayTtsAsync(template.EndingSpeech, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate, settings.DefaultSpeakerId);
         }
 
         _logger.LogInformation("Finished playing initial TTS for call {CallId}", callContext.CallId);
