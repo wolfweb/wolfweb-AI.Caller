@@ -313,8 +313,8 @@ public partial class AICustomerServiceManager {
                 var segments = ConvertToScenarioSegments(scenarioRecording, scope.ServiceProvider);
 
                 var playbackTask = Task.Run(async () => {
+                    var callStatusCts = new CancellationTokenSource();
                     try {
-                        var callStatusCts = new CancellationTokenSource();
                         var callStatusTask = Task.Run(async () => {
                             while (!callStatusCts.Token.IsCancellationRequested) {
                                 await Task.Delay(1000, callStatusCts.Token);
@@ -329,9 +329,19 @@ public partial class AICustomerServiceManager {
                         
                         var scenarioTask = autoResponder.PlayScenarioAsync(segments, variables, callStatusCts.Token, settings.DefaultSpeakerId);
                         await Task.WhenAny(scenarioTask, callStatusTask);
-                        
-                        callStatusCts.Cancel(); // 停止状态检查
-                        
+
+                        if (callStatusTask.IsCompleted) {
+                            _logger.LogInformation("检测到SIP呼叫断开，主动取消场景播放");
+                            callStatusCts.Cancel();
+                            try {
+                                await scenarioTask;
+                            } catch (OperationCanceledException) {
+                                _logger.LogInformation("场景播放因呼叫断开被正常取消");
+                            }
+                        } else {
+                            await scenarioTask;
+                        }
+
                         if (scenarioTask.IsCompletedSuccessfully) {
                             _logger.LogInformation("场景录音播放完成: User {Username}, Scenario {ScenarioName}", user.Username, scenarioRecording.Name);
                         } else {
@@ -357,6 +367,8 @@ public partial class AICustomerServiceManager {
                         } catch (Exception cleanupEx) {
                             _logger.LogError(cleanupEx, "清理失败会话时出错: User {Username}", user.Username);
                         }
+                    } finally {
+                        callStatusCts.Cancel();
                     }
                 });
                 
