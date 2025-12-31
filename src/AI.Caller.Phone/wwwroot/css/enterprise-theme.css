@@ -462,29 +462,6 @@ body {
 }
 
 /* ==================== 联系人卡片样式 ==================== */
-.contact-card-tech {
-  background: rgba(30, 33, 57, 0.7);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--border-color);
-  border-radius: 0;
-  /* 无圆角 */
-  padding: 1rem;
-  margin-bottom: 0.75rem;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  cursor: pointer;
-}
-
-.contact-card-tech:hover {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: var(--border-glow);
-  box-shadow: 0 4px 20px var(--primary-glow);
-  transform: translateX(4px);
-}
-
-.contact-card-tech:active {
-  transform: translateX(2px);
-}
-
 .contact-item {
   border: none !important;
   border-radius: 0 !important;
@@ -718,7 +695,6 @@ body {
 }
 
 @keyframes pulse-recording {
-
   0%,
   100% {
     opacity: 1;
@@ -952,43 +928,6 @@ body {
   background: rgba(21, 25, 50, 0.5);
 }
 
-/* ==================== 加载动画 ==================== */
-.loading-spinner {
-  display: inline-block;
-  width: 40px;
-  height: 40px;
-  border: 4px solid rgba(99, 102, 241, 0.2);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* ==================== 工具提示样式 ==================== */
-.tooltip-inner {
-  background: rgba(30, 33, 57, 0.95);
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  padding: 0.5rem 0.75rem;
-  border-radius: 0;
-  /* 无圆角 */
-  box-shadow: var(--shadow-md);
-}
-
-.tooltip.bs-tooltip-top .tooltip-arrow::before {
-  border-top-color: rgba(30, 33, 57, 0.95);
-}
-
-.tooltip.bs-tooltip-bottom .tooltip-arrow::before {
-  border-bottom-color: rgba(30, 33, 57, 0.95);
-}
-
 /* ==================== 分页样式 ==================== */
 .pagination {
   gap: 0.5rem;
@@ -1095,43 +1034,7 @@ textarea.form-control {
   resize: vertical;
 }
 
-/* ==================== 面包屑导航样式 ==================== */
-.breadcrumb {
-  background: rgba(30, 33, 57, 0.5);
-  border-radius: 0;
-  /* 无圆角 */
-  padding: 1rem 1.5rem;
-}
-
-.breadcrumb-item {
-  color: var(--text-primary);
-  /* 提升对比度 */
-}
-
-.breadcrumb-item.active {
-  color: var(--primary);
-}
-
-.breadcrumb-item+.breadcrumb-item::before {
-  color: var(--text-tertiary);
-}
-
-.breadcrumb-item a {
-  color: var(--text-secondary);
-  text-decoration: none;
-  transition: color 0.3s ease;
-}
-
-.breadcrumb-item a:hover {
-  color: var(--primary);
-}
-
 /* ==================== 特殊效果类 ==================== */
-/* 发光脉冲效果 */
-.glow-pulse {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
 /* 悬停上浮效果 */
 .hover-lift {
   transition: transform 0.3s ease, box-shadow 0.3s ease;
@@ -1142,26 +1045,11 @@ textarea.form-control {
   box-shadow: var(--shadow-lg);
 }
 
-/* 渐变文字效果 */
-.text-gradient {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  font-weight: 700;
-}
-
 /* 毛玻璃效果 */
 .glass-effect {
   background: rgba(30, 33, 57, 0.7);
   backdrop-filter: blur(20px);
   border: 1px solid var(--border-color);
-}
-
-/* 霓虹边框效果 */
-.neon-border {
-  border: 2px solid var(--primary);
-  box-shadow: 0 0 10px var(--primary-glow), inset 0 0 10px var(--primary-glow);
 }
 
 /* ==================== 滚动条样式 ==================== */
@@ -1195,36 +1083,12 @@ textarea.form-control {
 }
 
 /* ==================== 辅助类 ==================== */
-.text-primary-custom {
-  color: var(--primary) !important;
-}
-
-.text-secondary-custom {
-  color: var(--text-secondary) !important;
-}
-
-.text-tertiary-custom {
-  color: var(--text-tertiary) !important;
-}
-
 .bg-primary-custom {
   background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
 }
 
-.bg-dark-custom {
-  background: var(--bg-tertiary) !important;
-}
-
-.border-primary-custom {
-  border-color: var(--primary) !important;
-}
-
 .shadow-custom {
   box-shadow: var(--shadow-md) !important;
-}
-
-.shadow-glow-custom {
-  box-shadow: var(--shadow-glow) !important;
 }
 
 /* ==================== 打印样式 ==================== */
@@ -1249,18 +1113,6 @@ textarea.form-control {
 }
 
 /* ==================== 无障碍优化 ==================== */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border-width: 0;
-}
-
 /* 焦点可见性 */
 *:focus-visible {
   outline: 2px solid var(--primary);
@@ -1393,20 +1245,6 @@ small,
 
 .text-info {
   color: #93C5FD !important;
-}
-
-/* ==================== 去除所有剩余圆角 ==================== */
-/* 确保所有元素都是直角 */
-
-
-/* 但保留圆形元素（如头像、图标） */
-.rounded-circle {
-  border-radius: 50% !important;
-}
-
-/* 保留完全圆形的按钮（如果有特殊需求） */
-.btn-circle {
-  border-radius: 50% !important;
 }
 
 /* 保留 Switch 开关的圆角 */
@@ -2035,46 +1873,6 @@ form a+a {
   50% {
     border-color: #81C784;
   }
-}
-
-.monitor-call-controls {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.monitor-btn-call-control {
-  padding: 8px 12px;
-  font-size: 12px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  color: white;
-  flex: 1;
-  transition: opacity 0.2s ease;
-}
-
-.monitor-btn-call-control:hover {
-  opacity: 0.8;
-}
-
-.monitor-btn-call-control.btn-mute {
-  background: var(--warning);
-}
-
-.monitor-btn-call-control.btn-mute.muted {
-  background: var(--danger);
-}
-
-.monitor-btn-call-control.btn-danger {
-  background: var(--danger);
-}
-
-.monitor-call-timer {
-  text-align: center;
-  font-size: 14px;
-  font-weight: bold;
-  color: var(--success);
 }
 
 /* 动画效果 */
