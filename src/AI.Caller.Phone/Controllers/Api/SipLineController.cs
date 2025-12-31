@@ -271,10 +271,7 @@ public class SipLineController : ControllerBase {
     /// </summary>
     [HttpGet("account/lines")]
     public async Task<ActionResult<List<SipLine>>> GetCurrentAccountLines() {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-        if (userIdClaim == null) return Unauthorized();
-
-        if (!int.TryParse(userIdClaim.Value, out var userId)) return Unauthorized();
+        var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
 
         var user = await _context.Users
             .Include(u => u.SipAccount!)

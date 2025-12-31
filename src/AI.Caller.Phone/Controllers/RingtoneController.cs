@@ -20,15 +20,10 @@ public class RingtoneController : ControllerBase {
         _logger = logger;
     }
 
-    private int GetCurrentUserId() {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        return int.TryParse(userIdClaim, out var userId) ? userId : 0;
-    }
-
     [HttpGet]
     public async Task<IActionResult> GetRingtones([FromQuery] string? type = null) {
         try {
-            var userId = GetCurrentUserId();
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
             var ringtones = await _ringtoneService.GetAvailableRingtonesAsync(userId, type);
             return Ok(ringtones);
         } catch (Exception ex) {
@@ -52,7 +47,7 @@ public class RingtoneController : ControllerBase {
                 return BadRequest(errorMessage);
             }
 
-            var userId = GetCurrentUserId();
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
             var ringtone = await _ringtoneService.UploadRingtoneAsync(file, dto.Name, dto.Type, userId);
 
             return Ok(new {
@@ -70,7 +65,7 @@ public class RingtoneController : ControllerBase {
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteRingtone(int id) {
         try {
-            var userId = GetCurrentUserId();
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
             var result = await _ringtoneService.DeleteRingtoneAsync(id, userId);
 
             if (!result) {
@@ -91,7 +86,7 @@ public class RingtoneController : ControllerBase {
     [HttpGet("user-settings")]
     public async Task<IActionResult> GetUserSettings() {
         try {
-            var userId = GetCurrentUserId();
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
             var settings = await _ringtoneService.GetUserSettingsAsync(userId);
 
             if (settings == null) {
@@ -113,7 +108,7 @@ public class RingtoneController : ControllerBase {
     [HttpPut("user-settings")]
     public async Task<IActionResult> UpdateUserSettings([FromBody] UpdateUserRingtoneSettingsDto dto) {
         try {
-            var userId = GetCurrentUserId();
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
             await _ringtoneService.UpdateUserSettingsAsync(userId, dto.IncomingRingtoneId, dto.RingbackToneId);
 
             return Ok("铃音设置已更新");
@@ -156,7 +151,7 @@ public class RingtoneController : ControllerBase {
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> UpdateSystemSettings([FromBody] UpdateSystemRingtoneDto dto) {
         try {
-            var userId = GetCurrentUserId();
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
             await _ringtoneService.UpdateSystemSettingsAsync(
                 dto.DefaultIncomingRingtoneId,
                 dto.DefaultRingbackToneId,
