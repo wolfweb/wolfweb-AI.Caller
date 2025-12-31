@@ -6,70 +6,79 @@
 
 <div class="container mt-4">
     <div class="row align-items-center">
-        <div class="col-12">
-            <div class="card card-danger">
-                <div class="card-header">
-                    <h3 class="card-title">删除DTMF模板</h3>
-                </div>
-                <div class="card-body">
-                    <div class="alert alert-danger">
-                        <h5><i class="icon fas fa-exclamation-triangle"></i> 警告！</h5>
-                        您确定要删除这个DTMF模板吗？此操作无法撤销。
-                    </div>
-
-                    <dl class="row">
-                        <dt class="col-sm-3">模板名称</dt>
-                        <dd class="col-sm-9">@Model.Name</dd>
-
-                        <dt class="col-sm-3">输入类型</dt>
-                        <dd class="col-sm-9">
-                            @switch (Model.InputType)
-                            {
-                                case AI.Caller.Phone.Entities.DtmfInputType.Numeric:
-                                    <span class="badge badge-primary">数字</span>
-                                    break;
-                                case AI.Caller.Phone.Entities.DtmfInputType.IdCard:
-                                    <span class="badge badge-info">身份证号</span>
-                                    break;
-                                case AI.Caller.Phone.Entities.DtmfInputType.PhoneNumber:
-                                    <span class="badge badge-success">手机号</span>
-                                    break;
-                                case AI.Caller.Phone.Entities.DtmfInputType.Custom:
-                                    <span class="badge badge-secondary">自定义</span>
-                                    break;
-                            }
-                        </dd>
-
-                        <dt class="col-sm-3">验证器类型</dt>
-                        <dd class="col-sm-9">@Model.ValidatorType</dd>
-
-                        <dt class="col-sm-3">长度范围</dt>
-                        <dd class="col-sm-9">@Model.MinLength - @Model.MaxLength 位</dd>
-
-                        <dt class="col-sm-3">超时时间</dt>
-                        <dd class="col-sm-9">@Model.TimeoutSeconds 秒</dd>
-
-                        <dt class="col-sm-3">最大重试次数</dt>
-                        <dd class="col-sm-9">@Model.MaxRetries 次</dd>
-
-                        <dt class="col-sm-3">创建时间</dt>
-                        <dd class="col-sm-9">@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
-                    </dl>
-
-                    <div class="alert alert-warning">
-                        <i class="fas fa-info-circle"></i> 
-                        如果有场景录音正在使用此模板，删除操作可能会影响这些场景的正常运行。
-                    </div>
-                </div>
-                <div class="card-footer">
-                    <form asp-action="Delete" method="post">
-                        <input type="hidden" asp-for="Id" />
-                        <button type="submit" class="btn btn-danger">
-                            <i class="fas fa-trash"></i> 确认删除
-                        </button>
-                    </form>
-                </div>
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-table"></i>
             </div>
+            <div class="col-auto">
+                <h2>删除DTMF模板</h2>
+            </div>
+        </div>
+        <div class="col text-end">
+            <a asp-action="Index" class="btn btn-sm btn-secondary glass-effect">
+                <i class="fas fa-arrow-left"></i> 返回列表
+            </a>
+        </div>
+    </div>
+    <hr />
+    <div class="alert alert-danger">
+        <h5><i class="icon fas fa-exclamation-triangle"></i> 警告！</h5>
+        您确定要删除这个DTMF模板吗？此操作无法撤销。
+    </div>
+    <div class="card card-danger">
+        <div class="card-body">
+
+            <dl class="row">
+                <dt class="col-sm-3">模板名称</dt>
+                <dd class="col-sm-9">@Model.Name</dd>
+
+                <dt class="col-sm-3">输入类型</dt>
+                <dd class="col-sm-9">
+                    @switch (Model.InputType)
+                    {
+                        case AI.Caller.Phone.Entities.DtmfInputType.Numeric:
+                            <span class="badge badge-primary">数字</span>
+                            break;
+                        case AI.Caller.Phone.Entities.DtmfInputType.IdCard:
+                            <span class="badge badge-info">身份证号</span>
+                            break;
+                        case AI.Caller.Phone.Entities.DtmfInputType.PhoneNumber:
+                            <span class="badge badge-success">手机号</span>
+                            break;
+                        case AI.Caller.Phone.Entities.DtmfInputType.Custom:
+                            <span class="badge badge-secondary">自定义</span>
+                            break;
+                    }
+                </dd>
+
+                <dt class="col-sm-3">验证器类型</dt>
+                <dd class="col-sm-9">@Model.ValidatorType</dd>
+
+                <dt class="col-sm-3">长度范围</dt>
+                <dd class="col-sm-9">@Model.MinLength - @Model.MaxLength 位</dd>
+
+                <dt class="col-sm-3">超时时间</dt>
+                <dd class="col-sm-9">@Model.TimeoutSeconds 秒</dd>
+
+                <dt class="col-sm-3">最大重试次数</dt>
+                <dd class="col-sm-9">@Model.MaxRetries 次</dd>
+
+                <dt class="col-sm-3">创建时间</dt>
+                <dd class="col-sm-9">@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+            </dl>
+
+            <div class="alert alert-warning">
+                <i class="fas fa-info-circle"></i> 
+                如果有场景录音正在使用此模板，删除操作可能会影响这些场景的正常运行。
+            </div>
+        </div>
+        <div class="card-footer">
+            <form asp-action="Delete" method="post">
+                <input type="hidden" asp-for="Id" />
+                <button type="submit" class="btn btn-danger">
+                    <i class="fas fa-trash"></i> 确认删除
+                </button>
+            </form>
         </div>
     </div>
 </div>

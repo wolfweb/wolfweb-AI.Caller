@@ -6,146 +6,147 @@
 
 <div class="container mt-4">
     <div class="row align-items-center">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">DTMF模板详情</h3>
-                    <div class="card-tools">
-                        <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-sm btn-primary">
-                            <i class="fas fa-edit"></i> 编辑
-                        </a>
-                        <a asp-action="Index" class="btn btn-sm btn-secondary glass-effect">
-                            <i class="fas fa-arrow-left"></i> 返回列表
-                        </a>
-                    </div>
+        <div class="col d-flex">
+            <div class="page-icon me-3">
+                <i class="bi bi-table"></i>
+            </div>
+            <div class="col-auto">
+                <h2>DTMF模板详情</h2>
+            </div>
+        </div>
+        <div class="col text-end">
+            <a asp-action="Index" class="btn btn-sm btn-secondary glass-effect">
+                <i class="fas fa-arrow-left"></i> 返回列表
+            </a>
+        </div>
+    </div>
+    <hr />
+    <div class="card">
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h5>基本信息</h5>
+                    <dl class="row">
+                        <dt class="col-sm-5">模板名称</dt>
+                        <dd class="col-sm-7">@Model.Name</dd>
+
+                        <dt class="col-sm-5">输入类型</dt>
+                        <dd class="col-sm-7">
+                            @switch (Model.InputType)
+                            {
+                                case AI.Caller.Phone.Entities.DtmfInputType.Numeric:
+                                    <span class="badge badge-primary">数字</span>
+                                    break;
+                                case AI.Caller.Phone.Entities.DtmfInputType.IdCard:
+                                    <span class="badge badge-info">身份证号</span>
+                                    break;
+                                case AI.Caller.Phone.Entities.DtmfInputType.PhoneNumber:
+                                    <span class="badge badge-success">手机号</span>
+                                    break;
+                                case AI.Caller.Phone.Entities.DtmfInputType.Custom:
+                                    <span class="badge badge-secondary">自定义</span>
+                                    break;
+                            }
+                        </dd>
+
+                        <dt class="col-sm-5">验证器类型</dt>
+                        <dd class="col-sm-7">@Model.ValidatorType</dd>
+
+                        <dt class="col-sm-5">创建时间</dt>
+                        <dd class="col-sm-7">@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+
+                        <dt class="col-sm-5">更新时间</dt>
+                        <dd class="col-sm-7">@Model.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                    </dl>
                 </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h5>基本信息</h5>
-                            <dl class="row">
-                                <dt class="col-sm-5">模板名称</dt>
-                                <dd class="col-sm-7">@Model.Name</dd>
 
-                                <dt class="col-sm-5">输入类型</dt>
-                                <dd class="col-sm-7">
-                                    @switch (Model.InputType)
-                                    {
-                                        case AI.Caller.Phone.Entities.DtmfInputType.Numeric:
-                                            <span class="badge badge-primary">数字</span>
-                                            break;
-                                        case AI.Caller.Phone.Entities.DtmfInputType.IdCard:
-                                            <span class="badge badge-info">身份证号</span>
-                                            break;
-                                        case AI.Caller.Phone.Entities.DtmfInputType.PhoneNumber:
-                                            <span class="badge badge-success">手机号</span>
-                                            break;
-                                        case AI.Caller.Phone.Entities.DtmfInputType.Custom:
-                                            <span class="badge badge-secondary">自定义</span>
-                                            break;
-                                    }
-                                </dd>
+                <div class="col-md-6">
+                    <h5>输入配置</h5>
+                    <dl class="row">
+                        <dt class="col-sm-5">最小长度</dt>
+                        <dd class="col-sm-7">@Model.MinLength 位</dd>
 
-                                <dt class="col-sm-5">验证器类型</dt>
-                                <dd class="col-sm-7">@Model.ValidatorType</dd>
+                        <dt class="col-sm-5">最大长度</dt>
+                        <dd class="col-sm-7">@Model.MaxLength 位</dd>
 
-                                <dt class="col-sm-5">创建时间</dt>
-                                <dd class="col-sm-7">@Model.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                        <dt class="col-sm-5">终止键</dt>
+                        <dd class="col-sm-7"><code>@Model.TerminationKey</code></dd>
 
-                                <dt class="col-sm-5">更新时间</dt>
-                                <dd class="col-sm-7">@Model.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</dd>
-                            </dl>
-                        </div>
+                        <dt class="col-sm-5">退格键</dt>
+                        <dd class="col-sm-7"><code>@Model.BackspaceKey</code></dd>
 
-                        <div class="col-md-6">
-                            <h5>输入配置</h5>
-                            <dl class="row">
-                                <dt class="col-sm-5">最小长度</dt>
-                                <dd class="col-sm-7">@Model.MinLength 位</dd>
+                        <dt class="col-sm-5">超时时间</dt>
+                        <dd class="col-sm-7">@Model.TimeoutSeconds 秒</dd>
 
-                                <dt class="col-sm-5">最大长度</dt>
-                                <dd class="col-sm-7">@Model.MaxLength 位</dd>
-
-                                <dt class="col-sm-5">终止键</dt>
-                                <dd class="col-sm-7"><code>@Model.TerminationKey</code></dd>
-
-                                <dt class="col-sm-5">退格键</dt>
-                                <dd class="col-sm-7"><code>@Model.BackspaceKey</code></dd>
-
-                                <dt class="col-sm-5">超时时间</dt>
-                                <dd class="col-sm-7">@Model.TimeoutSeconds 秒</dd>
-
-                                <dt class="col-sm-5">最大重试次数</dt>
-                                <dd class="col-sm-7">@Model.MaxRetries 次</dd>
-                            </dl>
-                        </div>
-                    </div>
-
-                    <hr />
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <h5>提示文本配置</h5>
-                            <dl class="row">
-                                <dt class="col-sm-5">提示文本</dt>
-                                <dd class="col-sm-7">@Model.PromptText</dd>
-
-                                <dt class="col-sm-5">成功文本</dt>
-                                <dd class="col-sm-7">
-                                    @if (!string.IsNullOrEmpty(Model.SuccessText))
-                                    {
-                                        <span>@Model.SuccessText</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted">未设置</span>
-                                    }
-                                </dd>
-
-                                <dt class="col-sm-5">错误文本</dt>
-                                <dd class="col-sm-7">
-                                    @if (!string.IsNullOrEmpty(Model.ErrorText))
-                                    {
-                                        <span>@Model.ErrorText</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted">未设置</span>
-                                    }
-                                </dd>
-
-                                <dt class="col-sm-5">超时文本</dt>
-                                <dd class="col-sm-7">
-                                    @if (!string.IsNullOrEmpty(Model.TimeoutText))
-                                    {
-                                        <span>@Model.TimeoutText</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted">未设置</span>
-                                    }
-                                </dd>
-                            </dl>
-                        </div>
-
-                        <div class="col-md-6">
-                            <h5>验证规则</h5>
-                            <dl class="row">
-                                <dt class="col-sm-5">验证器类型</dt>
-                                <dd class="col-sm-7">@Model.ValidatorType</dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-                <div class="card-footer">
-                    <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary">
-                        <i class="fas fa-edit"></i> 编辑
-                    </a>
-                    <a asp-action="Delete" asp-route-id="@Model.Id" class="btn btn-danger">
-                        <i class="fas fa-trash"></i> 删除
-                    </a>                    
+                        <dt class="col-sm-5">最大重试次数</dt>
+                        <dd class="col-sm-7">@Model.MaxRetries 次</dd>
+                    </dl>
                 </div>
             </div>
+
+            <hr />
+
+            <div class="row">
+                <div class="col-md-6">
+                    <h5>提示文本配置</h5>
+                    <dl class="row">
+                        <dt class="col-sm-5">提示文本</dt>
+                        <dd class="col-sm-7">@Model.PromptText</dd>
+
+                        <dt class="col-sm-5">成功文本</dt>
+                        <dd class="col-sm-7">
+                            @if (!string.IsNullOrEmpty(Model.SuccessText))
+                            {
+                                <span>@Model.SuccessText</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">未设置</span>
+                            }
+                        </dd>
+
+                        <dt class="col-sm-5">错误文本</dt>
+                        <dd class="col-sm-7">
+                            @if (!string.IsNullOrEmpty(Model.ErrorText))
+                            {
+                                <span>@Model.ErrorText</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">未设置</span>
+                            }
+                        </dd>
+
+                        <dt class="col-sm-5">超时文本</dt>
+                        <dd class="col-sm-7">
+                            @if (!string.IsNullOrEmpty(Model.TimeoutText))
+                            {
+                                <span>@Model.TimeoutText</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">未设置</span>
+                            }
+                        </dd>
+                    </dl>
+                </div>
+
+                <div class="col-md-6">
+                    <h5>验证规则</h5>
+                    <dl class="row">
+                        <dt class="col-sm-5">验证器类型</dt>
+                        <dd class="col-sm-7">@Model.ValidatorType</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="card-footer">
+            <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary">
+                <i class="fas fa-edit"></i> 编辑
+            </a>
+            <a asp-action="Delete" asp-route-id="@Model.Id" class="btn btn-danger">
+                <i class="fas fa-trash"></i> 删除
+            </a>                    
         </div>
     </div>
 </div>
