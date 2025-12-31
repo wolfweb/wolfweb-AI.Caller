@@ -3,11 +3,16 @@ using AI.Caller.Core.Models;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace AI.Caller.Phone.Services;
 
 public class CallProcessor : ICallProcessor {
+    private static readonly ConcurrentDictionary<int, int> _retryCounters = new();
+    private const int MAX_RETRY_ATTEMPTS = 3;
+    private const int RETRY_DELAY_SECONDS = 10;
+
     private readonly ILogger<CallProcessor> _logger;
     private readonly IServiceProvider _serviceProvider;
 
@@ -57,7 +62,7 @@ public class CallProcessor : ICallProcessor {
         }
 
         if (agent == null) {
-            _logger.LogWarning("No idle AI agents available for CallLogId {CallLogId}. Task will be retried.", callLogId);
+            await HandleNoAgentAvailable(callLog, context);
             return;
         }
 
@@ -71,10 +76,10 @@ public class CallProcessor : ICallProcessor {
         SIPClient? sipClient = null;
         CallContext? callContext = null;
 
-        try {
-            Action<SIPClient> callAnsweredHandler = null!;
-            Action<SIPClient, CallFinishStatus> callEndedHandler = null!;
+        Action<SIPClient> callAnsweredHandler = null!;
+        Action<SIPClient, CallFinishStatus> callEndedHandler = null!;
 
+        try {
             var webUser = await context.Users.Include(x => x.SipAccount).FirstOrDefaultAsync(x => x.SipAccount != null && x.SipAccount.SipUsername == callLog.CalleeNumber);
             
             int? selectedLineId = null;
@@ -207,7 +212,49 @@ public class CallProcessor : ICallProcessor {
             if (callLog.BatchCallJobId.HasValue) {
                 await UpdateBatchJobProgress(callLog.BatchCallJobId.Value);
             }
+
+            if (sipClient != null) {
+                sipClient.CallAnswered -= callAnsweredHandler;
+                sipClient.CallEnding -= callEndedHandler;
+                if (callContext != null && callContext.Caller != null && callContext.Caller.User != null) {
+                    await callManager.HangupCallAsync(callContext.CallId, callContext.Caller.User.Id);
+                }
+            }
         }
+    }
+
+    private async Task HandleNoAgentAvailable(CallLog callLog, AppDbContext context) {
+        var retryCount = _retryCounters.AddOrUpdate(callLog.Id, 1, (key, oldValue) => oldValue + 1);
+        
+        if (retryCount > MAX_RETRY_ATTEMPTS) {
+            _logger.LogWarning("Max retry attempts ({MaxRetries}) reached for CallLogId {CallLogId}. Marking as failed.", MAX_RETRY_ATTEMPTS, callLog.Id);
+            
+            callLog.Status = Entities.CallStatus.Failed;
+            callLog.FailureReason = $"No idle agent available after {MAX_RETRY_ATTEMPTS} retry attempts";
+            callLog.CompletedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+            
+            if (callLog.BatchCallJobId.HasValue) {
+                await UpdateBatchJobProgress(callLog.BatchCallJobId.Value);
+            }
+            
+            _retryCounters.TryRemove(callLog.Id, out _);
+            return;
+        }
+        
+        _logger.LogInformation("No idle agent for CallLogId {CallLogId}. Retry attempt {RetryCount}/{MaxRetries} will be scheduled in {Delay} seconds.", callLog.Id, retryCount, MAX_RETRY_ATTEMPTS, RETRY_DELAY_SECONDS);
+        
+        var taskQueue = _serviceProvider.GetRequiredService<IBackgroundTaskQueue>();
+        _ = Task.Run(async () => {
+            await Task.Delay(TimeSpan.FromSeconds(RETRY_DELAY_SECONDS));
+            
+            taskQueue.QueueBackgroundWorkItem((token, serviceProvider) => {
+                var callProcessor = serviceProvider.GetRequiredService<ICallProcessor>();
+                return callProcessor.ProcessCallLogJob(callLog.Id);
+            });
+            
+            _logger.LogInformation("CallLogId {CallLogId} has been re-queued for retry attempt {RetryCount}.", callLog.Id, retryCount);
+        });
     }
 
     private async Task UpdateBatchJobProgress(int batchJobId) {

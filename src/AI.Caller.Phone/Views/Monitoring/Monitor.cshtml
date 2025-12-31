@@ -92,6 +92,12 @@
                     <div id="micStatus" class="text-muted">
                         <small>麦克风未启用</small>
                     </div>
+                    <div id="volumeMeterContainer" class="mt-3" style="display:none;">
+                        <label class="form-label small">音量指示</label>
+                        <div class="progress" style="height: 20px;">
+                            <div id="volumeMeter" class="progress-bar bg-success" role="progressbar" style="width: 0%"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -243,6 +249,8 @@
         let mediaStream = null;
         let mediaRecorder = null;
         let isRecording = false;
+        let audioWorkletNode = null;
+        let micAudioContext = null;
 
         // 初始化Web Audio API
         function initAudioContext() {
@@ -661,51 +669,100 @@
                     } 
                 });
 
-                // 使用Web Audio API直接获取PCM数据
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                // 创建 AudioContext
+                micAudioContext = new (window.AudioContext || window.webkitAudioContext)({
                     sampleRate: 8000
                 });
                 
-                const source = audioContext.createMediaStreamSource(mediaStream);
-                const processor = audioContext.createScriptProcessor(1024, 1, 1);
+                const source = micAudioContext.createMediaStreamSource(mediaStream);
                 
-                processor.onaudioprocess = async (event) => {
-                    const inputBuffer = event.inputBuffer;
-                    const inputData = inputBuffer.getChannelData(0); // Float32Array PCM data
+                // 尝试使用 AudioWorklet（现代方式）
+                try {
+                    await micAudioContext.audioWorklet.addModule('/js/audio/intervention-audio-processor.js');
+                    audioWorkletNode = new AudioWorkletNode(micAudioContext, 'intervention-audio-processor');
                     
-                    // 转换Float32到Int16 PCM
-                    const int16Data = new Int16Array(inputData.length);
-                    for (let i = 0; i < inputData.length; i++) {
-                        int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
-                    }
-                    
-                    const byteArray = new Uint8Array(int16Data.buffer);
-                    
-                    try {
-                        await connection.invoke("SendInterventionAudioBinary", targetUserId, callId, byteArray);
-                    } catch (err) {
-                        console.error("发送二进制音频失败:", err);
-                        // 降级到Base64方式
+                    // 接收来自 AudioWorklet 的音频数据和音量
+                    audioWorkletNode.port.onmessage = async (event) => {
+                        const { audioData, volume } = event.data;
+                        
+                        // 更新音量指示器
+                        updateVolumeMeter(volume);
+                        
+                        // 发送音频数据
+                        const byteArray = new Uint8Array(audioData.buffer);
                         try {
-                            const base64Audio = btoa(String.fromCharCode(...byteArray));
-                            await connection.invoke("SendInterventionAudio", targetUserId, callId, base64Audio);
-                        } catch (fallbackErr) {
-                            console.error("降级发送Base64音频也失败:", fallbackErr);
+                            await connection.invoke("SendInterventionAudioBinary", targetUserId, callId, byteArray);
+                        } catch (err) {
+                            console.error("发送二进制音频失败:", err);
+                            // 降级到Base64方式
+                            try {
+                                const base64Audio = btoa(String.fromCharCode(...byteArray));
+                                await connection.invoke("SendInterventionAudio", targetUserId, callId, base64Audio);
+                            } catch (fallbackErr) {
+                                console.error("降级发送Base64音频也失败:", fallbackErr);
+                            }
                         }
-                    }
-                };
-                
-                source.connect(processor);
-                processor.connect(audioContext.destination);
+                    };
+                    
+                    source.connect(audioWorkletNode);
+                    audioWorkletNode.connect(micAudioContext.destination);
+                    
+                    console.log("麦克风已启动 - 使用 AudioWorklet（推荐方式）");
+                    document.getElementById('micStatus').innerHTML = '<small class="text-success">麦克风已启用 (AudioWorklet)</small>';
+                    
+                } catch (workletErr) {
+                    // 降级到 ScriptProcessor（兼容旧浏览器）
+                    console.warn("AudioWorklet 不可用，降级到 ScriptProcessor:", workletErr);
+                    
+                    const processor = micAudioContext.createScriptProcessor(1024, 1, 1);
+                    
+                    processor.onaudioprocess = async (event) => {
+                        const inputBuffer = event.inputBuffer;
+                        const inputData = inputBuffer.getChannelData(0);
+                        
+                        // 计算音量
+                        let sumSquares = 0;
+                        for (let i = 0; i < inputData.length; i++) {
+                            sumSquares += inputData[i] * inputData[i];
+                        }
+                        const volume = Math.sqrt(sumSquares / inputData.length);
+                        updateVolumeMeter(volume);
+                        
+                        // 转换Float32到Int16 PCM
+                        const int16Data = new Int16Array(inputData.length);
+                        for (let i = 0; i < inputData.length; i++) {
+                            int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+                        }
+                        
+                        const byteArray = new Uint8Array(int16Data.buffer);
+                        
+                        try {
+                            await connection.invoke("SendInterventionAudioBinary", targetUserId, callId, byteArray);
+                        } catch (err) {
+                            console.error("发送二进制音频失败:", err);
+                            try {
+                                const base64Audio = btoa(String.fromCharCode(...byteArray));
+                                await connection.invoke("SendInterventionAudio", targetUserId, callId, base64Audio);
+                            } catch (fallbackErr) {
+                                console.error("降级发送Base64音频也失败:", fallbackErr);
+                            }
+                        }
+                    };
+                    
+                    source.connect(processor);
+                    processor.connect(micAudioContext.destination);
+                    
+                    console.log("麦克风已启动 - 使用 ScriptProcessor（兼容模式）");
+                    document.getElementById('micStatus').innerHTML = '<small class="text-warning">麦克风已启用 (兼容模式)</small>';
+                }
                 
                 isRecording = true;
 
                 // 更新UI
                 document.getElementById('startMicBtn').style.display = 'none';
                 document.getElementById('stopMicBtn').style.display = 'inline-block';
-                document.getElementById('micStatus').innerHTML = '<small class="text-success">麦克风已启用，正在传输二进制音频（高性能模式）</small>';
+                document.getElementById('volumeMeterContainer').style.display = 'block';
 
-                console.log("麦克风已启动 - 直接发送二进制PCM数据");
             } catch (err) {
                 console.error("启动麦克风失败:", err);
                 showToast("启动麦克风失败: " + err.message, "error");
@@ -714,9 +771,18 @@
 
         async function stopMicrophone() {
             try {
-                if (mediaRecorder && isRecording) {
-                    mediaRecorder.stop();
-                    isRecording = false;
+                isRecording = false;
+                
+                // 断开 AudioWorklet
+                if (audioWorkletNode) {
+                    audioWorkletNode.disconnect();
+                    audioWorkletNode = null;
+                }
+                
+                // 关闭 AudioContext
+                if (micAudioContext) {
+                    await micAudioContext.close();
+                    micAudioContext = null;
                 }
 
                 if (mediaStream) {
@@ -728,11 +794,42 @@
                 document.getElementById('startMicBtn').style.display = 'inline-block';
                 document.getElementById('stopMicBtn').style.display = 'none';
                 document.getElementById('micStatus').innerHTML = '<small class="text-muted">麦克风未启用</small>';
+                document.getElementById('volumeMeterContainer').style.display = 'none';
+                document.getElementById('volumeMeter').style.width = '0%';
 
                 console.log("麦克风已停止");
             } catch (err) {
                 console.error("停止麦克风失败:", err);
                 showToast("停止麦克风失败: " + err.message, "error");
+            }
+        }
+
+        function updateVolumeMeter(volume) {
+            // 音量通常在 0-1 之间，但语音通常较小，做一些放大以便于观察
+            // 使用对数刻度让显示更自然
+            const minVolume = 0.01;
+            let displayVolume = 0;
+            
+            if (volume > minVolume) {
+                // 简单的线性放大，可根据实际测试调整参数
+                displayVolume = Math.min(100, volume * 400); 
+            }
+            
+            const meter = document.getElementById('volumeMeter');
+            if (meter) {
+                meter.style.width = `${displayVolume}%`;
+                
+                // 根据音量大小改变颜色
+                if (displayVolume > 80) {
+                    meter.classList.remove('bg-success', 'bg-warning');
+                    meter.classList.add('bg-danger'); // 音量过大
+                } else if (displayVolume > 50) {
+                    meter.classList.remove('bg-success', 'bg-danger');
+                    meter.classList.add('bg-warning'); // 音量适中偏大
+                } else {
+                    meter.classList.remove('bg-warning', 'bg-danger');
+                    meter.classList.add('bg-success'); // 正常对话音量
+                }
             }
         }
 

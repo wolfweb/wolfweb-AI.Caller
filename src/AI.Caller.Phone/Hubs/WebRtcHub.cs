@@ -205,7 +205,7 @@ namespace AI.Caller.Phone.Hubs {
 
                 // 订阅音频事件
                 var aiSession = _aiServiceManager.GetActiveSession(targetUserId);
-                if (aiSession?.AudioBridge is AI.Caller.Core.AudioBridge audioBridge) {
+                if (aiSession?.AudioBridge is AudioBridge audioBridge) {
                     // 订阅监听音频事件
                     Action<int, byte[]> audioHandler = async (userId, audioData) => {
                         if (userId == monitorUserId) {
@@ -241,9 +241,7 @@ namespace AI.Caller.Phone.Hubs {
 
                 // 取消订阅音频事件
                 var aiSession = _aiServiceManager.GetActiveSession(targetUserId);
-                if (aiSession?.AudioBridge is AI.Caller.Core.AudioBridge audioBridge) {
-                    // 注意：这里简化处理，实际应该保存handler引用以便取消订阅
-                    // 由于AudioBridge.RemoveMonitor已经移除了监听者，不会再收到音频
+                if (aiSession?.AudioBridge is AudioBridge audioBridge) {
                     _logger.LogInformation("音频事件订阅已清理: MonitorUserId {MonitorUserId}", monitorUserId);
                 }
 
@@ -391,8 +389,7 @@ namespace AI.Caller.Phone.Hubs {
                 if (session?.AudioBridge is AudioBridge audioBridge) {
                     audioBridge.ProcessInterventionAudio(audioData);
                     
-                    _logger.LogTrace("人工接入音频已发送（二进制）: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}, 大小 {Size} 字节",
-                        monitorUserId, targetUserId, audioData.Length);
+                    _logger.LogTrace("人工接入音频已发送（二进制）: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}, 大小 {Size} 字节", monitorUserId, targetUserId, audioData.Length);
                 }
 
                 return Task.FromResult<object>(new { success = true });
@@ -415,8 +412,7 @@ namespace AI.Caller.Phone.Hubs {
                 if (session?.AudioBridge is AudioBridge audioBridge) {
                     audioBridge.ProcessInterventionAudio(audioData);
                     
-                    _logger.LogTrace("人工接入音频已发送（Base64）: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}, 大小 {Size} 字节",
-                        monitorUserId, targetUserId, audioData.Length);
+                    _logger.LogTrace("人工接入音频已发送（Base64）: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}, 大小 {Size} 字节", monitorUserId, targetUserId, audioData.Length);
                 }
 
                 return Task.FromResult<object>(new { success = true });

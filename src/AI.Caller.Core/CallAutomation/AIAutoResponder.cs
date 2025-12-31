@@ -401,8 +401,7 @@ namespace AI.Caller.Core {
 
                         byte[]? frameToSend = await GetNextFrameOptimized(ct);
                         if (frameToSend == null) {
-                            _logger.LogInformation("Segment playback complete: Sent {Sent} >= Generated {Generated} bytes.", Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));                            
-                            _playbackCompletionSource?.TrySetResult();                            
+                            _logger.LogInformation("Segment playback complete: Sent {Sent} >= Generated {Generated} bytes.", Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));                     
                             break;
                         }
 
@@ -473,8 +472,9 @@ namespace AI.Caller.Core {
                     Interlocked.Add(ref _totalBytesSent, audioFrame.Length);
                     return audioFrame;
                 } else {
-                    if (_isTtsStreamFinished && _jitterBuffer.Reader.Count == 0 && 
-                        Interlocked.Read(ref _totalBytesSent) >= Interlocked.Read(ref _totalBytesGenerated)) {
+                    if (_isTtsStreamFinished && _jitterBuffer.Reader.Count == 0 && Interlocked.Read(ref _totalBytesSent) >= Interlocked.Read(ref _totalBytesGenerated)) {
+                        await Task.Delay(100); //等待sdp发送音频后再结束
+                        _playbackCompletionSource?.TrySetResult();
                         return null;
                     }
                     

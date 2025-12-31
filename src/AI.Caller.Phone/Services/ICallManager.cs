@@ -218,11 +218,6 @@ namespace AI.Caller.Phone.Services {
                     _ = HandleCallEndedAsync(ctx.CallId, ctx.Callee.User?.Id ?? 0, status);
                 };
 
-                ctx.Callee.Client!.Client.DtmfToneReceived += (client, tone) => {
-                    _logger.LogDebug("被叫方DTMF按键接收: {CallId}, 按键: {Tone}", ctx.CallId, tone);
-                    _dtmfService.OnDtmfToneReceived(ctx.CallId, tone);
-                };
-
                 if (!aiSettings.Enabled) {
                     var ringtoneService = scope.ServiceProvider.GetRequiredService<IRingtoneService>();
                     var ringbackTone = await ringtoneService.GetRingtoneForUserAsync(ctx.Callee.User!.Id, RingtoneType.Ringback);
@@ -300,10 +295,6 @@ namespace AI.Caller.Phone.Services {
                     _ = HandleCallEndedAsync(ctx.CallId, ctx.Caller.User?.Id ?? 0, status);
                 };
 
-                ctx.Caller.Client.Client.DtmfToneReceived += (client, tone) => {
-                    _logger.LogDebug("主叫方DTMF按键接收: {CallId}, 按键: {Tone}", ctx.CallId, tone);
-                    _dtmfService.OnDtmfToneReceived(ctx.CallId, tone);
-                };
             }
 
             OnMakeCalled(ctx);
@@ -322,10 +313,16 @@ namespace AI.Caller.Phone.Services {
             }
         }
 
-        public async Task<string> StartDtmfCollectionAsync(string callId, AI.Caller.Core.Services.DtmfCollectionConfig? config = null, CancellationToken ct = default) {
+        public async Task<string> StartDtmfCollectionAsync(string callId, DtmfCollectionConfig? config = null, CancellationToken ct = default) {
             if (!_contexts.TryGetValue(callId, out var ctx)) {
                 throw new Exception($"无效的呼叫标识:{callId}");
             }
+
+            // 订阅DTMF接收事件
+            ctx.Caller!.Client!.Client.DtmfToneReceived += (client, tone) => {
+                _logger.LogDebug("主叫方DTMF按键接收: {CallId}, 按键: {Tone}", ctx.CallId, tone);
+                _dtmfService.OnDtmfToneReceived(ctx.CallId, tone);
+            };
 
             config ??= new AI.Caller.Core.Services.DtmfCollectionConfig {
                 MaxLength = 18,

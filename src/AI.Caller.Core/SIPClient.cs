@@ -385,19 +385,21 @@ namespace AI.Caller.Core {
             _lastRemoteSdp = null;
             _localHangupInitiated = false;
 
+            AudioStopped = null;
             CallAnswered = null;
             CallEnded = null;
+            CallEnding = null;
             CallTrying = null;
             CallRinging = null;
             CallHangup = null;
-            RemotePutOnHold = null;
-            RemoteTookOffHold = null;
-            StatusMessage = null;
-            HangupInitiated = null;
-            AudioStopped = null;
-            ResourcesReleased = null;
             CallInitiated = null;
             CallFinishedWithContext = null;
+            DtmfToneReceived = null;
+            HangupInitiated = null;
+            RemotePutOnHold = null;
+            RemoteTookOffHold = null;
+            ResourcesReleased = null;
+            StatusMessage = null;            
         }
 
         private void OnCallTrying(ISIPClientUserAgent uac, SIPResponse sipResponse) {
