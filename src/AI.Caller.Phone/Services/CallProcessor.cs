@@ -13,6 +13,9 @@ public class CallProcessor : ICallProcessor {
     private const int MAX_RETRY_ATTEMPTS = 3;
     private const int RETRY_DELAY_SECONDS = 10;
 
+    private const int MAX_RINGING_SECONDS = 60;       // 响铃/建立连接最大等待时间
+    private const int MAX_CALL_DURATION_MINUTES = 30; // 通话最大允许时长
+
     private readonly ILogger<CallProcessor> _logger;
     private readonly IServiceProvider _serviceProvider;
 
@@ -21,7 +24,7 @@ public class CallProcessor : ICallProcessor {
         _serviceProvider = serviceProvider;
     }
 
-    public async Task ProcessCallLogJob(int callLogId) {
+    public async Task ProcessCallLogJob(int callLogId, CancellationToken ct = default) {
         _logger.LogInformation("Starting to process CallLogId {CallLogId}.", callLogId);
 
         await using var scope = _serviceProvider.CreateAsyncScope();
@@ -71,7 +74,7 @@ public class CallProcessor : ICallProcessor {
         callLog.Status = Entities.CallStatus.InProgress;
         await context.SaveChangesAsync();
 
-        var tcs = new TaskCompletionSource<CallResult>();
+        var tcs = new TaskCompletionSource<CallResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         bool callWasAnswered = false;
         SIPClient? sipClient = null;
         CallContext? callContext = null;
@@ -120,35 +123,22 @@ public class CallProcessor : ICallProcessor {
                         if(await aiManager.StartScenarioServiceAsync(agent, sc, scenario, variables, callContext.CallId)) {
                             await aiManager.GetSessionByCallId(callContext.CallId)!.PlaybackTask!;
                         }
-                        await aiManager.StopAICustomerServiceAsync(agent.Id);                        
+                        await aiManager.StopAICustomerServiceAsync(agent.Id);
                     } else {
                         var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
 
-                        var ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate?.SpeechRate, settings.DefaultSpeakerId);
+                        await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate?.SpeechRate, settings.DefaultSpeakerId);
 
                         if (ttsTemplate?.PlayCount > 1) {
                             for (var i = 0; i < ttsTemplate.PlayCount - 1; i++) {
-                                var desiredPause = TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds);
-                                var actualWaitTime = desiredPause - ttsGenerationTime;
-                                
-                                if (actualWaitTime > TimeSpan.Zero) {
-                                    _logger.LogInformation("Waiting {WaitTime}ms before next play for CallLogId {CallLogId}", actualWaitTime.TotalMilliseconds, callLogId);
-                                    await Task.Delay(actualWaitTime);
-                                }
-                                
-                                ttsGenerationTime = await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate.SpeechRate, settings.DefaultSpeakerId);
+                                await Task.Delay(ttsTemplate.PauseBetweenPlaysInSeconds * 1000);
+
+                                await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate.SpeechRate, settings.DefaultSpeakerId);
                             }
                         }
 
                         if (!string.IsNullOrEmpty(ttsTemplate?.EndingSpeech)) {
-                            var desiredPause = TimeSpan.FromSeconds(ttsTemplate.PauseBetweenPlaysInSeconds);
-                            var actualWaitTime = desiredPause - ttsGenerationTime;
-                            
-                            if (actualWaitTime > TimeSpan.Zero) {
-                                _logger.LogInformation("Waiting {WaitTime}ms before ending speech for CallLogId {CallLogId}", actualWaitTime.TotalMilliseconds, callLogId);
-                                await Task.Delay(actualWaitTime);
-                            }
-                            
+                            await Task.Delay(ttsTemplate.PauseBetweenPlaysInSeconds * 1000);
                             await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sc, ttsTemplate.SpeechRate, settings.DefaultSpeakerId);
                         }
 
@@ -181,13 +171,89 @@ public class CallProcessor : ICallProcessor {
             sipClient.CallAnswered += callAnsweredHandler;
             sipClient.CallEnding += callEndedHandler;
 
-            callContext.Caller!.Client!.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
-                _ = callContext.Callee!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
-            };
+            //callContext.Caller!.Client!.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
+            //    _ = callContext.Callee!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
+            //};
 
             _logger.LogInformation("Call initiated for CallLogId {CallLogId}. Waiting for answer to start AI service.", callLogId);
 
-            var callResult = await tcs.Task;
+
+            var startTime = DateTime.UtcNow;
+            bool hasConnectedOnce = false;
+
+            while (!tcs.Task.IsCompleted) {
+                if (ct.IsCancellationRequested) {
+                    tcs.TrySetCanceled(ct);
+                    break;
+                }
+
+                var checkInterval = Task.Delay(1000, ct);
+                var completedTask = await Task.WhenAny(tcs.Task, checkInterval).ConfigureAwait(false);
+
+                if (completedTask == tcs.Task) {
+                    break;
+                }
+
+                
+                var elapsed = DateTime.UtcNow - startTime;
+                bool isActive = sipClient.IsCallActive;
+
+                if (isActive) {
+                    hasConnectedOnce = true;
+                }
+
+                if (elapsed.TotalMinutes > MAX_CALL_DURATION_MINUTES) {
+                    _logger.LogWarning("CallLogId {CallLogId} reached max duration ({Minutes}m). Forcing completion.", callLogId, MAX_CALL_DURATION_MINUTES);
+
+                    tcs.TrySetResult(new CallResult {
+                        Status = CallOutcome.Failed,
+                        FailureReason = "Max Duration Exceeded"
+                    });
+
+                    try { sipClient.Hangup(); } catch (Exception ex) { _logger.LogDebug(ex, "Hangup failed during max duration enforcement."); }
+
+                    break;
+                }
+
+                if (!hasConnectedOnce && elapsed.TotalSeconds > MAX_RINGING_SECONDS) {
+                    _logger.LogWarning("CallLogId {CallLogId} setup timed out after {Seconds}s (No Answer).", callLogId, MAX_RINGING_SECONDS);
+
+                    tcs.TrySetResult(new CallResult {
+                        Status = CallOutcome.NoAnswer,
+                        FailureReason = "Setup Timeout (No Answer)"
+                    });
+
+                    break;
+                }
+
+                if (hasConnectedOnce && !isActive) {
+                    _logger.LogInformation("CallLogId {CallLogId} physical connection lost. Waiting for event handler grace period...", callLogId);
+
+                    var gracePeriod = Task.Delay(3000, ct);
+                    var raceResult = await Task.WhenAny(tcs.Task, gracePeriod).ConfigureAwait(false);
+
+                    if (raceResult == tcs.Task) {                        
+                        continue;
+                    } else {
+                        _logger.LogWarning("CallLogId {CallLogId} event handler did not respond within grace period. Forcing completion.", callLogId);
+
+                        tcs.TrySetResult(new CallResult {
+                            Status = CallOutcome.Completed,
+                            FailureReason = "Remote disconnected (Event Handler Stuck)"
+                        });
+
+                        break;
+                    }
+                }
+            }
+
+            CallResult callResult;
+            try {
+                callResult = await tcs.Task;
+            } catch (TaskCanceledException) {
+                _logger.LogInformation("CallLogId {CallLogId} was cancelled.", callLogId);
+                callResult = new CallResult { Status = CallOutcome.Failed, FailureReason = "Operation Cancelled" };
+            }
             _logger.LogInformation("Waiting for call completion for CallLogId {CallLogId}.", callLogId);
             if (callResult.Status == CallOutcome.Completed) {
                 callLog.Status = Entities.CallStatus.Completed;

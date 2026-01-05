@@ -51,7 +51,6 @@ namespace AI.Caller.Core {
             var autoResponder = new AIAutoResponder(
                 _loggerFactory, 
                 _ttsEngine, 
-                vad, 
                 profile, 
                 _codecFactory,
                 _dtmfService);

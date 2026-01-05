@@ -1,3 +1,4 @@
+using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,39 +39,19 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
 
         _logger.LogInformation("Found TTS template '{TemplateName}' for call {CallId}", template.Name, callContext.CallId);
         
-        var ttsGenerationTime = await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate, settings.DefaultSpeakerId);
+        await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate, settings.DefaultSpeakerId);
         
         if (template.PlayCount > 1) {
             for(var i = 0; i < template.PlayCount - 1; i++) {
-                var desiredPause = TimeSpan.FromSeconds(template.PauseBetweenPlaysInSeconds);
-                var actualWaitTime = desiredPause - ttsGenerationTime;
-                
-                if (actualWaitTime > TimeSpan.Zero) {
-                    _logger.LogInformation("Waiting {WaitTime}ms before next play (desired: {DesiredPause}ms, TTS generation: {TtsTime}ms)", 
-                        actualWaitTime.TotalMilliseconds, desiredPause.TotalMilliseconds, ttsGenerationTime.TotalMilliseconds);
-                    await Task.Delay(actualWaitTime);
-                } else {
-                    _logger.LogInformation("No wait needed, TTS generation time ({TtsTime}ms) exceeded desired pause ({DesiredPause}ms)", 
-                        ttsGenerationTime.TotalMilliseconds, desiredPause.TotalMilliseconds);
-                }
-                
-                ttsGenerationTime = await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate, settings.DefaultSpeakerId);
+                await Task.Delay(template.PauseBetweenPlaysInSeconds * 1000);
+                                
+                await _ttsPlayer.PlayTtsAsync(template.Content, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate, settings.DefaultSpeakerId);
             }
         }
         
         if(!string.IsNullOrEmpty(template.EndingSpeech)) {
-            var desiredPause = TimeSpan.FromSeconds(template.PauseBetweenPlaysInSeconds);
-            var actualWaitTime = desiredPause - ttsGenerationTime;
-            
-            if (actualWaitTime > TimeSpan.Zero) {
-                _logger.LogInformation("Waiting {WaitTime}ms before ending speech (desired: {DesiredPause}ms, TTS generation: {TtsTime}ms)", 
-                    actualWaitTime.TotalMilliseconds, desiredPause.TotalMilliseconds, ttsGenerationTime.TotalMilliseconds);
-                await Task.Delay(actualWaitTime);
-            } else {
-                _logger.LogInformation("No wait needed for ending speech, TTS generation time ({TtsTime}ms) exceeded desired pause ({DesiredPause}ms)", 
-                    ttsGenerationTime.TotalMilliseconds, desiredPause.TotalMilliseconds);
-            }
-            
+            await Task.Delay(template.PauseBetweenPlaysInSeconds * 1000);
+
             await _ttsPlayer.PlayTtsAsync(template.EndingSpeech, callContext.Callee.User, callContext.Callee.Client.Client, template.SpeechRate, settings.DefaultSpeakerId);
         }
 

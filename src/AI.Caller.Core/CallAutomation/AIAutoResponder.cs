@@ -3,7 +3,9 @@ using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Interfaces;
 using AI.Caller.Core.Media.Vad;
+using AI.Caller.Core.Models;
 using AI.Caller.Core.Services;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -12,18 +14,20 @@ using System.Threading.Channels;
 
 namespace AI.Caller.Core {
     public sealed partial class AIAutoResponder : IAsyncDisposable {
+        private readonly record struct TtsCacheKey(string Text, int SpeakerId, float Speed);
+
         private readonly ILogger _logger;
         private readonly ITTSEngine _tts;
-        private readonly AudioCodecFactory _codecFactory;
-        private readonly IVoiceActivityDetector _vad;
+        private readonly IFrameTimer _frameTimer;
+        private readonly IMemoryCache _memoryCache;
+        private readonly IDtmfService? _dtmfService;
         private readonly ILoggerFactory _loggerFactory;
         private readonly Channel<byte[]> _jitterBuffer;
+        private readonly AudioCodecFactory _codecFactory;
+        private readonly object _audioBufferLock = new object();
+        private readonly Stopwatch _performanceStopwatch = new();
         private readonly ArrayPool<byte> _bytePool = ArrayPool<byte>.Shared;        
         private readonly ConcurrentDictionary<int, AudioResamplerCrossType<float, byte>> _resamplerCache = new();
-        private readonly Stopwatch _performanceStopwatch = new();
-        private readonly object _audioBufferLock = new object();
-        private readonly IDtmfService? _dtmfService;
-        private readonly IFrameTimer _frameTimer;
         
         private TaskCompletionSource? _playbackCompletionSource;
         private CancellationTokenSource? _cts;
@@ -39,12 +43,8 @@ namespace AI.Caller.Core {
         private int _emptyFrameCount = 0;
         private long _totalBytesGenerated;
         private byte[] _audioBuffer = Array.Empty<byte>();
-        private DateTime _lastSpeakingDetected = DateTime.MinValue;
-        private DateTime _lastSilenceDetected = DateTime.MinValue;
 
-        private const int JitterBufferWaterline = 300;
-        private const int LowWatermark = 100;
-        private const int VadDebounceMs = 100;
+        private const int JitterBufferWaterline = 200;
 
         public event Action<byte[]>? OutgoingAudioGenerated;
 
@@ -55,17 +55,16 @@ namespace AI.Caller.Core {
         public AIAutoResponder(
             ILoggerFactory loggerFactory,
             ITTSEngine tts,
-            IVoiceActivityDetector vad,
             MediaProfile profile,
             AudioCodecFactory codecFactory,
             IDtmfService? dtmfService = null) {
             _tts = tts;
-            _vad = vad;
             _logger = loggerFactory.CreateLogger<AIAutoResponder>();
             _profile = profile;
-            _codecFactory = codecFactory;
             _dtmfService = dtmfService;
+            _codecFactory = codecFactory;
             _loggerFactory = loggerFactory;
+            _memoryCache = new MemoryCache(new MemoryCacheOptions());
 
             _jitterBuffer = Channel.CreateUnbounded<byte[]>();
             _currentCodec = _codecFactory.GetCodec(_profile.Codec);
@@ -95,33 +94,7 @@ namespace AI.Caller.Core {
             if (!_isStarted || pcmBytes == null || pcmBytes.Length == 0) return;
 
             try {
-                var result = _vad.Update(pcmBytes);
-                bool isSpeaking = result.State == VADState.Speaking;
-
-                var now = DateTime.UtcNow;
-                if (isSpeaking) {
-                    if (_lastSpeakingDetected == DateTime.MinValue) {
-                        _lastSpeakingDetected = now;
-                    }
-                    _lastSilenceDetected = DateTime.MinValue;
-
-                    if (_shouldSendAudio && (now - _lastSpeakingDetected).TotalMilliseconds >= VadDebounceMs) {
-                        _shouldSendAudio = false;
-                        _lastSpeakingDetected = DateTime.MinValue;
-                        _logger.LogDebug("VAD: 用户开始说话，暂停TTS播放");
-                    }
-                } else {
-                    if (_lastSilenceDetected == DateTime.MinValue) {
-                        _lastSilenceDetected = now;
-                    }
-                    _lastSpeakingDetected = DateTime.MinValue; // 重置说话计时
-
-                    if (!_shouldSendAudio && (now - _lastSilenceDetected).TotalMilliseconds >= VadDebounceMs) {
-                        _shouldSendAudio = true;
-                        _lastSilenceDetected = DateTime.MinValue;
-                        _logger.LogDebug("VAD: 用户停止说话，恢复TTS播放");
-                    }
-                }
+                _shouldSendAudio = true;
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error processing uplink PCM frame");
             }
@@ -167,50 +140,54 @@ namespace AI.Caller.Core {
         }
 
         public async Task<TimeSpan> PlayScriptAsync(string text, int speakerId = 0, float speed = 1.0f, CancellationToken ct = default) {
+            _isTtsStreamFinished = false;
             Interlocked.Exchange(ref _totalBytesGenerated, 0);
             Interlocked.Exchange(ref _totalBytesSent, 0);
-            _playbackCompletionSource = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _isTtsStreamFinished = false;
+            Interlocked.Exchange(ref _playbackCompletionSource, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
 
             var token = ct != default ? ct : (_cts?.Token ?? CancellationToken.None);
+            var cacheKey = new TtsCacheKey(text, speakerId, speed);
+
+            if (_memoryCache.TryGetValue(cacheKey, out List<AudioData>? cachedAudio)) {
+                var replayStopwatch = Stopwatch.StartNew();
+                foreach (var data in cachedAudio) {
+                    if (data.FloatData != null && data.FloatData.Length > 0) {
+                        ProcessTtsAudioChunk(data.FloatData, data.SampleRate);
+                    }
+                }
+                Flush();
+                _isTtsStreamFinished = true;
+
+                replayStopwatch.Stop();
+                _logger.LogDebug("TTS cache replay completed in {ElapsedMs}ms", replayStopwatch.ElapsedMilliseconds);
+                return replayStopwatch.Elapsed;
+            }
+
             var ttsGenerationStopwatch = Stopwatch.StartNew();
             var stopwatch = Stopwatch.StartNew();
-            int chunkCount = 0;
-            int preBufferChunks = 3;
-            var preBuffer = new List<float[]>();
-            var preBufferSampleRates = new List<int>();
+            var generatedAudio = new List<AudioData>();
+
             await foreach (var data in _tts.SynthesizeStreamAsync(text, speakerId, speed).WithCancellation(token)) {
                 if (token.IsCancellationRequested) break;
 
                 if (data.FloatData != null && data.FloatData.Length > 0) {
-                    chunkCount++;
-                    if (chunkCount <= preBufferChunks) {
-                        preBuffer.Add(data.FloatData);
-                        preBufferSampleRates.Add(data.SampleRate);
-                    } else {
-                        foreach (var (floatData, sampleRate) in preBuffer.Zip(preBufferSampleRates)) {
-                            ProcessTtsAudioChunk(floatData, sampleRate);
-                        }
-                        preBuffer.Clear();
-                        preBufferSampleRates.Clear();
-                        ProcessTtsAudioChunk(data.FloatData, data.SampleRate);
-                    }
-
-                    _logger.LogTrace($"Processed TTS chunk {chunkCount} in {stopwatch.ElapsedMilliseconds} ms.");
+                    generatedAudio.Add(data);
+                    ProcessTtsAudioChunk(data.FloatData, data.SampleRate);
                     stopwatch.Restart();
                 }
             }
 
-            foreach (var (floatData, sampleRate) in preBuffer.Zip(preBufferSampleRates)) {
-                ProcessTtsAudioChunk(floatData, sampleRate);
-            }
-
             if (!token.IsCancellationRequested) {
                 Flush();
-                _logger.LogInformation($"Finished processing TTS script with {chunkCount} chunks.");
             }
             _isTtsStreamFinished = true;
-            
+
+            if (generatedAudio.Count > 0) {
+                var cacheEntryOptions = new MemoryCacheEntryOptions().SetSlidingExpiration(TimeSpan.FromMinutes(30));
+                _memoryCache.Set(cacheKey, generatedAudio, cacheEntryOptions);
+                _logger.LogDebug("TTS result cached, chunks={Count}, key hash={Hash}", generatedAudio.Count, cacheKey.GetHashCode());
+            }
+
             ttsGenerationStopwatch.Stop();
             _logger.LogInformation($"TTS generation completed in {ttsGenerationStopwatch.ElapsedMilliseconds}ms");
             return ttsGenerationStopwatch.Elapsed;
@@ -351,79 +328,22 @@ namespace AI.Caller.Core {
                 var stopwatch = Stopwatch.StartNew();
                 double smoothedDelayMs = _profile.PtimeMs;
 
+                while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested && !_shouldStopPlayout && !_isTtsStreamFinished) {
+                    await Task.Delay(50, ct);
+                }
+
                 while (!ct.IsCancellationRequested && !_shouldStopPlayout) {
-                    while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested && !_shouldStopPlayout) {
-                        int initialCount = _jitterBuffer.Reader.Count;
-                        await Task.Delay(50, ct);
+                    long loopStartTime = stopwatch.ElapsedMilliseconds;
 
-                        _frameTimer.Reset();
-
-                        if (_shouldStopPlayout) {
-                            _logger.LogInformation("Playout stop signal received, exiting loop.");
-                            break;
-                        }
-                        
-                        if (_jitterBuffer.Reader.Count > 0 && _isTtsStreamFinished) {
-                            _logger.LogInformation("TTS finished with {Count} frames in buffer, starting playout.", _jitterBuffer.Reader.Count);
-                            break;
-                        }
-                        
-                        if (_jitterBuffer.Reader.Count == 0) {
-                            continue;
-                        }
-                    }
-                    
-                    if (_shouldStopPlayout) {
-                        _logger.LogInformation("Playout stop signal detected, terminating loop.");
-                        break;
+                    byte[]? frameToSend = await GetNextFrameOptimized(ct);
+                    if (frameToSend == null) {
+                        _logger.LogInformation("Segment playback complete: Sent {Sent} >= Generated {Generated} bytes.", Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));
+                        continue;
                     }
 
-                    if (_jitterBuffer.Reader.Count > 0) {
-                        _logger.LogInformation("Jitter buffer ready ({Count} frames). Starting playout.", _jitterBuffer.Reader.Count);
-                    }
-
-                    while (!ct.IsCancellationRequested) {
-                        long loopStartTime = stopwatch.ElapsedMilliseconds;
-
-                        if (_jitterBuffer.Reader.Count < LowWatermark && !_isTtsStreamFinished) {
-                            int retryCount = 0;
-                            while (_jitterBuffer.Reader.Count < JitterBufferWaterline && !ct.IsCancellationRequested && retryCount++ < 5) {
-                                int delay = 50 + retryCount * 50;
-                                await _frameTimer.WaitForNextFrameAsync(ct);
-                                _logger.LogWarning("Jitter buffer low ({Count} frames), pausing {Delay}ms to re-buffer...", _jitterBuffer.Reader.Count, delay);
-                            }
-                            if (_jitterBuffer.Reader.Count >= JitterBufferWaterline) {
-                                _logger.LogInformation("Jitter buffer recovered to {Count} frames, resuming playout.", _jitterBuffer.Reader.Count);
-                            } else {
-                                _logger.LogWarning("Jitter buffer still low ({Count} frames), continuing with caution.", _jitterBuffer.Reader.Count);
-                            }
-                        }
-
-                        byte[]? frameToSend = await GetNextFrameOptimized(ct);
-                        if (frameToSend == null) {
-                            _logger.LogInformation("Segment playback complete: Sent {Sent} >= Generated {Generated} bytes.", Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));                     
-                            break;
-                        }
-
-                        OutgoingAudioGenerated?.Invoke(frameToSend);
-                        double adaptiveDelay = CalculateAdaptiveDelay();
-                        smoothedDelayMs = 0.3 * adaptiveDelay + 0.7 * smoothedDelayMs;
-                        smoothedDelayMs = Math.Clamp(smoothedDelayMs, _profile.PtimeMs * 0.95, _profile.PtimeMs * 1.05);
-
-                        long elapsedInLoop = stopwatch.ElapsedMilliseconds - loopStartTime;
-                        long adjustedDelay = (long)(smoothedDelayMs - elapsedInLoop);
-                        if (adjustedDelay > 0) {
-                            await _frameTimer.WaitForNextFrameAsync(ct);
-                            if (adjustedDelay > _profile.PtimeMs) {
-                                int extraDelay = (int)(adjustedDelay - _profile.PtimeMs);
-                                if (extraDelay > 0)
-                                    await Task.Delay(extraDelay, ct);
-                            }
-                        } else {
-                            await _frameTimer.WaitForNextFrameAsync(ct);
-                        }
-                        _logger.LogTrace($"Sending frame, buffer status: {_jitterBuffer.Reader.Count} frames, delay: {smoothedDelayMs:F2}ms");
-                    }
+                    OutgoingAudioGenerated?.Invoke(frameToSend);
+                    await _frameTimer.WaitForNextFrameAsync(ct);                    
+                    _logger.LogTrace($"Sending frame, buffer status: {_jitterBuffer.Reader.Count} frames, delay: {smoothedDelayMs:F2}ms");
                 }
             } catch (OperationCanceledException) {
                 _logger.LogInformation("Playout loop was cancelled.");
@@ -465,7 +385,7 @@ namespace AI.Caller.Core {
         }
 
         private async Task<byte[]?> GetNextFrameOptimized(CancellationToken ct) {
-            if (/*_shouldSendAudio*/true) {
+            if (_shouldSendAudio) {
                 if (_jitterBuffer.Reader.TryRead(out var audioFrame)) {
                     _emptyFrameCount = 0;
                     _lastSentFrame = audioFrame;
@@ -474,12 +394,20 @@ namespace AI.Caller.Core {
                 } else {
                     if (_isTtsStreamFinished && _jitterBuffer.Reader.Count == 0 && Interlocked.Read(ref _totalBytesSent) >= Interlocked.Read(ref _totalBytesGenerated)) {
                         await Task.Delay(100); //等待sdp发送音频后再结束
-                        _playbackCompletionSource?.TrySetResult();
+
+                        bool isStillFinished = _isTtsStreamFinished
+                                      && _jitterBuffer.Reader.Count == 0
+                                      && Interlocked.Read(ref _totalBytesSent) >= Interlocked.Read(ref _totalBytesGenerated);
+
+                        if (isStillFinished) {
+                            _playbackCompletionSource?.TrySetResult();
+                            return null;
+                        }
                         return null;
                     }
                     
                     _emptyFrameCount++;
-                    
+
                     if (_emptyFrameCount == 1 && !_isTtsStreamFinished) {
                         if (_jitterBuffer.Reader.TryRead(out audioFrame)) {
                             _emptyFrameCount = 0;
@@ -502,20 +430,6 @@ namespace AI.Caller.Core {
             }
         }
 
-        private double CalculateAdaptiveDelay() {
-            int bufferCount = _jitterBuffer.Reader.Count;
-            
-            if (bufferCount == 0) {
-                return _profile.PtimeMs * 1.02;
-            } else if (bufferCount < LowWatermark) {
-                return _profile.PtimeMs * 1.01;
-            } else if (bufferCount > JitterBufferWaterline) {
-                return _profile.PtimeMs * 0.99;
-            }
-            
-            return _profile.PtimeMs;
-        }
-
         // DTMF 相关方法
         
         /// <summary>
@@ -529,13 +443,7 @@ namespace AI.Caller.Core {
         /// <summary>
         /// 收集DTMF输入
         /// </summary>
-        public async Task<string> CollectDtmfInputAsync(
-            int maxLength,
-            char terminationKey = '#',
-            char backspaceKey = '*',
-            TimeSpan? timeout = null,
-            CancellationToken ct = default) {
-            
+        public async Task<string> CollectDtmfInputAsync(int maxLength, char terminationKey = '#', char backspaceKey = '*', TimeSpan? timeout = null, CancellationToken ct = default) {            
             if (_dtmfService == null) {
                 _logger.LogError("DtmfService未设置，无法收集DTMF输入");
                 throw new InvalidOperationException("DtmfService未设置");
@@ -549,7 +457,7 @@ namespace AI.Caller.Core {
             _logger.LogInformation("开始收集DTMF输入，最大长度: {MaxLength}, CallId: {CallId}", maxLength, _currentCallId);
 
             try {
-                var config = new Services.DtmfCollectionConfig {
+                var config = new DtmfCollectionConfig {
                     MaxLength = maxLength,
                     TerminationKey = terminationKey,
                     BackspaceKey = backspaceKey,
@@ -591,6 +499,7 @@ namespace AI.Caller.Core {
             _resamplerCache.Clear();
             
             OutgoingAudioGenerated = null;
+            _memoryCache.Dispose();
         }
     }
 }
