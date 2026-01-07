@@ -177,8 +177,7 @@ public class DtmfService : IDtmfService {
         var collector = newCollector;
         _configs[callId] = config;
 
-        _logger.LogInformation("开始DTMF收集: {CallId}, 配置: {Config}", 
-            callId, System.Text.Json.JsonSerializer.Serialize(config));
+        _logger.LogInformation("开始DTMF收集: {CallId}, 配置: {Config}",  callId, System.Text.Json.JsonSerializer.Serialize(config));
 
         try {
             var result = await collector.CollectAsync(
@@ -188,8 +187,7 @@ public class DtmfService : IDtmfService {
                 config.Timeout,
                 ct);
 
-            _logger.LogInformation("DTMF收集完成: {CallId}, 输入长度: {Length}", 
-                callId, result.Length);
+            _logger.LogInformation("DTMF收集完成: {CallId}, 输入长度: {Length}",  callId, result.Length);
 
             return result;
         } catch (Exception ex) {

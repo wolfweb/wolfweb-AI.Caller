@@ -12,11 +12,13 @@ public class DtmfCollector {
     private readonly object _lock = new();
     private TaskCompletionSource<string>? _completionSource;
     private CancellationTokenSource? _timeoutCts;
+    private CancellationTokenSource? _linkedCts; // 用于链接外部 ct
+    private CancellationToken _externalCt; // 外部传入的取消令牌
 
     private int _maxLength;
     private char _terminationKey;
     private char _backspaceKey;
-    private TimeSpan? _timeout;
+    private TimeSpan _timeout;
 
     public DtmfCollector(ILogger<DtmfCollector> logger) {
         _logger = logger;
@@ -28,15 +30,10 @@ public class DtmfCollector {
     /// <param name="maxLength">最大长度</param>
     /// <param name="terminationKey">终止键（默认#）</param>
     /// <param name="backspaceKey">退格键（默认*）</param>
-    /// <param name="timeout">超时时间</param>
+    /// <param name="timeout">超时时间（每次有效按键后重置）</param>
     /// <param name="ct">取消令牌</param>
     /// <returns>收集到的输入</returns>
-    public async Task<string> CollectAsync(
-        int maxLength,
-        char terminationKey = '#',
-        char backspaceKey = '*',
-        TimeSpan? timeout = null,
-        CancellationToken ct = default) {
+    public async Task<string> CollectAsync(int maxLength, char terminationKey = '#', char backspaceKey = '*', TimeSpan? timeout = null, CancellationToken ct = default) {
         lock (_lock) {
             if (_completionSource != null) {
                 throw new InvalidOperationException("DTMF收集已在进行中");
@@ -45,42 +42,33 @@ public class DtmfCollector {
             _maxLength = maxLength;
             _terminationKey = terminationKey;
             _backspaceKey = backspaceKey;
-            _timeout = timeout;
+            _timeout = timeout ?? TimeSpan.Zero;
             _inputBuffer.Clear();
-            _completionSource = new TaskCompletionSource<string>();
-        }
+            _completionSource = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        _logger.LogInformation("开始收集DTMF输入，最大长度: {MaxLength}, 终止键: {TermKey}, 超时: {Timeout}",
-            maxLength, terminationKey, timeout?.TotalSeconds ?? 0);
-
-        try {
-            // 设置超时
             if (timeout.HasValue) {
                 _timeoutCts = new CancellationTokenSource();
-                _ = Task.Delay(timeout.Value, _timeoutCts.Token).ContinueWith(t => {
-                    if (!t.IsCanceled) {
-                        _logger.LogWarning("DTMF输入超时");
-                        _completionSource?.TrySetException(new TimeoutException("DTMF输入超时"));
-                    }
-                }, TaskScheduler.Default);
+                _externalCt = ct;
+                _linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _timeoutCts.Token);
+                StartTimeoutTimer();
+            } else {
+                _linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             }
+        }
 
-            // 等待收集完成或取消
+        _logger.LogInformation("开始收集DTMF输入，最大长度: {MaxLength}, 终止键: {TermKey}, 退格键: {BackspaceKey}, 超时: {Timeout}s",maxLength, terminationKey, backspaceKey, timeout?.TotalSeconds ?? 0);
+
+        try {
             using var registration = ct.Register(() => {
                 _logger.LogInformation("DTMF收集被取消");
-                _completionSource?.TrySetCanceled(ct);
+                CompleteWithCancellation(ct);
             });
 
-            var result = await _completionSource.Task;
+            var result = await _completionSource.Task.ConfigureAwait(false);
             _logger.LogInformation("DTMF收集完成，输入: {Input}", MaskInput(result));
             return result;
         } finally {
-            lock (_lock) {
-                _timeoutCts?.Cancel();
-                _timeoutCts?.Dispose();
-                _timeoutCts = null;
-                _completionSource = null;
-            }
+            Cleanup();
         }
     }
 
@@ -91,7 +79,7 @@ public class DtmfCollector {
     public void OnDtmfReceived(byte tone) {
         lock (_lock) {
             if (_completionSource == null || _completionSource.Task.IsCompleted) {
-                _logger.LogDebug("收到DTMF按键但未在收集状态或已完成: {Tone}", tone);
+                _logger.LogDebug("收到DTMF但收集已结束或未开始: {Tone}", tone);
                 return;
             }
 
@@ -110,38 +98,104 @@ public class DtmfCollector {
             if (key == _backspaceKey) {
                 if (_inputBuffer.Length > 0) {
                     _inputBuffer.Length--;
-                    _logger.LogDebug("退格，当前输入长度: {Length}", _inputBuffer.Length);
+                    _logger.LogDebug("退格，当前长度: {Length}", _inputBuffer.Length);
                 }
+
+                ResetTimeoutTimer();
                 return;
             }
 
-            // 添加按键到缓冲区
+            // 普通数字键
             if (_inputBuffer.Length < _maxLength) {
                 _inputBuffer.Append(key);
-                _logger.LogDebug("添加按键，当前输入长度: {Length}/{MaxLength}", _inputBuffer.Length, _maxLength);                
+                _logger.LogDebug("添加按键，当前长度: {Length}/{MaxLength}", _inputBuffer.Length, _maxLength);
+                ResetTimeoutTimer();
             } else {
-                _logger.LogWarning("输入已达到最大长度，忽略按键: {Key}", key);
+                _logger.LogWarning("输入已达最大长度，忽略按键: {Key}", key);
             }
         }
     }
 
     /// <summary>
-    /// 重置收集器
+    /// 重置超时计时器（每次有效按键时调用）
+    /// </summary>
+    private void ResetTimeoutTimer() {
+        if (_timeout <= TimeSpan.Zero) return;
+
+        lock (_lock) {
+            _timeoutCts?.Cancel();
+            _timeoutCts?.Dispose();
+            _timeoutCts = new CancellationTokenSource();
+
+            _linkedCts?.Dispose();
+            _linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_externalCt, _timeoutCts.Token);
+
+            StartTimeoutTimer();
+        }
+    }
+
+    /// <summary>
+    /// 启动一次超时计时
+    /// </summary>
+    private void StartTimeoutTimer() {
+        if (_timeout <= TimeSpan.Zero) return;
+
+        _ = Task.Delay(_timeout, _linkedCts!.Token)
+            .ContinueWith(t => {
+                if (t.IsCanceled) return;
+
+                lock (_lock) {
+                    if (_completionSource != null && !_completionSource.Task.IsCompleted) {
+                        _logger.LogWarning("DTMF输入超时（{Timeout}s 无新按键）", _timeout.TotalSeconds);
+                        _completionSource.TrySetException(new TimeoutException("DTMF输入超时"));
+                    }
+                }
+            }, TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// 外部取消时的统一处理
+    /// </summary>
+    private void CompleteWithCancellation(CancellationToken ct) {
+        lock (_lock) {
+            _completionSource?.TrySetCanceled(ct);
+        }
+    }
+
+    /// <summary>
+    /// 清理资源
+    /// </summary>
+    private void Cleanup() {
+        lock (_lock) {
+            _timeoutCts?.Cancel();
+            _timeoutCts?.Dispose();
+            _timeoutCts = null;
+
+            _linkedCts?.Dispose();
+            _linkedCts = null;
+
+            _completionSource = null;
+        }
+    }
+
+    /// <summary>
+    /// 手动重置收集器（强制结束当前收集）
     /// </summary>
     public void Reset() {
         lock (_lock) {
             _inputBuffer.Clear();
-            _completionSource?.TrySetCanceled();
-            _completionSource = null;
-            _timeoutCts?.Cancel();
-            _timeoutCts?.Dispose();
-            _timeoutCts = null;
-            _logger.LogDebug("DTMF收集器已重置");
+
+            if (_completionSource != null && !_completionSource.Task.IsCompleted) {
+                _completionSource.TrySetCanceled();
+            }
+
+            Cleanup();
+            _logger.LogDebug("DTMF收集器已手动重置");
         }
     }
 
     /// <summary>
-    /// 获取当前输入
+    /// 获取当前已收集的输入（不包含终止键）
     /// </summary>
     public string GetCurrentInput() {
         lock (_lock) {
@@ -150,7 +204,7 @@ public class DtmfCollector {
     }
 
     /// <summary>
-    /// 将DTMF tone转换为字符
+    /// Tone 转字符
     /// </summary>
     private static char ConvertToneToChar(byte tone) {
         return tone switch {
@@ -175,7 +229,7 @@ public class DtmfCollector {
     }
 
     /// <summary>
-    /// 脱敏输入（用于日志）
+    /// 日志脱敏
     /// </summary>
     private static string MaskInput(string input) {
         if (string.IsNullOrEmpty(input))
@@ -184,7 +238,6 @@ public class DtmfCollector {
         if (input.Length <= 4)
             return new string('*', input.Length);
 
-        // 显示前2位和后2位
-        return $"{input.Substring(0, 2)}{"".PadLeft(input.Length - 4, '*')}{input.Substring(input.Length - 2)}";
+        return $"{input.Substring(0, 2)}{new string('*', input.Length - 4)}{input.Substring(input.Length - 2)}";
     }
 }
