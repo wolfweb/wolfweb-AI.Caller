@@ -248,6 +248,10 @@ public partial class AICustomerServiceManager {
                 var audioFilePlayer = scope.ServiceProvider.GetRequiredService<AudioFilePlayer>();
                 autoResponder.SetAudioFilePlayer(audioFilePlayer);
 
+                sipClient.DtmfToneReceived += (client, tone) => {
+                    autoResponder.OnDtmfToneReceived(tone);
+                };
+
                 if (!string.IsNullOrEmpty(callId)) {
                     autoResponder.SetCallContext(callId);
                     _logger.LogDebug("已设置CallContext: {CallId}", callId);
@@ -286,10 +290,6 @@ public partial class AICustomerServiceManager {
                         }
                     };
                 }
-
-                sipClient.DtmfToneReceived += (client, tone) => {
-                    autoResponder.OnDtmfToneReceived(tone);
-                };
 
                 sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
 

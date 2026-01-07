@@ -332,17 +332,19 @@ namespace AI.Caller.Core {
                     await Task.Delay(50, ct);
                 }
 
+                _frameTimer.Reset();
                 while (!ct.IsCancellationRequested && !_shouldStopPlayout) {
                     long loopStartTime = stopwatch.ElapsedMilliseconds;
 
                     byte[]? frameToSend = await GetNextFrameOptimized(ct);
                     if (frameToSend == null) {
+                        OutgoingAudioGenerated?.Invoke(_silenceFrame); //发送静音帧以保持连接, 同时录音需要记录完整
                         _logger.LogInformation("Segment playback complete: Sent {Sent} >= Generated {Generated} bytes.", Interlocked.Read(ref _totalBytesSent), Interlocked.Read(ref _totalBytesGenerated));
-                        continue;
+                    } else {
+                        OutgoingAudioGenerated?.Invoke(frameToSend);
                     }
 
-                    OutgoingAudioGenerated?.Invoke(frameToSend);
-                    await _frameTimer.WaitForNextFrameAsync(ct);                    
+                    await _frameTimer.WaitForNextFrameAsync(ct);
                     _logger.LogTrace($"Sending frame, buffer status: {_jitterBuffer.Reader.Count} frames, delay: {smoothedDelayMs:F2}ms");
                 }
             } catch (OperationCanceledException) {

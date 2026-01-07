@@ -1,4 +1,4 @@
-using AI.Caller.Core;
+ï»¿using AI.Caller.Core;
 using AI.Caller.Core.Models;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Models;
@@ -13,8 +13,8 @@ public class CallProcessor : ICallProcessor {
     private const int MAX_RETRY_ATTEMPTS = 3;
     private const int RETRY_DELAY_SECONDS = 10;
 
-    private const int MAX_RINGING_SECONDS = 60;       // ÏìÁå/½¨Á¢Á¬½Ó×î´óµÈ´ıÊ±¼ä
-    private const int MAX_CALL_DURATION_MINUTES = 30; // Í¨»°×î´óÔÊĞíÊ±³¤
+    private const int MAX_RINGING_SECONDS = 60;       // å“é“ƒ/å»ºç«‹è¿æ¥æœ€å¤§ç­‰å¾…æ—¶é—´
+    private const int MAX_CALL_DURATION_MINUTES = 30; // é€šè¯æœ€å¤§å…è®¸æ—¶é•¿
 
     private readonly ILogger<CallProcessor> _logger;
     private readonly IServiceProvider _serviceProvider;

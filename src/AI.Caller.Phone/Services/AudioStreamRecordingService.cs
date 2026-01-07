@@ -824,6 +824,7 @@ namespace AI.Caller.Phone.Services {
 
             try {
                 await _mixingTask.ConfigureAwait(false);
+            } catch (OperationCanceledException) {                
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error waiting for recorder tasks");
             }

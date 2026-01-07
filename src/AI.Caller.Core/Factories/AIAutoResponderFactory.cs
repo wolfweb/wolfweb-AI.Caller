@@ -12,7 +12,7 @@ namespace AI.Caller.Core {
         private readonly ITTSEngine _ttsEngine;
         private readonly AudioCodecFactory _codecFactory;
         private readonly ILoggerFactory _loggerFactory;
-        private readonly Services.IDtmfService? _dtmfService;
+        private readonly IDtmfService? _dtmfService;
 
         public AIAutoResponderFactory(
             ILogger<AIAutoResponder> logger,

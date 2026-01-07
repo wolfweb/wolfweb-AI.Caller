@@ -1,3 +1,4 @@
+using FFmpeg.AutoGen;
 using System.Diagnostics;
 
 namespace AI.Caller.Core.CallAutomation;
@@ -33,7 +34,10 @@ public class HighPrecisionFrameTimer : IFrameTimer, IDisposable {
     }
 
     public async Task WaitForNextFrameAsync(CancellationToken ct) {
-        if (!_isRunning) Reset();
+        if (!_isRunning) {
+            Reset();
+            _framesSent = 1;
+        }
 
         _framesSent++;
 
