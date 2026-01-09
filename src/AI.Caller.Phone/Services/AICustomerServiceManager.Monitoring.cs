@@ -252,6 +252,10 @@ public partial class AICustomerServiceManager {
                     autoResponder.OnDtmfToneReceived(tone);
                 };
 
+                audioBridge.OnDtmfToneReceived += (tone) => {
+                    autoResponder.OnDtmfToneReceived(tone);
+                };
+
                 if (!string.IsNullOrEmpty(callId)) {
                     autoResponder.SetCallContext(callId);
                     _logger.LogDebug("已设置CallContext: {CallId}", callId);

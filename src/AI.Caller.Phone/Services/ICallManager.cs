@@ -10,6 +10,7 @@ using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
 using System.Collections.Concurrent;
+using System.Reflection.Metadata;
 
 namespace AI.Caller.Phone.Services {
     public interface ICallManager {
@@ -117,6 +118,8 @@ namespace AI.Caller.Phone.Services {
                 }
             }
             await ctx.Callee.Client.Client.AnswerAsync();
+
+            ctx.Callee.Client.Client.MediaSessionManager!.UpdateNegotiatedCodecFromSession();
 
             if (ctx.Caller != null && ctx.Caller.User != null) {
                 await _hubContext.Clients.User(ctx.Caller.User.Id.ToString()).SendAsync("answered");
@@ -1027,17 +1030,11 @@ namespace AI.Caller.Phone.Services {
                 Client = handle
             };
 
-            //callContext.Caller!.Client!.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
-            //    _ = callContext.Callee!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
-            //};
-
-            //callContext.Callee.Client.Client.MediaSessionManager!.MediaConfigurationChanged += (codec, sampleRate, payloadType) => {
-            //    _ = callContext.Caller!.Client!.Client.MediaSessionManager!.SwitchCodec(codec);
-            //};
-
             await Task.Delay(1500);
 
             await handle.Client.AnswerAsync();
+
+            handle.Client.MediaSessionManager!.UpdateNegotiatedCodecFromSession();
 
             _ = _orchestrator.HandleInboundCallAsync(callContext);
             
@@ -1139,17 +1136,21 @@ namespace AI.Caller.Phone.Services {
                 Client = handle,
             };
 
-            handle.Client.Accept(sipRequest);
+            var uas = handle.Client.Accept(sipRequest);
 
             var sdp = SDP.ParseSDPDescription(sipRequest.Body);
             handle.Client.MediaSessionManager!.SetSipRemoteDescription(new RTCSessionDescriptionInit {
                 type = RTCSdpType.offer,
                 sdp = sipRequest.Body
             });
+                        
+            await Task.Delay(100);
 
-            await Task.Delay(1500);
+            uas.Progress(SIPResponseStatusCodesEnum.Ringing, "Ringing", null, null, null);
 
             await handle.Client.AnswerAsync();
+
+            handle.Client.MediaSessionManager!.UpdateNegotiatedCodecFromSession();
 
             _ = _orchestrator.HandleInboundCallAsync(callContext);
 

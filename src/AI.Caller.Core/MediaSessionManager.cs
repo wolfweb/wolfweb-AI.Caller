@@ -244,9 +244,6 @@ namespace AI.Caller.Core {
                 _voipSession!.SetRemoteDescription(description.type == RTCSdpType.offer ? SdpType.offer : SdpType.answer, sdp);
                 _logger.LogDebug($"Set SIP remote description ({description.type}) successfully on VoIPMediaSession.");
 
-                // Parse SDP to determine negotiated codec
-                ParseSdpAndUpdateCodecConfiguration(sdp);
-
                 //if (sdp.Connection != null && sdp.Media != null) {
                 //    var audioMedia = sdp.Media.FirstOrDefault(m => m.Media == SDPMediaTypesEnum.audio);
                 //    if (audioMedia != null && audioMedia.Port > 0) {
@@ -368,6 +365,174 @@ namespace AI.Caller.Core {
             }
         }
 
+        /// <summary>
+        /// Handle network quality changes and adapt codec accordingly
+        /// </summary>
+        public async Task OnNetworkQualityChanged(NetworkQuality quality) {
+            if (_codecFactory == null || _currentCodecNegotiation == null) {
+                return;
+            }
+
+            try {
+                _logger.LogInformation("🌐 Network quality changed to {Quality}, evaluating codec adaptation", quality);
+
+                bool shouldSwitchCodec = false;
+                AudioCodec targetCodec = _currentCodecNegotiation.SelectedCodec;
+
+                if (quality <= NetworkQuality.Poor && _currentCodecNegotiation.SelectedCodec == AudioCodec.G722) {
+                    targetCodec = _currentCodecNegotiation.FallbackCodec;
+                    shouldSwitchCodec = true;
+                    _logger.LogInformation("📉 Poor network quality detected, switching from G.722 to {FallbackCodec}", targetCodec);
+                } else if (quality >= NetworkQuality.Good &&
+                           _currentCodecNegotiation.IsUsingFallback &&
+                           _currentCodecNegotiation.FallbackCodec == AudioCodec.G722) {
+                    targetCodec = AudioCodec.G722;
+                    shouldSwitchCodec = true;
+                    _logger.LogInformation("📈 Network quality improved, attempting to switch back to G.722");
+                }
+
+                if (shouldSwitchCodec) {
+                    await SwitchCodec(targetCodec, $"Network quality changed to {quality}");
+                }
+
+            } catch (Exception ex) {
+                _logger.LogError(ex, "❌ Error handling network quality change: {Error}", ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Switch to a different codec dynamically
+        /// </summary>
+        public async Task<bool> SwitchCodec(AudioCodec newCodec, string reason = "") {
+            if (_codecFactory == null) {
+                _logger.LogWarning("⚠️ Cannot switch codec: AudioCodecFactory not available");
+                return false;
+            }
+
+            lock (_codecLock) {
+                if (DateTime.UtcNow - _lastCodecSwitch < _codecSwitchCooldown) {
+                    _logger.LogWarning("⏳ Codec switch blocked: cooldown period active (last switch: {LastSwitch})", _lastCodecSwitch);
+                    return false;
+                }
+
+                if (SelectedCodec == newCodec) {
+                    _logger.LogDebug("ℹ️ Already using codec {Codec}, no switch needed", newCodec);
+                    return true;
+                }
+            }
+
+            try {
+                _logger.LogInformation("🔄 Switching codec from {CurrentCodec} to {NewCodec}: {Reason}", SelectedCodec, newCodec, reason);
+
+                var previousCodec = SelectedCodec;
+
+                if (!_codecFactory.IsCodecHealthy(newCodec)) {
+                    _logger.LogWarning("⚠️ Target codec {Codec} is not healthy, aborting switch", newCodec);
+                    CodecSwitchFailed?.Invoke(newCodec, "Target codec is not healthy");
+                    return false;
+                }
+
+                if (!await TestCodecBeforeSwitch(newCodec)) {
+                    _logger.LogWarning("⚠️ Codec test failed for {Codec}, aborting switch", newCodec);
+                    CodecSwitchFailed?.Invoke(newCodec, "Codec test failed");
+                    return false;
+                }
+
+                var newPayloadType = GetPayloadTypeForCodec(newCodec);
+                var newSampleRate = GetSampleRateForCodec(newCodec);
+
+                SelectedCodec = newCodec;
+                SelectedSampleRate = newSampleRate;
+                SelectedPayloadType = newPayloadType;
+
+                lock (_codecLock) {
+                    if (_currentCodecNegotiation != null) {
+                        _currentCodecNegotiation.SelectedCodec = newCodec;
+                        _currentCodecNegotiation.SelectedPayloadType = newPayloadType;
+                        _currentCodecNegotiation.SelectedSampleRate = newSampleRate;
+                        _currentCodecNegotiation.IsUsingFallback = (newCodec != AudioCodec.G722);
+                    }
+
+                    _lastCodecSwitch = DateTime.UtcNow;
+                }
+
+                _logger.LogInformation("✅ Codec switch successful: {PreviousCodec} -> {NewCodec}", previousCodec, newCodec);
+
+                MediaConfigurationChanged?.Invoke(SelectedCodec, SelectedSampleRate, SelectedPayloadType);
+                CodecSwitched?.Invoke(previousCodec, newCodec, reason);
+
+                return true;
+
+            } catch (Exception ex) {
+                _logger.LogError(ex, "❌ Codec switch failed: {Error}", ex.Message);
+                CodecSwitchFailed?.Invoke(newCodec, ex.Message);
+                return false;
+            }
+        }
+
+        public void UpdateNegotiatedCodecFromSession() {
+            if (_voipSession == null || _voipSession.IsClosed) {
+                _logger.LogWarning("VoIPMediaSession not available for codec update");
+                return;
+            }
+
+            var localCapabilities = _voipSession.AudioLocalTrack?.Capabilities;
+            if (localCapabilities == null || localCapabilities.Count == 0) {
+                _logger.LogWarning("No local audio capabilities found");
+                return;
+            }
+
+            var remoteSdp = _voipSession.RemoteDescription;
+            var remoteAudioMedia = remoteSdp?.Media?.FirstOrDefault(m => m.Media == SDPMediaTypesEnum.audio);
+
+            if (remoteAudioMedia == null) {
+                _logger.LogWarning("No remote audio media found in SDP");
+                return;
+            }
+
+            SDPAudioVideoMediaFormat? negotiatedFormat = null;
+
+            foreach (var localFormat in localCapabilities) {
+                if (remoteAudioMedia.MediaFormats.ContainsKey(localFormat.ID)) {
+                    negotiatedFormat = localFormat;
+                    break;
+                }
+            }
+
+            if (negotiatedFormat == null) {
+                _logger.LogWarning("Could not find common codec, defaulting to first local capability");
+                negotiatedFormat = localCapabilities[0];
+            }
+
+            int payloadType = negotiatedFormat.Value.ID;
+            string codecName = negotiatedFormat.Value.Name();
+            int clockRate = negotiatedFormat.Value.ClockRate();
+
+            var newCodec = MapToAudioCodec(payloadType, codecName, clockRate);
+
+            if (!newCodec.HasValue) {
+                _logger.LogWarning("Negotiated format {Name} (PT:{PT}) not supported by system", codecName, payloadType);
+                return;
+            }
+
+
+            lock (_lock) {
+                var previousCodec = SelectedCodec;
+                var previousSampleRate = SelectedSampleRate;
+                var previousPayloadType = SelectedPayloadType;
+
+                SelectedCodec = newCodec.Value;
+                SelectedPayloadType = payloadType;
+                SelectedSampleRate = GetSampleRateForCodec(SelectedCodec);
+
+                if (previousCodec != SelectedCodec || previousSampleRate != SelectedSampleRate || previousPayloadType != SelectedPayloadType) {
+                    _logger.LogInformation("Final negotiated codec updated: {PreviousCodec}@{PreviousSampleRate}Hz (PT:{PreviousPT}) -> {NewCodec}@{NewSampleRate}Hz (PT:{NewPT})", previousCodec, previousSampleRate, previousPayloadType, SelectedCodec, SelectedSampleRate, SelectedPayloadType);
+
+                    MediaConfigurationChanged?.Invoke(SelectedCodec, SelectedSampleRate, SelectedPayloadType);
+                }
+            }
+        }
+
         public async Task<bool> WaitForConnectionAsync(int timeoutMs = 10000) {
             if (_peerConnection == null) {
                 return false;
@@ -454,7 +619,6 @@ namespace AI.Caller.Core {
                 }
             }
         }
-
 
         private RTCConfiguration BuildRTCConfiguration() {
             var iceServers = new List<RTCIceServer>();
@@ -626,112 +790,6 @@ namespace AI.Caller.Core {
         }
 
         /// <summary>
-        /// Handle network quality changes and adapt codec accordingly
-        /// </summary>
-        public async Task OnNetworkQualityChanged(NetworkQuality quality) {
-            if (_codecFactory == null || _currentCodecNegotiation == null) {
-                return;
-            }
-
-            try {
-                _logger.LogInformation("🌐 Network quality changed to {Quality}, evaluating codec adaptation", quality);
-
-                bool shouldSwitchCodec = false;
-                AudioCodec targetCodec = _currentCodecNegotiation.SelectedCodec;
-
-                if (quality <= NetworkQuality.Poor && _currentCodecNegotiation.SelectedCodec == AudioCodec.G722) {
-                    targetCodec = _currentCodecNegotiation.FallbackCodec;
-                    shouldSwitchCodec = true;
-                    _logger.LogInformation("📉 Poor network quality detected, switching from G.722 to {FallbackCodec}", targetCodec);
-                }
-                else if (quality >= NetworkQuality.Good && 
-                         _currentCodecNegotiation.IsUsingFallback && 
-                         _currentCodecNegotiation.FallbackCodec == AudioCodec.G722) {
-                    targetCodec = AudioCodec.G722;
-                    shouldSwitchCodec = true;
-                    _logger.LogInformation("📈 Network quality improved, attempting to switch back to G.722");
-                }
-
-                if (shouldSwitchCodec) {
-                    await SwitchCodec(targetCodec, $"Network quality changed to {quality}");
-                }
-
-            } catch (Exception ex) {
-                _logger.LogError(ex, "❌ Error handling network quality change: {Error}", ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// Switch to a different codec dynamically
-        /// </summary>
-        public async Task<bool> SwitchCodec(AudioCodec newCodec, string reason = "") {
-            if (_codecFactory == null) {
-                _logger.LogWarning("⚠️ Cannot switch codec: AudioCodecFactory not available");
-                return false;
-            }
-
-            lock (_codecLock) {
-                if (DateTime.UtcNow - _lastCodecSwitch < _codecSwitchCooldown) {
-                    _logger.LogWarning("⏳ Codec switch blocked: cooldown period active (last switch: {LastSwitch})", _lastCodecSwitch);
-                    return false;
-                }
-
-                if (SelectedCodec == newCodec) {
-                    _logger.LogDebug("ℹ️ Already using codec {Codec}, no switch needed", newCodec);
-                    return true;
-                }
-            }
-
-            try {
-                _logger.LogInformation("🔄 Switching codec from {CurrentCodec} to {NewCodec}: {Reason}", SelectedCodec, newCodec, reason);
-
-                var previousCodec = SelectedCodec;
-
-                if (!_codecFactory.IsCodecHealthy(newCodec)) {
-                    _logger.LogWarning("⚠️ Target codec {Codec} is not healthy, aborting switch", newCodec);
-                    CodecSwitchFailed?.Invoke(newCodec, "Target codec is not healthy");
-                    return false;
-                }
-
-                if (!await TestCodecBeforeSwitch(newCodec)) {
-                    _logger.LogWarning("⚠️ Codec test failed for {Codec}, aborting switch", newCodec);
-                    CodecSwitchFailed?.Invoke(newCodec, "Codec test failed");
-                    return false;
-                }
-
-                var newPayloadType = GetPayloadTypeForCodec(newCodec);
-                var newSampleRate = GetSampleRateForCodec(newCodec);
-
-                SelectedCodec = newCodec;
-                SelectedSampleRate = newSampleRate;
-                SelectedPayloadType = newPayloadType;
-
-                lock (_codecLock) {
-                    if (_currentCodecNegotiation != null) {
-                        _currentCodecNegotiation.SelectedCodec = newCodec;
-                        _currentCodecNegotiation.SelectedPayloadType = newPayloadType;
-                        _currentCodecNegotiation.SelectedSampleRate = newSampleRate;
-                        _currentCodecNegotiation.IsUsingFallback = (newCodec != AudioCodec.G722);
-                    }
-                    
-                    _lastCodecSwitch = DateTime.UtcNow;
-                }
-
-                _logger.LogInformation("✅ Codec switch successful: {PreviousCodec} -> {NewCodec}", previousCodec, newCodec);
-
-                MediaConfigurationChanged?.Invoke(SelectedCodec, SelectedSampleRate, SelectedPayloadType);
-                CodecSwitched?.Invoke(previousCodec, newCodec, reason);
-
-                return true;
-
-            } catch (Exception ex) {
-                _logger.LogError(ex, "❌ Codec switch failed: {Error}", ex.Message);
-                CodecSwitchFailed?.Invoke(newCodec, ex.Message);
-                return false;
-            }
-        }
-
-        /// <summary>
         /// Handle codec health changes
         /// </summary>
         private async void OnCodecHealthChanged(AudioCodec codec, CodecHealthResult healthResult) {
@@ -836,7 +894,6 @@ namespace AI.Caller.Core {
             }
         }
 
-
         /// <summary>
         /// Get payload type for a codec
         /// </summary>
@@ -859,92 +916,6 @@ namespace AI.Caller.Core {
                 AudioCodec.G722 => 16000,
                 _ => 8000 // Default to 8kHz
             };
-        }
-
-        /// <summary>
-        /// Parse SDP to determine negotiated codec and update configuration
-        /// This should follow proper SDP negotiation rules, not hardcoded preferences
-        /// </summary>
-        private void ParseSdpAndUpdateCodecConfiguration(SDP sdp) {
-            try {
-                var audioMedia = sdp.Media?.FirstOrDefault(m => m.Media == SDPMediaTypesEnum.audio);
-                if (audioMedia?.MediaFormats == null || !audioMedia.MediaFormats.Any()) {
-                    _logger.LogWarning("No audio media formats found in SDP");
-                    return;
-                }
-
-                _logger.LogDebug("SDP contains {Count} audio media formats: [{Formats}]", audioMedia.MediaFormats.Count, string.Join(", ", audioMedia.MediaFormats.Select(f => $"PT:{f.Key}({f.Value.Name()})")));
-
-                KeyValuePair<int, SDPAudioVideoMediaFormat>? selectedFormatPair = null;
-                
-                foreach (var format in audioMedia.MediaFormats) {
-                    var codecName = format.Value.Name();
-                    var clockRate = format.Value.ClockRate();
-                    
-                    _logger.LogDebug("Evaluating SDP format: PT:{PayloadType}, Codec:{CodecName}, ClockRate:{ClockRate}", 
-                        format.Key, codecName, clockRate);
-                    
-                    // Check if we support this codec (handles both static and dynamic PT)
-                    if (IsSupportedCodec(format.Key, codecName, clockRate)) {
-                        selectedFormatPair = format;
-                        
-                        _logger.LogInformation("✅ Selected codec via SDP negotiation: PT:{PayloadType}, Codec:{CodecName}, ClockRate:{ClockRate}", format.Key, codecName, clockRate);
-                        break;
-                    } else {
-                        _logger.LogDebug("❌ Skipping unsupported codec: PT:{PayloadType}, Codec:{CodecName}, ClockRate:{ClockRate}", format.Key, codecName, clockRate);
-                    }
-                }
-
-                if (!selectedFormatPair.HasValue) {
-                    _logger.LogWarning("No mutually supported audio codec found in SDP");
-                    return;
-                }
-
-                var selectedPayloadType = selectedFormatPair.Value.Key;
-                var selectedCodecName = selectedFormatPair.Value.Value.Name();
-                var selectedClockRate = selectedFormatPair.Value.Value.ClockRate();
-                
-                // Map to AudioCodec enum based on codec name, not just payload type
-                var selectedAudioCodec = MapToAudioCodec(selectedPayloadType, selectedCodecName, selectedClockRate);
-                if (!selectedAudioCodec.HasValue) {
-                    _logger.LogWarning("Failed to map selected codec to AudioCodec enum: PT:{PayloadType}, Codec:{CodecName}", selectedPayloadType, selectedCodecName);
-                    return;
-                }
-
-                var previousCodec = SelectedCodec;
-                var previousSampleRate = SelectedSampleRate;
-                var previousPayloadType = SelectedPayloadType;
-
-                // Update codec configuration based on the actual negotiated codec
-                SelectedCodec = selectedAudioCodec.Value;
-                SelectedPayloadType = selectedPayloadType;
-                
-                // Set sample rate based on codec type (internal processing rate)
-                switch (selectedAudioCodec.Value) {
-                    case AudioCodec.G722:
-                        SelectedSampleRate = 16000; // G.722 internal processing is 16kHz
-                        break;
-                    case AudioCodec.PCMA:
-                    case AudioCodec.PCMU:
-                        SelectedSampleRate = 8000;  // G.711 is 8kHz
-                        break;
-                    default:
-                        _logger.LogWarning("Unknown codec type: {Codec}", selectedAudioCodec.Value);
-                        return;
-                }
-
-                if (previousCodec != SelectedCodec || 
-                    previousSampleRate != SelectedSampleRate || 
-                    previousPayloadType != SelectedPayloadType) {                    
-                    _logger.LogInformation("Codec configuration changed via SDP negotiation: {PreviousCodec}@{PreviousSampleRate}Hz (PT:{PreviousPayloadType}) -> {NewCodec}@{NewSampleRate}Hz (PT:{NewPayloadType})", previousCodec, previousSampleRate, previousPayloadType, SelectedCodec, SelectedSampleRate, SelectedPayloadType);
-
-                    MediaConfigurationChanged?.Invoke(SelectedCodec, SelectedSampleRate, SelectedPayloadType);
-                } else {
-                    _logger.LogDebug("Codec configuration unchanged after SDP parsing: {Codec}@{SampleRate}Hz (PT:{PayloadType})", SelectedCodec, SelectedSampleRate, SelectedPayloadType);
-                }
-            } catch (Exception ex) {
-                _logger.LogError(ex, "Error parsing SDP for codec configuration");
-            }
         }
 
         /// <summary>

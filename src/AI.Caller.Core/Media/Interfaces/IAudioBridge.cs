@@ -4,7 +4,9 @@ using System;
 namespace AI.Caller.Core {
     public interface IAudioBridge : IDisposable {
         event Action<byte[]>? IncomingAudioReceived;
-        
+
+        event Action<byte>? OnDtmfToneReceived;
+
         void Initialize(MediaProfile profile);
 
         void SetMediaSessionManager(MediaSessionManager manager);

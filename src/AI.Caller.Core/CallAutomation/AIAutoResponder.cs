@@ -30,13 +30,12 @@ namespace AI.Caller.Core {
         private readonly ConcurrentDictionary<int, AudioResamplerCrossType<float, byte>> _resamplerCache = new();
         
         private TaskCompletionSource? _playbackCompletionSource;
-        private CancellationTokenSource? _cts;
+        private CancellationTokenSource? _cts;        
         private IAudioCodec _currentCodec;
-        private Detector? _dtmfDetector;
         private byte[] _silenceFrame;
         private MediaProfile _profile;
         private Task? _playoutTask;
-        
+
         private bool _isStarted;
         private string? _currentCallId;
         private long _totalBytesSent;
@@ -85,7 +84,7 @@ namespace AI.Caller.Core {
             _shouldSendAudio = true;
 
             _logger.LogInformation("AIAutoResponder started. Jitter Buffer Count: {Count}", _jitterBuffer.Reader.Count);
-            _dtmfDetector = new Detector(1, Config.Default);
+            
             _playoutTask = Task.Run(() => PlayoutLoop(_cts.Token));
 
             return Task.CompletedTask;
@@ -96,19 +95,6 @@ namespace AI.Caller.Core {
 
             try {
                 _shouldSendAudio = true;
-
-                float[] samples = new float[pcmBytes.Length / 2];
-                for (int i = 0; i < samples.Length; i++) {
-                    short sample = BitConverter.ToInt16(pcmBytes, i * 2);
-                    samples[i] = sample / 32768f;
-                }
-
-                var changes = _dtmfDetector?.Detect(samples);  // channels=1 单声道
-                if (changes != null) {
-                    foreach (var change in changes) {
-                        OnDtmfToneReceived(change.ToByte());  // 触发现有 DTmfService 逻辑
-                    }
-                }
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error processing uplink PCM frame");
             }

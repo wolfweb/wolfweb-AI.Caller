@@ -170,9 +170,10 @@ namespace AI.Caller.Core {
             m_userAgent.Cancel();
         }
 
-        public void Accept(SIPRequest sipRequest) {
+        public SIPServerUserAgent Accept(SIPRequest sipRequest) {
             m_pendingIncomingCall = m_userAgent.AcceptCall(sipRequest);
             EnsureMediaSessionInitialized();
+            return m_pendingIncomingCall;
         }
 
         public async Task<bool> SendSessionProgressAsync() {
