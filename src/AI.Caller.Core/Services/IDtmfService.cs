@@ -98,6 +98,11 @@ public class DtmfCollectionConfig {
     public string? Description { get; set; }
     
     /// <summary>
+    /// 输入映射（例如：* -> X）
+    /// </summary>
+    public Dictionary<char, char>? InputMapping { get; set; }
+
+    /// <summary>
     /// 验证配置是否有效
     /// </summary>
     public void Validate() {
@@ -185,7 +190,8 @@ public class DtmfService : IDtmfService {
                 config.TerminationKey,
                 config.BackspaceKey,
                 config.Timeout,
-                ct);
+                ct,
+                config.InputMapping);
 
             _logger.LogInformation("DTMF收集完成: {CallId}, 输入长度: {Length}",  callId, result.Length);
 

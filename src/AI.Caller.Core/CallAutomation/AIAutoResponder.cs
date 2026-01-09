@@ -445,7 +445,7 @@ namespace AI.Caller.Core {
         /// <summary>
         /// 收集DTMF输入
         /// </summary>
-        public async Task<string> CollectDtmfInputAsync(int maxLength, char terminationKey = '#', char backspaceKey = '*', TimeSpan? timeout = null, CancellationToken ct = default) {            
+        public async Task<string> CollectDtmfInputAsync(int maxLength, char terminationKey = '#', char backspaceKey = '*', TimeSpan? timeout = null, CancellationToken ct = default, Dictionary<char, char>? inputMapping = null) {            
             if (_dtmfService == null) {
                 _logger.LogError("DtmfService未设置，无法收集DTMF输入");
                 throw new InvalidOperationException("DtmfService未设置");
@@ -465,7 +465,8 @@ namespace AI.Caller.Core {
                     BackspaceKey = backspaceKey,
                     Timeout = timeout,
                     EnableLogging = true,
-                    Description = $"AI场景DTMF收集 - CallId: {_currentCallId}"
+                    Description = $"AI场景DTMF收集 - CallId: {_currentCallId}",
+                    InputMapping = inputMapping
                 };
 
                 var input = await _dtmfService.StartCollectionWithConfigAsync(_currentCallId, config, ct);

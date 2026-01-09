@@ -90,6 +90,7 @@ public class DtmfInputService : IDtmfInputService {
             existing.TimeoutText = template.TimeoutText;
             existing.MaxRetries = template.MaxRetries;
             existing.TimeoutSeconds = template.TimeoutSeconds;
+            existing.InputMappingJson = template.InputMappingJson;
             existing.UpdatedAt = DateTime.UtcNow;
 
             await _dbContext.SaveChangesAsync();

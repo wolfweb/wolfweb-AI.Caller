@@ -19,6 +19,7 @@ public class DtmfCollector {
     private char _terminationKey;
     private char _backspaceKey;
     private TimeSpan _timeout;
+    private Dictionary<char, char>? _inputMapping;
 
     public DtmfCollector(ILogger<DtmfCollector> logger) {
         _logger = logger;
@@ -32,8 +33,9 @@ public class DtmfCollector {
     /// <param name="backspaceKey">退格键（默认*）</param>
     /// <param name="timeout">超时时间（每次有效按键后重置）</param>
     /// <param name="ct">取消令牌</param>
+    /// <param name="inputMapping">按键映射配置</param>
     /// <returns>收集到的输入</returns>
-    public async Task<string> CollectAsync(int maxLength, char terminationKey = '#', char backspaceKey = '*', TimeSpan? timeout = null, CancellationToken ct = default) {
+    public async Task<string> CollectAsync(int maxLength, char terminationKey = '#', char backspaceKey = '*', TimeSpan? timeout = null, CancellationToken ct = default, Dictionary<char, char>? inputMapping = null) {
         lock (_lock) {
             if (_completionSource != null) {
                 throw new InvalidOperationException("DTMF收集已在进行中");
@@ -43,6 +45,7 @@ public class DtmfCollector {
             _terminationKey = terminationKey;
             _backspaceKey = backspaceKey;
             _timeout = timeout ?? TimeSpan.Zero;
+            _inputMapping = inputMapping;
             _inputBuffer.Clear();
             _completionSource = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -84,6 +87,13 @@ public class DtmfCollector {
             }
 
             char key = ConvertToneToChar(tone);
+            
+            // 应用映射
+            if (_inputMapping != null && _inputMapping.TryGetValue(key, out var mappedKey)) {
+                _logger.LogDebug("DTMF映射: {Original} -> {Mapped}", key, mappedKey);
+                key = mappedKey;
+            }
+
             _logger.LogDebug("收到DTMF按键: {Key} (tone: {Tone})", key, tone);
 
             // 处理终止键

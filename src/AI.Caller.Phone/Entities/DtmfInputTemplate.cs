@@ -58,6 +58,9 @@ namespace AI.Caller.Phone.Entities {
         [Display(Name = "超时时间(秒)")]
         public int TimeoutSeconds { get; set; } = 30;
 
+        [Display(Name = "按键映射(JSON)")]
+        public string? InputMappingJson { get; set; }
+
         [Display(Name = "创建时间")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

@@ -249,7 +249,8 @@ public sealed partial class AIAutoResponder {
                     config.TerminationKey,
                     config.BackspaceKey,
                     timeout,
-                    ct);
+                    ct,
+                    config.InputMapping);
                 var inputDuration = (int)(DateTime.UtcNow - inputStartTime).TotalMilliseconds;
 
                 var validationResult = ValidateInputByConfig(input, config);

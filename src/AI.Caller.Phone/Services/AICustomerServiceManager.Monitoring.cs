@@ -4,6 +4,7 @@ using AI.Caller.Core.CallAutomation;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Exceptions;
 using SIPSorcery.SIP;
+using Newtonsoft.Json;
 
 namespace AI.Caller.Phone.Services;
 
@@ -458,7 +459,10 @@ public partial class AICustomerServiceManager {
                         ErrorText = dbSegment.DtmfTemplate.ErrorText,
                         TimeoutText = dbSegment.DtmfTemplate.TimeoutText,
                         VariableName = dbSegment.DtmfVariableName,
-                        ValidatorType = dbSegment.DtmfTemplate.ValidatorType
+                        ValidatorType = dbSegment.DtmfTemplate.ValidatorType,
+                        InputMapping = !string.IsNullOrEmpty(dbSegment.DtmfTemplate.InputMappingJson) 
+                            ? JsonConvert.DeserializeObject<Dictionary<char, char>>(dbSegment.DtmfTemplate.InputMappingJson) 
+                            : null
                     };
                 } else {
                     _logger.LogError("DTMF片段缺少模板配置: SegmentId={SegmentId}", dbSegment.Id);

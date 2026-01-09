@@ -72,6 +72,17 @@
                         <input asp-for="MaxRetries" class="form-control" type="number" min="1" max="5" />
                     </div>
                 </div>
+                
+                <div class="row">
+                    <div class="col-md-6 form-check form-switch mb-3 gap-3">
+                        <label class="form-check-label fw-bold" for="idCardMode">启用身份证输入模式</label>
+                        <input class="form-check-input" type="checkbox" id="idCardMode" onchange="toggleIdCardMode()">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <small class="d-block text-danger">开启后，按键 * 将被识别为 X。</small>
+                        <input type="hidden" asp-for="InputMappingJson" id="InputMappingJson" />
+                    </div>
+                </div>
             </div>
 
             <div class="col-md-6">
@@ -125,15 +136,44 @@
 @section Scripts {
     @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
     <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var mappingJson = document.getElementById('InputMappingJson').value;
+            if (mappingJson && mappingJson.indexOf('"*"') > -1 && mappingJson.indexOf('"X"') > -1) {
+                document.getElementById('idCardMode').checked = true;
+            }
+        });
+
+        function toggleIdCardMode() {
+            var checkBox = document.getElementById('idCardMode');
+            var mappingInput = document.getElementById('InputMappingJson');
+            var backspaceInput = document.getElementById('BackspaceKey');
+
+            if (checkBox.checked) {
+                mappingInput.value = JSON.stringify({ '*': 'X' });
+                if (backspaceInput.value === '*') {
+                    backspaceInput.value = '*'; // Clear conflicting backspace
+                    alert('注意：已启用身份证模式，退格键已自动清除，以避免冲突。');
+                }
+            } else {
+                mappingInput.value = '';
+                if (backspaceInput.value === '') {
+                    backspaceInput.value = '*'; // Restore default
+                }
+            }
+        }
+
         function testValidation() {
             const input = document.getElementById('testInput').value;
             const templateId = @Model.Id;
-
+            // ... (rest of simple testValidation is less important here as it tests server side logic which won't use the client side modified JSON unless saved)
+            // Actually, test validation executes on server, so saved state matters.
+            
             fetch('/DtmfTemplate/TestValidation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ templateId, input })
             })
+            // ... (rest is same)
             .then(response => response.json())
             .then(data => {
                 const resultDiv = document.getElementById('testResult');

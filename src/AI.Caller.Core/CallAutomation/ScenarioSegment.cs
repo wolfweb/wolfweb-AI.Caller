@@ -175,6 +175,11 @@ public class DtmfInputConfig {
     /// 验证器类型
     /// </summary>
     public string? ValidatorType { get; set; }
+
+    /// <summary>
+    ///按键映射配置
+    /// </summary>
+    public Dictionary<char, char>? InputMapping { get; set; }
 }
 
 /// <summary>
