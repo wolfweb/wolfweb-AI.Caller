@@ -26,6 +26,9 @@ namespace AI.Caller.Core {
         private PhoneKey _currentTrackingKey = PhoneKey.None;
         private StreamingAudioSamples? _streamingAudioSamples;
         private DateTime _lastReportedTime = DateTime.MinValue;
+        private PhoneKey _lastConfirmedKey = PhoneKey.None;
+        private DateTime _lastConfirmedKeyStopTime = DateTime.MinValue;
+        private const double MinGapForSameKeyMs = 80;
 
         private AudioResampler<byte>? _outputResampler;
         private int _outputResamplerInRate;
@@ -175,12 +178,21 @@ namespace AI.Caller.Core {
                         if (dtmfs != null) {
                             foreach (var change in dtmfs) {
                                 if (change.IsStart && change.Key != PhoneKey.None) {
+                                    bool isSameKeyBounce = (change.Key == _lastConfirmedKey) && ((now - _lastConfirmedKeyStopTime).TotalMilliseconds < MinGapForSameKeyMs);
                                     if (_currentTrackingKey != change.Key) {
                                         _currentTrackingKey = change.Key;
                                         _sameKeyContinuousCount = 0;
-                                        _hasReportedCurrentKey = false;
+                                        _hasReportedCurrentKey = isSameKeyBounce;
+
+                                        if (isSameKeyBounce) {
+                                            _logger.LogDebug("DTMF Bounce detected for key {Key}, merging...", change.Key);
+                                        }
                                     }
                                 } else if (change.IsStop && change.Key == _currentTrackingKey) {
+                                    if (_hasReportedCurrentKey) {
+                                        _lastConfirmedKey = _currentTrackingKey;
+                                        _lastConfirmedKeyStopTime = now;
+                                    }
                                     _currentTrackingKey = PhoneKey.None;
                                     _sameKeyContinuousCount = 0;
                                     _hasReportedCurrentKey = false;
@@ -205,6 +217,8 @@ namespace AI.Caller.Core {
 
                                 _lastReportedTime = now;
                                 _hasReportedCurrentKey = true;
+
+                                _lastConfirmedKey = _currentTrackingKey;
                             }
                         }
                     }
@@ -220,6 +234,9 @@ namespace AI.Caller.Core {
                 _sameKeyContinuousCount = 0;
                 _hasReportedCurrentKey = false;
                 _lastReportedTime = DateTime.MinValue;
+
+                _lastConfirmedKey = PhoneKey.None;
+                _lastConfirmedKeyStopTime = DateTime.MinValue;
             }
         }
 
