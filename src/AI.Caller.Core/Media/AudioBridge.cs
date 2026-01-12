@@ -1,11 +1,13 @@
 using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Interfaces;
+using DnsClient;
 using Microsoft.Extensions.Logging;
 using System.Buffers;
 
 namespace AI.Caller.Core {
     public sealed partial class AudioBridge : IAudioBridge {
-        private const double DtmfGapThresholdMs = 300;
+        private const double DtmfGapThresholdMs = 400;
+        private const int MinContinuousBlocksForDtmf = 2; // 至少连续 2 个 block 才确认上报，防短噪声
 
         private readonly ILogger _logger;
         private readonly object _lock = new();
@@ -15,11 +17,23 @@ namespace AI.Caller.Core {
         
         private bool _isStarted;
         private int _currentBlockSize;
+
+        private int _sameKeyContinuousCount = 0;
+        private bool _hasReportedCurrentKey = false;
+
         private MediaProfile? _profile;
         private IAnalyzer? _dtmfAnalyzer;
-        private PhoneKey _lastDetectedKey = PhoneKey.None;
+        private PhoneKey _currentTrackingKey = PhoneKey.None;
         private StreamingAudioSamples? _streamingAudioSamples;
-        private DateTime _lastDtmfActivityTime = DateTime.MinValue;
+        private DateTime _lastReportedTime = DateTime.MinValue;
+
+        private AudioResampler<byte>? _outputResampler;
+        private int _outputResamplerInRate;
+        private int _outputResamplerOutRate;
+
+        private AudioResampler<byte>? _dtmfResampler;
+        private int _dtmfResamplerInRate;
+
         private MediaSessionManager? _mediaSessionManager; // 添加MediaSessionManager引用
 
         public event Action<byte[]>? IncomingAudioReceived;
@@ -35,7 +49,6 @@ namespace AI.Caller.Core {
         /// </summary>
         public void SetMediaSessionManager(MediaSessionManager mediaSessionManager) {
             _mediaSessionManager = mediaSessionManager;
-            _logger.LogDebug("MediaSessionManager reference set for AudioBridge");
         }
 
         public void Initialize(MediaProfile profile) {
@@ -63,6 +76,8 @@ namespace AI.Caller.Core {
                 if (!_isStarted) return;
 
                 _isStarted = false;
+
+                ResetDtmfState();
 
                 _logger.LogInformation("AudioBridge stopped");
             }
@@ -92,21 +107,22 @@ namespace AI.Caller.Core {
                 _logger.LogTrace("🎵 Decoded PCM: {DecodedSize} bytes", decodedPcm.Length);
 
                 int expectedSampleRate = GetDecodedSampleRate(payloadType);
-
+                byte[] outputPcm = decodedPcm;
                 if (expectedSampleRate != currentProfile.SampleRate) {
-                    _logger.LogWarning("MediaProfile configuration mismatch: codec expects {ExpectedSampleRate}Hz but profile is {ProfileSampleRate}Hz. This indicates MediaConfigurationChanged event may not have updated the profile correctly.", expectedSampleRate, currentProfile.SampleRate);
-                    using var resampler = new AudioResampler<byte>(expectedSampleRate, currentProfile.SampleRate, _logger);
-                    decodedPcm = resampler.Resample(decodedPcm);
+                    outputPcm = GetOrCreateOutputResampler(expectedSampleRate, currentProfile.SampleRate).Resample(decodedPcm);
                 }
 
-                DtmfDetect(currentProfile, decodedPcm);
+                byte[] dtmfPcm = decodedPcm;
+                if (expectedSampleRate != 8000) {
+                    dtmfPcm = GetOrCreateDtmfResampler(expectedSampleRate).Resample(decodedPcm);                    
+                }
+                DtmfDetect(dtmfPcm);
 
-                ProcessAudioFrames(decodedPcm, currentProfile, frame => {
+                ProcessAudioFrames(outputPcm, currentProfile, frame => {
                     IncomingAudioReceived?.Invoke(frame);
                     // 广播到监听者
                     BroadcastIncomingAudioToMonitors(frame);
                 });
-
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error processing incoming audio");
             }
@@ -114,60 +130,81 @@ namespace AI.Caller.Core {
 
         public void Dispose() {
             Stop();
-            _dtmfAnalyzer = null;
+            lock (_lock) {
+                _outputResampler?.Dispose();
+                _dtmfResampler?.Dispose();                
+                foreach(var codec in _codecCache.Values) {
+                    codec.Dispose();
+                }
+                _codecCache.Clear();
+            }
+
+            lock(_dtmfLock){
+                _dtmfAnalyzer = null;
+                _streamingAudioSamples = null;
+            }
             IncomingAudioReceived = null;
         }
 
-        private void DtmfDetect(MediaProfile currentProfile, byte[] decodedPcm) {
-            float[] samples = ArrayPool<float>.Shared.Rent(decodedPcm.Length / 2);
+        private void DtmfDetect(byte[] decodedPcm) {
+            int sampleCount = decodedPcm.Length / 2;
+            float[] samples = ArrayPool<float>.Shared.Rent(sampleCount);
 
             try {
-                for (int i = 0; i < samples.Length; i++) {
+                for (int i = 0; i < sampleCount; i++) {
                     short sample = BitConverter.ToInt16(decodedPcm, i * 2);
                     samples[i] = sample / 32768f;
                 }
 
-                lock (_dtmfLock) {
-                    var now = DateTime.UtcNow;
-                    if (_streamingAudioSamples == null || _streamingAudioSamples.SampleRate != currentProfile.SampleRate) {
-                        _streamingAudioSamples = new StreamingAudioSamples(currentProfile.SampleRate, 1);
-                        var config = Config.Default;
-                        if (config.SampleRate != currentProfile.SampleRate) {
-                            config = config.WithSampleRate(currentProfile.SampleRate);
-                        }
-                        var detector = new Detector(1, config);
-                        _dtmfAnalyzer = Analyzer.Create(_streamingAudioSamples, detector);
-                        _currentBlockSize = detector.Config.SampleBlockSize * detector.Channels;
+                lock (_dtmfLock) {                    
+                    if (_streamingAudioSamples == null) {
+                        _streamingAudioSamples = new StreamingAudioSamples();                        
                     }
 
-                    _streamingAudioSamples.Write(samples);
+                    if(_dtmfAnalyzer == null) {
+                        var config = Config.Default;                        
+                        var detector = new Detector(1, config);
+                        _dtmfAnalyzer = Analyzer.Create(_streamingAudioSamples, detector);
+                        _currentBlockSize = config.SampleBlockSize;
+                    }
+
+                    _streamingAudioSamples.Write(samples.AsSpan(0, sampleCount));
                     while (_streamingAudioSamples.HasEnoughSamples(_currentBlockSize)) {
-                        var dtmfs = _dtmfAnalyzer?.AnalyzeNextBlock();
-
-                        if (_lastDetectedKey != PhoneKey.None && (now - _lastDtmfActivityTime).TotalMilliseconds > 2000) {
-                            _logger.LogDebug("DTMF timeout reset for {Key}", _lastDetectedKey);
-                            _lastDetectedKey = PhoneKey.None;
-                        }
-
+                        var dtmfs = _dtmfAnalyzer.AnalyzeNextBlock();
+                        var now = DateTime.UtcNow;
                         if (dtmfs != null) {
                             foreach (var change in dtmfs) {
                                 if (change.IsStart && change.Key != PhoneKey.None) {
-                                    bool isSameKey = (change.Key == _lastDetectedKey);
-
-                                    double msSinceLastActivity = (now - _lastDtmfActivityTime).TotalMilliseconds;
-
-                                    if (!isSameKey || msSinceLastActivity > DtmfGapThresholdMs) {
-                                        byte tone = change.Key.ToByte();
-                                        OnDtmfToneReceived?.Invoke(tone);
-
-                                        _lastDetectedKey = change.Key;
-                                        _logger.LogInformation("New in-band DTMF detected: {Key} (Gap: {Gap}ms)", change.Key, (int)msSinceLastActivity);
+                                    if (_currentTrackingKey != change.Key) {
+                                        _currentTrackingKey = change.Key;
+                                        _sameKeyContinuousCount = 0;
+                                        _hasReportedCurrentKey = false;
                                     }
-                                    _lastDtmfActivityTime = now;
-                                } else if (change.IsStop && change.Key == _lastDetectedKey) {
-
+                                } else if (change.IsStop && change.Key == _currentTrackingKey) {
+                                    _currentTrackingKey = PhoneKey.None;
+                                    _sameKeyContinuousCount = 0;
+                                    _hasReportedCurrentKey = false;
                                 }
-                                _lastDtmfActivityTime = now;
+                            }
+                        }
+
+                        if (_currentTrackingKey != PhoneKey.None) {
+                            _sameKeyContinuousCount++;
+
+                            double msSinceLastReport = (now - _lastReportedTime).TotalMilliseconds;
+                            bool isFirstStable = !_hasReportedCurrentKey && _sameKeyContinuousCount >= MinContinuousBlocksForDtmf;
+                            bool isLongPressGap = _hasReportedCurrentKey && msSinceLastReport > DtmfGapThresholdMs;
+
+                            if (isFirstStable || isLongPressGap) {
+                                byte tone = _currentTrackingKey.ToByte();
+
+                                _logger.LogInformation("DTMF Confirmed: {Key} (Count: {Count}, IsRepeat: {IsRepeat})",
+                                    _currentTrackingKey, _sameKeyContinuousCount, _hasReportedCurrentKey);
+
+                                OnDtmfToneReceived?.Invoke(tone);
+
+                                _lastReportedTime = now;
+                                _hasReportedCurrentKey = true;
                             }
                         }
                     }
@@ -176,6 +213,44 @@ namespace AI.Caller.Core {
                 ArrayPool<float>.Shared.Return(samples);
             }
         }
+
+        private void ResetDtmfState() {
+            lock (_dtmfLock) {
+                _currentTrackingKey = PhoneKey.None;
+                _sameKeyContinuousCount = 0;
+                _hasReportedCurrentKey = false;
+                _lastReportedTime = DateTime.MinValue;
+            }
+        }
+
+
+        private AudioResampler<byte> GetOrCreateOutputResampler(int inRate, int outRate) {
+            if (_outputResampler != null && (_outputResamplerInRate != inRate || _outputResamplerOutRate != outRate)) {
+                _outputResampler.Dispose();
+                _outputResampler = null;
+            }
+
+            if (_outputResampler == null) {
+                _outputResamplerInRate = inRate;
+                _outputResamplerOutRate = outRate;
+                _outputResampler = new AudioResampler<byte>(inRate, outRate, _logger);
+            }
+            return _outputResampler;
+        }
+
+        private AudioResampler<byte> GetOrCreateDtmfResampler(int inRate) {
+            if (_dtmfResampler != null && _dtmfResamplerInRate != inRate) {
+                _dtmfResampler.Dispose();
+                _dtmfResampler = null;
+            }
+
+            if (_dtmfResampler == null) {
+                _dtmfResamplerInRate = inRate;
+                _dtmfResampler = new AudioResampler<byte>(inRate, 8000, _logger);
+            }
+            return _dtmfResampler;
+        }
+
 
         private void ProcessAudioFrames(byte[] audioData, MediaProfile profile, Action<byte[]> frameProcessor) {
             if (profile == null) return;
@@ -202,25 +277,27 @@ namespace AI.Caller.Core {
         }
 
         private IAudioCodec? GetCodecForPayloadType(int payloadType) {
-            if (_codecCache.TryGetValue(payloadType, out var codec)) {
-                return codec;
-            }
+            lock (_codecCache) {
+                if (_codecCache.TryGetValue(payloadType, out var codec)) {
+                    return codec;
+                }
 
-            AudioCodec codecType = payloadType switch {
-                0 => AudioCodec.PCMU,
-                8 => AudioCodec.PCMA,
-                9 => AudioCodec.G722,
-                _ => AudioCodec.PCMA // Default fallback
-            };
+                AudioCodec codecType = payloadType switch {
+                    0 => AudioCodec.PCMU,
+                    8 => AudioCodec.PCMA,
+                    9 => AudioCodec.G722,
+                    _ => AudioCodec.PCMA // Default fallback
+                };
 
-            try {
-                codec = _codecFactory.GetCodec(codecType);
-                _codecCache[payloadType] = codec;
-                _logger.LogDebug($"Created codec for payload type {payloadType}: {codecType}");
-                return codec;
-            } catch (Exception ex) {
-                _logger.LogError(ex, $"Failed to create codec for payload type {payloadType}");
-                return null;
+                try {
+                    codec = _codecFactory.GetCodec(codecType);
+                    _codecCache[payloadType] = codec;
+                    _logger.LogDebug($"Created codec for payload type {payloadType}: {codecType}");
+                    return codec;
+                } catch (Exception ex) {
+                    _logger.LogError(ex, $"Failed to create codec for payload type {payloadType}");
+                    return null;
+                }
             }
         }
 
