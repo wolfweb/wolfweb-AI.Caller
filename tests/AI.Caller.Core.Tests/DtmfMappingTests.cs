@@ -5,6 +5,7 @@ using Xunit;
 using Moq;
 using Microsoft.Extensions.Logging;
 using AI.Caller.Core.Services;
+using AI.Caller.Core.CallAutomation;
 
 namespace AI.Caller.Core.Tests
 {
@@ -16,7 +17,7 @@ namespace AI.Caller.Core.Tests
             // Arrange
             var loggerMock = new Mock<ILogger<DtmfService>>();
             var loggerFactoryMock = new Mock<ILoggerFactory>();
-            var collectorLoggerMock = new Mock<ILogger<AI.Caller.Core.CallAutomation.DtmfCollector>>();
+            var collectorLoggerMock = new Mock<ILogger<DtmfCollector>>();
             
             loggerFactoryMock.Setup(x => x.CreateLogger(It.IsAny<string>()))
                 .Returns(collectorLoggerMock.Object);
