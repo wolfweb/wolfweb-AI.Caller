@@ -59,6 +59,7 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
         
         await _ttsPlayer.StopPlayoutAsync(callContext.Callee.User);
         
-        await _callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
+        // caller 如果是mobile user id 是不存在的, 因此这里应该使用被叫(服务端)来挂断
+        await _callManager.HangupCallAsync(callContext.CallId, callContext.Callee!.User!.Id);
     }
 }
