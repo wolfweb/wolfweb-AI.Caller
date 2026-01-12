@@ -35,7 +35,7 @@
 
                 <div class="mb-3">
                     <label asp-for="ValidatorType" class="form-label"></label>
-                    <select asp-for="ValidatorType" class="form-select" asp-items="Html.GetEnumSelectList<AI.Caller.Phone.Entities.DtmfInputType>()"></select>
+                    <select asp-for="ValidatorType" class="form-select" asp-items="Html.GetEnumStringValueSelectList<AI.Caller.Phone.Entities.DtmfInputType>()"></select>
                     <small class="text-muted">选择输入验证类型</small>
                 </div>
 

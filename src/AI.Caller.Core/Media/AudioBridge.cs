@@ -1,6 +1,7 @@
 using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Interfaces;
 using Microsoft.Extensions.Logging;
+using System.Buffers;
 
 namespace AI.Caller.Core {
     public sealed partial class AudioBridge : IAudioBridge {
@@ -8,13 +9,16 @@ namespace AI.Caller.Core {
 
         private readonly ILogger _logger;
         private readonly object _lock = new();
+        private readonly object _dtmfLock = new();
         private readonly AudioCodecFactory _codecFactory;
         private readonly Dictionary<int, IAudioCodec> _codecCache = new();
         
         private bool _isStarted;
+        private int _currentBlockSize;
         private MediaProfile? _profile;
-        private Detector? _dtmfDetector;
+        private IAnalyzer? _dtmfAnalyzer;
         private PhoneKey _lastDetectedKey = PhoneKey.None;
+        private StreamingAudioSamples? _streamingAudioSamples;
         private DateTime _lastDtmfActivityTime = DateTime.MinValue;
         private MediaSessionManager? _mediaSessionManager; // 添加MediaSessionManager引用
 
@@ -110,49 +114,66 @@ namespace AI.Caller.Core {
 
         public void Dispose() {
             Stop();
+            _dtmfAnalyzer = null;
             IncomingAudioReceived = null;
         }
 
         private void DtmfDetect(MediaProfile currentProfile, byte[] decodedPcm) {
-            float[] samples = new float[decodedPcm.Length / 2];
-            for (int i = 0; i < samples.Length; i++) {
-                short sample = BitConverter.ToInt16(decodedPcm, i * 2);
-                samples[i] = sample / 32768f;
-            }
+            float[] samples = ArrayPool<float>.Shared.Rent(decodedPcm.Length / 2);
 
-            if (_dtmfDetector == null) {
-                _dtmfDetector = new Detector(1, Config.Default);
-            }
-
-            IAnalyzer? _dtmfAnalyzer = Analyzer.Create(new AudioSamplesData(samples, 1, currentProfile.SampleRate), _dtmfDetector);
-            var dtmfs = _dtmfAnalyzer?.AnalyzeNextBlock();
-
-            var now = DateTime.UtcNow;
-            if (_lastDetectedKey != PhoneKey.None && (now - _lastDtmfActivityTime).TotalMilliseconds > 2000) {
-                _logger.LogDebug("DTMF timeout reset for {Key}", _lastDetectedKey);
-                _lastDetectedKey = PhoneKey.None;
-            }
-
-            if (dtmfs != null) {
-                foreach (var change in dtmfs) {
-                    if (change.IsStart && change.Key != PhoneKey.None) {
-                        bool isSameKey = (change.Key == _lastDetectedKey);
-
-                        double msSinceLastActivity = (now - _lastDtmfActivityTime).TotalMilliseconds;
-
-                        if (!isSameKey || msSinceLastActivity > DtmfGapThresholdMs) {
-                            byte tone = change.Key.ToByte();
-                            OnDtmfToneReceived?.Invoke(tone);
-
-                            _lastDetectedKey = change.Key;
-                            _logger.LogInformation("New in-band DTMF detected: {Key} (Gap: {Gap}ms)", change.Key, (int)msSinceLastActivity);
-                        }
-                        _lastDtmfActivityTime = now;
-                    } else if (change.IsStop && change.Key == _lastDetectedKey) {
-
-                    }
-                    _lastDtmfActivityTime = now;
+            try {
+                for (int i = 0; i < samples.Length; i++) {
+                    short sample = BitConverter.ToInt16(decodedPcm, i * 2);
+                    samples[i] = sample / 32768f;
                 }
+
+                lock (_dtmfLock) {
+                    var now = DateTime.UtcNow;
+                    if (_streamingAudioSamples == null || _streamingAudioSamples.SampleRate != currentProfile.SampleRate) {
+                        _streamingAudioSamples = new StreamingAudioSamples(currentProfile.SampleRate, 1);
+                        var config = Config.Default;
+                        if (config.SampleRate != currentProfile.SampleRate) {
+                            config = config.WithSampleRate(currentProfile.SampleRate);
+                        }
+                        var detector = new Detector(1, config);
+                        _dtmfAnalyzer = Analyzer.Create(_streamingAudioSamples, detector);
+                        _currentBlockSize = detector.Config.SampleBlockSize * detector.Channels;
+                    }
+
+                    _streamingAudioSamples.Write(samples);
+                    while (_streamingAudioSamples.HasEnoughSamples(_currentBlockSize)) {
+                        var dtmfs = _dtmfAnalyzer?.AnalyzeNextBlock();
+
+                        if (_lastDetectedKey != PhoneKey.None && (now - _lastDtmfActivityTime).TotalMilliseconds > 2000) {
+                            _logger.LogDebug("DTMF timeout reset for {Key}", _lastDetectedKey);
+                            _lastDetectedKey = PhoneKey.None;
+                        }
+
+                        if (dtmfs != null) {
+                            foreach (var change in dtmfs) {
+                                if (change.IsStart && change.Key != PhoneKey.None) {
+                                    bool isSameKey = (change.Key == _lastDetectedKey);
+
+                                    double msSinceLastActivity = (now - _lastDtmfActivityTime).TotalMilliseconds;
+
+                                    if (!isSameKey || msSinceLastActivity > DtmfGapThresholdMs) {
+                                        byte tone = change.Key.ToByte();
+                                        OnDtmfToneReceived?.Invoke(tone);
+
+                                        _lastDetectedKey = change.Key;
+                                        _logger.LogInformation("New in-band DTMF detected: {Key} (Gap: {Gap}ms)", change.Key, (int)msSinceLastActivity);
+                                    }
+                                    _lastDtmfActivityTime = now;
+                                } else if (change.IsStop && change.Key == _lastDetectedKey) {
+
+                                }
+                                _lastDtmfActivityTime = now;
+                            }
+                        }
+                    }
+                }
+            } finally {
+                ArrayPool<float>.Shared.Return(samples);
             }
         }
 
