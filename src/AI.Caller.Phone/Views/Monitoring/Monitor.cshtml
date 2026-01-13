@@ -238,12 +238,18 @@
         let startTime = null;
         let durationInterval = null;
 
-        // 音频相关变量
+        // 音频相关变量（双音轨）
         let audioContext = null;
-        let audioQueue = [];
-        let isPlaying = false;
-        let nextPlayTime = 0;
+        let nextTimeIncoming = 0;
+        let nextTimeOutgoing = 0;
+        let incomingQueue = [];  // 客户音频队列
+        let outgoingQueue = [];  // 系统音频队列
+        let incomingPlaying = false;
+        let outgoingPlaying = false;
+        // removing redundant incomingNextPlayTime/outgoingNextPlayTime
         let audioFrameCount = 0;
+        let incomingFrameCount = 0;
+        let outgoingFrameCount = 0;
 
         // 麦克风相关变量
         let mediaStream = null;
@@ -256,60 +262,98 @@
         function initAudioContext() {
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    sampleRate: 8000  // G.711采样率
+                    sampleRate: 8000
                 });
-                console.log("Web Audio API已初始化，采样率:", audioContext.sampleRate);
+                nextTimeIncoming = audioContext.currentTime;
+                nextTimeOutgoing = audioContext.currentTime;
+                console.log("Web Audio API已初始化");
             }
             return audioContext;
         }
 
 
 
-        // 播放音频队列
-        function playAudioQueue() {
-            if (audioQueue.length === 0) {
-                isPlaying = false;
+        // 播放客户音频队列 (Incoming)
+        function playIncomingQueue() {
+            if (incomingQueue.length === 0) {
+                incomingPlaying = false;
                 return;
             }
 
-            isPlaying = true;
-            const pcmData = audioQueue.shift();
+            incomingPlaying = true;
+            const pcmData = incomingQueue.shift();
 
             try {
-                // 创建AudioBuffer
-                const audioBuffer = audioContext.createBuffer(
-                    1,  // 单声道
-                    pcmData.length,
-                    8000  // 采样率
-                );
-
-                // 填充数据（归一化到[-1, 1]）
+                const audioBuffer = audioContext.createBuffer(1, pcmData.length, 8000);
                 const channelData = audioBuffer.getChannelData(0);
                 for (let i = 0; i < pcmData.length; i++) {
                     channelData[i] = pcmData[i] / 32768.0;
                 }
 
-                // 创建音频源
                 const source = audioContext.createBufferSource();
                 source.buffer = audioBuffer;
-                source.connect(audioContext.destination);
+                
+                // 可选：立体声分离 (客户 -> 左声道)
+                const panner = audioContext.createStereoPanner();
+                panner.pan.value = -0.5; // 左偏
+                source.connect(panner).connect(audioContext.destination);
 
-                // 计算播放时间
                 const currentTime = audioContext.currentTime;
-                if (nextPlayTime < currentTime) {
-                    nextPlayTime = currentTime;
+                if (nextTimeIncoming < currentTime) {
+                    nextTimeIncoming = currentTime;
                 }
 
-                source.start(nextPlayTime);
-                nextPlayTime += audioBuffer.duration;
+                source.start(nextTimeIncoming);
+                nextTimeIncoming += audioBuffer.duration;
 
-                // 播放完成后继续播放队列
                 source.onended = () => {
-                    playAudioQueue();
+                    playIncomingQueue();
                 };
             } catch (err) {
-                console.error("播放音频失败:", err);
-                isPlaying = false;
+                console.error("播放客户音频失败:", err);
+                incomingPlaying = false;
+            }
+        }
+
+        // 播放系统音频队列 (Outgoing)
+        function playOutgoingQueue() {
+            if (outgoingQueue.length === 0) {
+                outgoingPlaying = false;
+                return;
+            }
+
+            outgoingPlaying = true;
+            const pcmData = outgoingQueue.shift();
+
+            try {
+                const audioBuffer = audioContext.createBuffer(1, pcmData.length, 8000);
+                const channelData = audioBuffer.getChannelData(0);
+                for (let i = 0; i < pcmData.length; i++) {
+                    channelData[i] = pcmData[i] / 32768.0;
+                }
+
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                
+                // 可选：立体声分离 (AI -> 右声道)
+                const panner = audioContext.createStereoPanner();
+                panner.pan.value = 0.5; // 右偏
+                source.connect(panner).connect(audioContext.destination);
+
+                const currentTime = audioContext.currentTime;
+                if (nextTimeOutgoing < currentTime) {
+                    nextTimeOutgoing = currentTime;
+                }
+
+                source.start(nextTimeOutgoing);
+                nextTimeOutgoing += audioBuffer.duration;
+
+                source.onended = () => {
+                    playOutgoingQueue();
+                };
+            } catch (err) {
+                console.error("播放系统音频失败:", err);
+                outgoingPlaying = false;
             }
         }
 
@@ -320,9 +364,10 @@
                 .withAutomaticReconnect()
                 .build();
 
-            // 监听音频数据（服务端已解码为PCM）
-            connection.on("monitoringAudio", (base64Audio) => {
+            // 监听客户音频数据 (Incoming - 客户说话)
+            connection.on("incomingAudio", (base64Audio) => {
                 try {
+                    incomingFrameCount++;
                     audioFrameCount++;
                     
                     // Base64解码PCM数据
@@ -335,20 +380,51 @@
                     // 转换为Int16Array（16位PCM）
                     const pcmData = new Int16Array(bytes.buffer);
 
-                    // 添加到播放队列
-                    audioQueue.push(pcmData);
+                    // 添加到客户音频队列
+                    incomingQueue.push(pcmData);
 
                     // 开始播放
-                    if (!isPlaying) {
-                        playAudioQueue();
+                    if (!incomingPlaying) {
+                        playIncomingQueue();
                     }
 
-                    // 每100帧更新一次状态
-                    if (audioFrameCount % 100 === 0) {
-                        console.log(`已接收 ${audioFrameCount} 帧音频，队列长度: ${audioQueue.length}`);
+                    if (incomingFrameCount % 100 === 0) {
+                        console.log(`已接收 ${incomingFrameCount} 帧客户音频，队列长度: ${incomingQueue.length}`);
                     }
                 } catch (err) {
-                    console.error("处理音频数据失败:", err);
+                    console.error("处理客户音频数据失败:", err);
+                }
+            });
+
+            // 监听系统音频数据 (Outgoing - AI/系统播放)
+            connection.on("outgoingAudio", (base64Audio) => {
+                try {
+                    outgoingFrameCount++;
+                    audioFrameCount++;
+                    
+                    // Base64解码PCM数据
+                    const binaryString = atob(base64Audio);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+
+                    // 转换为Int16Array（16位PCM）
+                    const pcmData = new Int16Array(bytes.buffer);
+
+                    // 添加到系统音频队列
+                    outgoingQueue.push(pcmData);
+
+                    // 开始播放
+                    if (!outgoingPlaying) {
+                        playOutgoingQueue();
+                    }
+
+                    if (outgoingFrameCount % 100 === 0) {
+                        console.log(`已接收 ${outgoingFrameCount} 帧系统音频，队列长度: ${outgoingQueue.length}`);
+                    }
+                } catch (err) {
+                    console.error("处理系统音频数据失败:", err);
                 }
             });
 
@@ -449,8 +525,10 @@
                     }
                     
                     // 清空音频队列
-                    audioQueue = [];
-                    isPlaying = false;
+                    incomingQueue = [];
+                    outgoingQueue = [];
+                    incomingPlaying = false;
+                    outgoingPlaying = false;
                     
                     showToast(result.message, "success");
                 } else {

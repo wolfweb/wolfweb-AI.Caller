@@ -10,10 +10,15 @@ public sealed partial class AudioBridge {
     private readonly ConcurrentDictionary<int, MonitoringListener> _monitoringListeners = new();
 
     /// <summary>
-    /// 监听音频准备就绪事件（包含系统播放和对方说话的混合音频）
+    /// 客户音频准备就绪事件（Incoming - 客户说话）
     /// </summary>
-    public event Action<int, byte[]>? MonitoringAudioReady;
-
+    public event Action<int, byte[]>? IncomingAudioReady;
+    
+    /// <summary>
+    /// 系统音频准备就绪事件（Outgoing - AI/系统播放）
+    /// </summary>
+    public event Action<int, byte[]>? OutgoingAudioReady;
+    
     /// <summary>
     /// 系统播放音频事件（仅系统播放的内容）
     /// </summary>
@@ -85,14 +90,18 @@ public sealed partial class AudioBridge {
             return;
 
         try {
-            // 触发系统播放音频事件
+            // 触发系统播放音频事件（原始G.711格式）
             OutgoingAudioGenerated?.Invoke(audioFrame);
 
-            // 发送给所有活跃的监听者（系统音频）
+            // 解码G.711为PCM，统一监听音频格式
+            var currentCodec = GetCurrentNegotiatedCodec();
+            var codec = _codecFactory.GetCodec(currentCodec);
+            var pcmData = codec.Decode(audioFrame);
+
+            // 发送给所有活跃的监听者（系统音频 - Outgoing，PCM格式）
             foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
-                MonitoringAudioReady?.Invoke(listener.UserId, audioFrame);
-                _logger.LogTrace("推送系统音频到监听者: UserId {UserId}, 帧大小 {Size} 字节",
-                    listener.UserId, audioFrame.Length);
+                OutgoingAudioReady?.Invoke(listener.UserId, pcmData);
+                _logger.LogTrace("推送系统音频到监听者: UserId {UserId}, G.711大小 {G711Size} 字节, PCM大小 {PcmSize} 字节", listener.UserId, audioFrame.Length, pcmData.Length);
             }
         } catch (Exception ex) {
             _logger.LogError(ex, "处理系统播放音频失败");
@@ -108,11 +117,10 @@ public sealed partial class AudioBridge {
             return;
 
         try {
-            // 发送给所有活跃的监听者（用户音频）
+            // 发送给所有活跃的监听者（客户音频 - Incoming）
             foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
-                MonitoringAudioReady?.Invoke(listener.UserId, audioFrame);
-                _logger.LogTrace("推送用户音频到监听者: UserId {UserId}, 帧大小 {Size} 字节",
-                    listener.UserId, audioFrame.Length);
+                IncomingAudioReady?.Invoke(listener.UserId, audioFrame);
+                _logger.LogTrace("推送客户音频到监听者: UserId {UserId}, 帧大小 {Size} 字节", listener.UserId, audioFrame.Length);
             }
         } catch (Exception ex) {
             _logger.LogError(ex, "广播来电音频到监听者失败");

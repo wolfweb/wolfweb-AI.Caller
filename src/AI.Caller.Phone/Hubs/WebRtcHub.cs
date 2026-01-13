@@ -166,23 +166,30 @@ namespace AI.Caller.Phone.Hubs {
         #region 监听与接入功能
 
         /// <summary>
-        /// 发送监听音频到特定用户
+        /// 发送客户音频到监听者 (Incoming - 客户说话)
+        /// 音频已在AudioBridge中解码为PCM格式
         /// </summary>
-        private async Task SendMonitoringAudioAsync(int monitorUserId, byte[] g711AudioData) {
+        private async Task SendIncomingAudioAsync(int monitorUserId, byte[] pcmAudioData) {
             try {
-                // G.711 A-law解码为PCM（服务端解码）
-                var pcmData = _g711Codec.DecodeG711ALaw(g711AudioData); //DecodeG711ALaw(g711AudioData);
-
-                // Base64编码PCM数据
-                var base64Audio = Convert.ToBase64String(pcmData);
-
-                // 发送给特定监听者
-                await Clients.User(monitorUserId.ToString()).SendAsync("monitoringAudio", base64Audio);
-
-                _logger.LogTrace("音频已发送到监听者: UserId {UserId}, G.711大小 {G711Size} 字节, PCM大小 {PcmSize} 字节",
-                    monitorUserId, g711AudioData.Length, pcmData.Length);
+                var base64Audio = Convert.ToBase64String(pcmAudioData);
+                await Clients.User(monitorUserId.ToString()).SendAsync("incomingAudio", base64Audio);
+                _logger.LogTrace("客户音频已发送到监听者: UserId {UserId}, PCM大小 {Size} 字节", monitorUserId, pcmAudioData.Length);
             } catch (Exception ex) {
-                _logger.LogError(ex, "发送监听音频失败: UserId {UserId}", monitorUserId);
+                _logger.LogError(ex, "发送客户音频失败: UserId {UserId}", monitorUserId);
+            }
+        }
+
+        /// <summary>
+        /// 发送系统音频到监听者 (Outgoing - AI/系统播放)
+        /// 音频已在AudioBridge中解码为PCM格式
+        /// </summary>
+        private async Task SendOutgoingAudioAsync(int monitorUserId, byte[] pcmAudioData) {
+            try {
+                var base64Audio = Convert.ToBase64String(pcmAudioData);
+                await Clients.User(monitorUserId.ToString()).SendAsync("outgoingAudio", base64Audio);
+                _logger.LogTrace("系统音频已发送到监听者: UserId {UserId}, PCM大小 {Size} 字节", monitorUserId, pcmAudioData.Length);
+            } catch (Exception ex) {
+                _logger.LogError(ex, "发送系统音频失败: UserId {UserId}", monitorUserId);
             }
         }
 
@@ -203,20 +210,27 @@ namespace AI.Caller.Phone.Hubs {
                 // 加入监听组
                 await Groups.AddToGroupAsync(Context.ConnectionId, $"monitoring_{callId}");
 
-                // 订阅音频事件
+                // 订阅音频事件（双音轨：分别订阅incoming和outgoing）
                 var aiSession = _aiServiceManager.GetActiveSession(targetUserId);
                 if (aiSession?.AudioBridge is AudioBridge audioBridge) {
-                    // 订阅监听音频事件
-                    Action<int, byte[]> audioHandler = async (userId, audioData) => {
+                    // 订阅客户音频事件 (Incoming)
+                    Action<int, byte[]> incomingHandler = async (userId, audioData) => {
                         if (userId == monitorUserId) {
-                            await SendMonitoringAudioAsync(monitorUserId, audioData);
+                            await SendIncomingAudioAsync(monitorUserId, audioData);
+                        }
+                    };
+                    
+                    // 订阅系统音频事件 (Outgoing)
+                    Action<int, byte[]> outgoingHandler = async (userId, audioData) => {
+                        if (userId == monitorUserId) {
+                            await SendOutgoingAudioAsync(monitorUserId, audioData);
                         }
                     };
 
-                    audioBridge.MonitoringAudioReady += audioHandler;
+                    audioBridge.IncomingAudioReady += incomingHandler;
+                    audioBridge.OutgoingAudioReady += outgoingHandler;
 
-                    _logger.LogInformation("已订阅音频事件: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}",
-                        monitorUserId, targetUserId);
+                    _logger.LogInformation("已订阅双音轨事件: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}", monitorUserId, targetUserId);
                 } else {
                     _logger.LogWarning("无法找到AudioBridge，音频流传输可能不可用: TargetUserId {TargetUserId}", targetUserId);
                 }
