@@ -14,13 +14,13 @@ public class TtsPlayerService : ITtsPlayerService {
         _aiCustomerServiceManager = aiCustomerServiceManager;
     }
 
-    public async Task<TimeSpan> PlayTtsAsync(string text, User user, SIPClient sipClient, float? speed = 1.0f, int speakerId = 0) {
+    public async Task<TimeSpan> PlayTtsAsync(string text, User user, SIPClient sipClient, float? speed = 1.0f, int speakerId = 0, string? callId = null) {
         var session = _aiCustomerServiceManager.GetActiveSession(user.Id);
 
         if (session == null) {
             _logger.LogInformation("No active session for user {UserId}, creating a new one.", user.Id);
             
-            bool sessionCreated = await _aiCustomerServiceManager.StartAICustomerServiceAsync(user, sipClient, string.Empty, speakerId, speed ?? 1.0f);
+            bool sessionCreated = await _aiCustomerServiceManager.StartAICustomerServiceAsync(user, sipClient, string.Empty, speakerId, speed ?? 1.0f, callId);
 
             if (!sessionCreated) {
                 _logger.LogError("Failed to create AI customer service session for user {UserId}.", user.Id);

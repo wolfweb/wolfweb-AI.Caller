@@ -366,20 +366,15 @@
                 .build();
 
             // 监听客户音频数据 (Incoming - 客户说话)
-            connection.on("incomingAudio", (base64Audio) => {
+            connection.on("incomingAudio", (uint8Array) => {
                 try {
                     incomingFrameCount++;
                     audioFrameCount++;
-                    
-                    // Base64解码PCM数据
-                    const binaryString = atob(base64Audio);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-
-                    // 转换为Int16Array（16位PCM）
-                    const pcmData = new Int16Array(bytes.buffer);
+                    const pcmData = new Int16Array(
+                        uint8Array.buffer,
+                        uint8Array.byteOffset,
+                        uint8Array.byteLength / 2
+                    );
 
                     // 添加到客户音频队列
                     incomingQueue.push(pcmData);
@@ -398,20 +393,16 @@
             });
 
             // 监听系统音频数据 (Outgoing - AI/系统播放)
-            connection.on("outgoingAudio", (base64Audio) => {
+            connection.on("outgoingAudio", (uint8Array) => {
                 try {
                     outgoingFrameCount++;
                     audioFrameCount++;
                     
-                    // Base64解码PCM数据
-                    const binaryString = atob(base64Audio);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-
-                    // 转换为Int16Array（16位PCM）
-                    const pcmData = new Int16Array(bytes.buffer);
+                    const pcmData = new Int16Array(
+                        uint8Array.buffer,
+                        uint8Array.byteOffset,
+                        uint8Array.byteLength / 2
+                    );
 
                     // 添加到系统音频队列
                     outgoingQueue.push(pcmData);

@@ -127,19 +127,19 @@ public class CallProcessor : ICallProcessor {
                     } else {
                         var ttsTemplate = await context.TtsTemplates.FindAsync(batchCall!.TtsTemplateId);
 
-                        await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate?.SpeechRate, settings.DefaultSpeakerId);
+                        await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate?.SpeechRate, settings.DefaultSpeakerId, callContext.CallId);
 
                         if (ttsTemplate?.PlayCount > 1) {
                             for (var i = 0; i < ttsTemplate.PlayCount - 1; i++) {
                                 await Task.Delay(ttsTemplate.PauseBetweenPlaysInSeconds * 1000);
 
-                                await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate.SpeechRate, settings.DefaultSpeakerId);
+                                await ttsPlayer.PlayTtsAsync(callLog.ResolvedContent ?? "", agent, sc, ttsTemplate.SpeechRate, settings.DefaultSpeakerId, callContext.CallId);
                             }
                         }
 
                         if (!string.IsNullOrEmpty(ttsTemplate?.EndingSpeech)) {
                             await Task.Delay(ttsTemplate.PauseBetweenPlaysInSeconds * 1000);
-                            await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sc, ttsTemplate.SpeechRate, settings.DefaultSpeakerId);
+                            await ttsPlayer.PlayTtsAsync(ttsTemplate.EndingSpeech, agent, sc, ttsTemplate.SpeechRate, settings.DefaultSpeakerId, callContext.CallId);
                         }
 
                         await ttsPlayer.StopPlayoutAsync(agent);
