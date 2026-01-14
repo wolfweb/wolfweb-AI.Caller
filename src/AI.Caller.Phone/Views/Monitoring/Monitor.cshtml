@@ -229,6 +229,7 @@
 </div>
 
 @section Scripts {
+    <script src="~/js/audio-player.js"></script>
     <script>
         const targetUserId = @targetUserId;
         const callId = '@callId';
@@ -240,18 +241,12 @@
 
         // 音频相关变量（双音轨）
         let audioContext = null;
-        let nextTimeIncoming = 0;
-        let nextTimeOutgoing = 0;
-        let incomingQueue = [];  // 客户音频队列
-        let outgoingQueue = [];  // 系统音频队列
-        let incomingPlaying = false;
-        let outgoingPlaying = false;
-        // removing redundant incomingNextPlayTime/outgoingNextPlayTime
+        let incomingPlayer = null; // 客户音频
+        let outgoingPlayer = null; // 系统音频
         let audioFrameCount = 0;
         let incomingFrameCount = 0;
         let outgoingFrameCount = 0;
 
-        // 麦克风相关变量
         let mediaStream = null;
         let mediaRecorder = null;
         let isRecording = false;
@@ -263,98 +258,21 @@
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)({
                     sampleRate: 8000
+                });                
+
+                incomingPlayer = new AudioPlayer(audioContext, {
+                    pan: -0.5,
+                    threshold: 10
                 });
-                nextTimeIncoming = audioContext.currentTime;
-                nextTimeOutgoing = audioContext.currentTime;
+                outgoingPlayer = new AudioPlayer(audioContext, {
+                    pan: -0.5,
+                    threshold: 10
+                });
+
                 console.log("Web Audio API已初始化");
             }
+
             return audioContext;
-        }
-
-
-
-        // 播放客户音频队列 (Incoming)
-        function playIncomingQueue() {
-            if (incomingQueue.length === 0) {
-                incomingPlaying = false;
-                return;
-            }
-
-            incomingPlaying = true;
-            const pcmData = incomingQueue.shift();
-
-            try {
-                const audioBuffer = audioContext.createBuffer(1, pcmData.length, 8000);
-                const channelData = audioBuffer.getChannelData(0);
-                for (let i = 0; i < pcmData.length; i++) {
-                    channelData[i] = pcmData[i] / 32768.0;
-                }
-
-                const source = audioContext.createBufferSource();
-                source.buffer = audioBuffer;
-                
-                // 可选：立体声分离 (客户 -> 左声道)
-                const panner = audioContext.createStereoPanner();
-                panner.pan.value = -0.5; // 左偏
-                source.connect(panner).connect(audioContext.destination);
-
-                const currentTime = audioContext.currentTime;
-                if (nextTimeIncoming < currentTime) {
-                    nextTimeIncoming = currentTime;
-                }
-
-                source.start(nextTimeIncoming);
-                nextTimeIncoming += audioBuffer.duration;
-
-                source.onended = () => {
-                    playIncomingQueue();
-                };
-            } catch (err) {
-                console.error("播放客户音频失败:", err);
-                incomingPlaying = false;
-            }
-        }
-
-        // 播放系统音频队列 (Outgoing)
-        function playOutgoingQueue() {
-            if (outgoingQueue.length === 0) {
-                outgoingPlaying = false;
-                return;
-            }
-
-            outgoingPlaying = true;
-            const pcmData = outgoingQueue.shift();
-
-            try {
-                const audioBuffer = audioContext.createBuffer(1, pcmData.length, 8000);
-                const channelData = audioBuffer.getChannelData(0);
-                for (let i = 0; i < pcmData.length; i++) {
-                    channelData[i] = pcmData[i] / 32768.0;
-                }
-
-                const source = audioContext.createBufferSource();
-                source.buffer = audioBuffer;
-                
-                // 可选：立体声分离 (AI -> 右声道)
-                const panner = audioContext.createStereoPanner();
-                panner.pan.value = 0.5; // 右偏
-                source.connect(panner).connect(audioContext.destination);
-
-                const currentTime = audioContext.currentTime;
-                if (nextTimeOutgoing < currentTime) {
-                    nextTimeOutgoing = currentTime;
-                }
-
-                source.start(nextTimeOutgoing);
-                nextTimeOutgoing += audioBuffer.duration;
-
-                source.onended = () => {
-                    playOutgoingQueue();
-                };
-            } catch (err) {
-                console.error("播放系统音频失败:", err);
-                outgoingPlaying = false;
-            }
         }
 
         // 初始化SignalR连接
@@ -365,7 +283,6 @@
                 .withAutomaticReconnect()
                 .build();
 
-            // 监听客户音频数据 (Incoming - 客户说话)
             connection.on("incomingAudio", (uint8Array) => {
                 try {
                     incomingFrameCount++;
@@ -376,23 +293,14 @@
                         uint8Array.byteLength / 2
                     );
 
-                    // 添加到客户音频队列
-                    incomingQueue.push(pcmData);
-
-                    // 开始播放
-                    if (!incomingPlaying) {
-                        playIncomingQueue();
-                    }
-
-                    if (incomingFrameCount % 100 === 0) {
-                        console.log(`已接收 ${incomingFrameCount} 帧客户音频，队列长度: ${incomingQueue.length}`);
+                    if (incomingPlayer) {
+                        incomingPlayer.push(pcmData);
                     }
                 } catch (err) {
                     console.error("处理客户音频数据失败:", err);
                 }
             });
 
-            // 监听系统音频数据 (Outgoing - AI/系统播放)
             connection.on("outgoingAudio", (uint8Array) => {
                 try {
                     outgoingFrameCount++;
@@ -404,23 +312,14 @@
                         uint8Array.byteLength / 2
                     );
 
-                    // 添加到系统音频队列
-                    outgoingQueue.push(pcmData);
-
-                    // 开始播放
-                    if (!outgoingPlaying) {
-                        playOutgoingQueue();
-                    }
-
-                    if (outgoingFrameCount % 100 === 0) {
-                        console.log(`已接收 ${outgoingFrameCount} 帧系统音频，队列长度: ${outgoingQueue.length}`);
+                    if (outgoingPlayer) {
+                        outgoingPlayer.push(pcmData);
                     }
                 } catch (err) {
                     console.error("处理系统音频数据失败:", err);
                 }
             });
 
-            // 监听其他事件
             connection.on("interventionStarted", (data) => {
                 console.log("接入开始:", data);
                 updateStatus("已接入", "bg-warning");
@@ -452,11 +351,13 @@
             }
         }
 
-        // 开始监听
         async function startMonitoring() {
             try {
-                // 初始化音频上下文（需要用户交互）
                 initAudioContext();
+
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
                 
                 const result = await connection.invoke("StartMonitoringAsync", targetUserId, callId);
                 if (result.success) {
@@ -465,7 +366,6 @@
                     document.getElementById('startMonitorBtn').style.display = 'none';
                     document.getElementById('stopMonitorBtn').style.display = 'inline-block';
                     
-                    // 更新音频状态显示
                     document.getElementById('audioStatus').innerHTML = `
                         <i class="bi bi-volume-up" style="font-size: 3rem; color: green;"></i>
                         <p class="mt-2">正在接收音频...</p>
@@ -477,7 +377,6 @@
                     startTime = new Date();
                     durationInterval = setInterval(updateDuration, 1000);
                     
-                    // 定期更新帧计数
                     setInterval(() => {
                         const frameCountEl = document.getElementById('frameCount');
                         if (frameCountEl) {
@@ -495,7 +394,6 @@
             }
         }
 
-        // 停止监听
         async function stopMonitoring() {
             try {
                 const result = await connection.invoke("StopMonitoringAsync", targetUserId, sessionId, callId);
@@ -503,7 +401,6 @@
                     document.getElementById('startMonitorBtn').style.display = 'inline-block';
                     document.getElementById('stopMonitorBtn').style.display = 'none';
                     
-                    // 更新音频状态显示
                     document.getElementById('audioStatus').innerHTML = `
                         <i class="bi bi-volume-mute" style="font-size: 3rem;"></i>
                         <p class="mt-2">监听已停止</p>
@@ -516,12 +413,9 @@
                         clearInterval(durationInterval);
                     }
                     
-                    // 清空音频队列
-                    incomingQueue = [];
-                    outgoingQueue = [];
-                    incomingPlaying = false;
-                    outgoingPlaying = false;
-                    
+                    if (incomingPlayer) incomingPlayer.reset();
+                    if (outgoingPlayer) outgoingPlayer.reset();
+                                        
                     showToast(result.message, "success");
                 } else {
                     showToast(result.message, "error");
@@ -534,23 +428,19 @@
 
 
 
-        // 全选片段
         function selectAllSegments() {
             document.querySelectorAll('.segment-checkbox').forEach(cb => cb.checked = true);
         }
 
-        // 清空选择
         function clearAllSegments() {
             document.querySelectorAll('.segment-checkbox').forEach(cb => cb.checked = false);
         }
 
-        // 获取选中的片段ID列表
         function getSelectedSegmentIds() {
             const checkboxes = document.querySelectorAll('.segment-checkbox:checked');
             return Array.from(checkboxes).map(cb => parseInt(cb.value));
         }
 
-        // 人工接入
         async function intervent() {
             const reason = document.getElementById('interventionReason').value;
             try {
@@ -559,13 +449,10 @@
                     document.getElementById('interventBtn').style.display = 'none';
                     document.getElementById('exitInterventBtn').style.display = 'block';
                     
-                    // 显示延迟恢复控制面板
                     document.getElementById('resumeDelayPanel').style.display = 'block';
                     
-                    // 启用片段选择功能
                     enableSegmentSelection();
                     
-                    // 显示人工接入音频控制
                     document.getElementById('interventionAudioCard').style.display = 'block';
                     
                     showToast(result.message, "success");
@@ -578,44 +465,35 @@
             }
         }
 
-        // 启用片段选择功能
         function enableSegmentSelection() {
-            // 启用所有片段复选框
             document.querySelectorAll('.segment-checkbox').forEach(cb => {
                 cb.disabled = false;
             });
             
-            // 启用全选和清空按钮
             document.getElementById('selectAllBtn').disabled = false;
             document.getElementById('clearAllBtn').disabled = false;
             
-            // 更新提示文本
             const hintText = document.getElementById('segmentHintText');
             if (hintText) {
                 hintText.textContent = '选择要跳过的片段，退出接入时将跳过选中的片段';
             }
         }
 
-        // 禁用片段选择功能
         function disableSegmentSelection() {
-            // 禁用所有片段复选框
             document.querySelectorAll('.segment-checkbox').forEach(cb => {
                 cb.disabled = true;
                 cb.checked = false;
             });
             
-            // 禁用全选和清空按钮
             document.getElementById('selectAllBtn').disabled = true;
             document.getElementById('clearAllBtn').disabled = true;
             
-            // 恢复提示文本
             const hintText = document.getElementById('segmentHintText');
             if (hintText) {
                 hintText.textContent = '需要先进行人工接入才能选择片段';
             }
         }
 
-        // 显示退出接入对话框
         function showExitDialog() {
             const selectedIds = getSelectedSegmentIds();
             const delaySeconds = parseInt(document.getElementById('resumeDelay').value) || 2;
@@ -631,27 +509,20 @@
             }
         }
 
-        // 退出接入
         async function exitIntervention(skipSegmentIds = null, delaySeconds = 2) {
             try {
-                // 隐藏延迟控制面板
                 document.getElementById('resumeDelayPanel').style.display = 'none';
                 
-                // 禁用片段选择功能
                 disableSegmentSelection();
                 
-                // 隐藏人工接入音频控制
                 document.getElementById('interventionAudioCard').style.display = 'none';
                 
-                // 停止麦克风（如果正在使用）
                 if (isRecording) {
                     stopMicrophone();
                 }
                 
-                // 显示倒计时提示
                 showToast(`退出接入成功，${delaySeconds} 秒后恢复AI播放...`, "info");
                 
-                // 延迟指定秒数后恢复播放
                 await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
                 
                 const result = await connection.invoke("ExitInterventionAsync", targetUserId, callId, skipSegmentIds, true);
@@ -673,7 +544,6 @@
             }
         }
 
-        // 暂停播放
         async function pausePlayback() {
             try {
                 const result = await connection.invoke("PausePlaybackAsync", callId);
@@ -684,7 +554,6 @@
             }
         }
 
-        // 恢复播放
         async function resumePlayback() {
             try {
                 const result = await connection.invoke("ResumePlaybackAsync", callId);
@@ -695,27 +564,21 @@
             }
         }
 
-        // Toast提示函数
         function showToast(message, type) {
-            // 简单的控制台输出，可以后续集成Bootstrap Toast
             const icon = type === "success" ? "✓" : type === "error" ? "✗" : "ℹ";
             console.log(`${icon} ${message}`);
             
-            // 可选：使用浏览器通知
             if (type === "error") {
-                // 仅错误时使用alert，其他使用控制台
                 console.error(message);
             }
         }
 
-        // 更新状态显示
         function updateStatus(text, badgeClass) {
             const statusEl = document.getElementById('status');
             statusEl.textContent = text;
             statusEl.className = 'badge ' + badgeClass;
         }
 
-        // 更新监听时长
         function updateDuration() {
             if (!startTime) return;
             const now = new Date();
@@ -726,10 +589,8 @@
             document.getElementById('duration').textContent = `${hours}:${minutes}:${seconds}`;
         }
 
-        // 麦克风控制函数
         async function startMicrophone() {
             try {
-                // 请求麦克风权限
                 mediaStream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
                         sampleRate: 8000,
@@ -739,32 +600,26 @@
                     } 
                 });
 
-                // 创建 AudioContext
                 micAudioContext = new (window.AudioContext || window.webkitAudioContext)({
                     sampleRate: 8000
                 });
                 
                 const source = micAudioContext.createMediaStreamSource(mediaStream);
                 
-                // 尝试使用 AudioWorklet（现代方式）
                 try {
                     await micAudioContext.audioWorklet.addModule('/js/audio/intervention-audio-processor.js');
                     audioWorkletNode = new AudioWorkletNode(micAudioContext, 'intervention-audio-processor');
                     
-                    // 接收来自 AudioWorklet 的音频数据和音量
                     audioWorkletNode.port.onmessage = async (event) => {
                         const { audioData, volume } = event.data;
                         
-                        // 更新音量指示器
                         updateVolumeMeter(volume);
                         
-                        // 发送音频数据
                         const byteArray = new Uint8Array(audioData.buffer);
                         try {
                             await connection.invoke("SendInterventionAudioBinary", targetUserId, callId, byteArray);
                         } catch (err) {
                             console.error("发送二进制音频失败:", err);
-                            // 降级到Base64方式
                             try {
                                 const base64Audio = btoa(String.fromCharCode(...byteArray));
                                 await connection.invoke("SendInterventionAudio", targetUserId, callId, base64Audio);
@@ -781,7 +636,6 @@
                     document.getElementById('micStatus').innerHTML = '<small class="text-success">麦克风已启用 (AudioWorklet)</small>';
                     
                 } catch (workletErr) {
-                    // 降级到 ScriptProcessor（兼容旧浏览器）
                     console.warn("AudioWorklet 不可用，降级到 ScriptProcessor:", workletErr);
                     
                     const processor = micAudioContext.createScriptProcessor(1024, 1, 1);
@@ -790,7 +644,6 @@
                         const inputBuffer = event.inputBuffer;
                         const inputData = inputBuffer.getChannelData(0);
                         
-                        // 计算音量
                         let sumSquares = 0;
                         for (let i = 0; i < inputData.length; i++) {
                             sumSquares += inputData[i] * inputData[i];
@@ -798,7 +651,6 @@
                         const volume = Math.sqrt(sumSquares / inputData.length);
                         updateVolumeMeter(volume);
                         
-                        // 转换Float32到Int16 PCM
                         const int16Data = new Int16Array(inputData.length);
                         for (let i = 0; i < inputData.length; i++) {
                             int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
@@ -828,7 +680,6 @@
                 
                 isRecording = true;
 
-                // 更新UI
                 document.getElementById('startMicBtn').style.display = 'none';
                 document.getElementById('stopMicBtn').style.display = 'inline-block';
                 document.getElementById('volumeMeterContainer').style.display = 'block';
@@ -843,13 +694,11 @@
             try {
                 isRecording = false;
                 
-                // 断开 AudioWorklet
                 if (audioWorkletNode) {
                     audioWorkletNode.disconnect();
                     audioWorkletNode = null;
                 }
                 
-                // 关闭 AudioContext
                 if (micAudioContext) {
                     await micAudioContext.close();
                     micAudioContext = null;
@@ -860,7 +709,6 @@
                     mediaStream = null;
                 }
 
-                // 更新UI
                 document.getElementById('startMicBtn').style.display = 'inline-block';
                 document.getElementById('stopMicBtn').style.display = 'none';
                 document.getElementById('micStatus').innerHTML = '<small class="text-muted">麦克风未启用</small>';
@@ -875,13 +723,10 @@
         }
 
         function updateVolumeMeter(volume) {
-            // 音量通常在 0-1 之间，但语音通常较小，做一些放大以便于观察
-            // 使用对数刻度让显示更自然
             const minVolume = 0.01;
             let displayVolume = 0;
             
             if (volume > minVolume) {
-                // 简单的线性放大，可根据实际测试调整参数
                 displayVolume = Math.min(100, volume * 400); 
             }
             
@@ -889,7 +734,6 @@
             if (meter) {
                 meter.style.width = `${displayVolume}%`;
                 
-                // 根据音量大小改变颜色
                 if (displayVolume > 80) {
                     meter.classList.remove('bg-success', 'bg-warning');
                     meter.classList.add('bg-danger'); // 音量过大
@@ -903,7 +747,6 @@
             }
         }
 
-        // 页面加载时初始化
         document.addEventListener('DOMContentLoaded', () => {
             initConnection();
         });
