@@ -33,16 +33,12 @@ public partial class AICustomerServiceManager {
                 var monitoringService = scope.ServiceProvider.GetRequiredService<IMonitoringService>();
 
                 // 创建监听会话记录
-                var monitoringSession = await monitoringService.StartMonitoringAsync(
-                    callId,
-                    monitorUserId,
-                    monitorUserName);
+                var monitoringSession = await monitoringService.StartMonitoringAsync(callId, monitorUserId, monitorUserName);
 
                 // 在AudioBridge中添加监听者
                 if (session.AudioBridge is AudioBridge audioBridge) {
                     audioBridge.AddMonitor(monitorUserId, monitorUserName);
-                    _logger.LogInformation("监听者已添加到AudioBridge: UserId {UserId}, MonitorUser {MonitorUserId}",
-                        userId, monitorUserId);
+                    _logger.LogInformation("监听者已添加到AudioBridge: UserId {UserId}, MonitorUser {MonitorUserId}", userId, monitorUserId);
                 }
 
                 _logger.LogInformation("监听会话已开始: SessionId {SessionId}, CallId {CallId}",
@@ -75,8 +71,7 @@ public partial class AICustomerServiceManager {
                 var session = GetActiveSession(userId);
                 if (session?.AudioBridge is AudioBridge audioBridge) {
                     audioBridge.RemoveMonitor(monitorUserId);
-                    _logger.LogInformation("监听者已从AudioBridge移除: UserId {UserId}, MonitorUser {MonitorUserId}",
-                        userId, monitorUserId);
+                    _logger.LogInformation("监听者已从AudioBridge移除: UserId {UserId}, MonitorUser {MonitorUserId}", userId, monitorUserId);
                 }
 
                 _logger.LogInformation("监听会话已停止: SessionId {SessionId}", sessionId);

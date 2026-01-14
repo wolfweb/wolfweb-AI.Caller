@@ -351,6 +351,7 @@ namespace AI.Caller.Phone.Controllers {
                     Password = model.Password, // 在实际应用中应该加密密码
                     DisplayName = model.DisplayName,
                     Email = model.Email,
+                    EnableAI = model.AI,
                     PhoneNumber = model.PhoneNumber
                 };
 
@@ -381,7 +382,7 @@ namespace AI.Caller.Phone.Controllers {
                 if (!string.IsNullOrEmpty(model.Password)) {
                     user.Password = model.Password; 
                 }
-
+                user.EnableAI = model.AI;
                 user.DisplayName = model.DisplayName;
                 user.Email = model.Email;
                 user.PhoneNumber = model.PhoneNumber;
@@ -693,6 +694,7 @@ namespace AI.Caller.Phone.Controllers {
     }
 
     public class UserCreateModel {
+        public bool AI { get; set; }
         public string Username { get; set; }
         public string Password { get; set; }
         public string? Email { get; set; }
@@ -702,6 +704,7 @@ namespace AI.Caller.Phone.Controllers {
 
     public class UserEditModel {
         public int Id { get; set; }
+        public bool AI { get; set; }
         public string? Password { get; set; }
         public string? Email { get; set; }
         public string? PhoneNumber { get; set; }

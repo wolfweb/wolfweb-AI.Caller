@@ -358,7 +358,7 @@ class WebRTCManager {
             const callContext = this.callStateManager.getCallContext();
             if (callContext) {
                 await window.phoneApp.signalRManager.connection.invoke("SendIceCandidateAsync", {
-                    callId: callContext.callId,
+                    CallId: callContext.callId,
                     iceCandidate: JSON.stringify(candidate)
                 });
                 console.log("ICE候选者发送成功:", candidate.candidate);

@@ -37,7 +37,11 @@ namespace AI.Caller.Phone {
                 options.Cookie.IsEssential = true;
             });
 
-            builder.Services.AddSignalR();
+            builder.Services.AddSignalR().AddMessagePackProtocol(options => {
+                options.SerializerOptions = MessagePack.MessagePackSerializerOptions.Standard
+                    .WithResolver(MessagePack.Resolvers.ContractlessStandardResolver.Instance)
+                    .WithSecurity(MessagePack.MessagePackSecurity.UntrustedData);
+            });
 
             builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
             builder.Services.Configure<TTSSettings>(builder.Configuration.GetSection("TTSSettings"));
@@ -54,6 +58,7 @@ namespace AI.Caller.Phone {
             builder.Services.AddSingleton(sp => {
                 return new SIPTransportManager(builder.Configuration.GetSection("SipSettings")["ContactHost"], sp.GetRequiredService<ILogger<SIPTransportManager>>());
             });
+            builder.Services.AddSingleton<AudioStreamManager>();
             builder.Services.AddSingleton<SIPClientPoolManager>();
             builder.Services.AddSingleton<HangupMonitoringService>();
             builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();

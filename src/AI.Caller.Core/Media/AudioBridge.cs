@@ -3,6 +3,7 @@ using AI.Caller.Core.Media.Interfaces;
 using DnsClient;
 using Microsoft.Extensions.Logging;
 using System.Buffers;
+using System.Threading.Channels;
 
 namespace AI.Caller.Core {
     public sealed partial class AudioBridge : IAudioBridge {
@@ -14,7 +15,13 @@ namespace AI.Caller.Core {
         private readonly object _dtmfLock = new();
         private readonly AudioCodecFactory _codecFactory;
         private readonly Dictionary<int, IAudioCodec> _codecCache = new();
-        
+        private readonly Channel<byte[]> _monitoringQueue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(100) {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = true
+        });
+
+
         private bool _isStarted;
         private int _currentBlockSize;
 
@@ -45,6 +52,7 @@ namespace AI.Caller.Core {
         public AudioBridge(ILogger<AudioBridge> logger, AudioCodecFactory codecFactory) {
             _logger = logger;
             _codecFactory = codecFactory;
+            StartMonitoringProcessor();
         }
 
         /// <summary>
@@ -228,18 +236,19 @@ namespace AI.Caller.Core {
             }
         }
 
-        private void ResetDtmfState() {
-            lock (_dtmfLock) {
-                _currentTrackingKey = PhoneKey.None;
-                _sameKeyContinuousCount = 0;
-                _hasReportedCurrentKey = false;
-                _lastReportedTime = DateTime.MinValue;
-
-                _lastConfirmedKey = PhoneKey.None;
-                _lastConfirmedKeyStopTime = DateTime.MinValue;
-            }
+        /// <summary>
+        /// 获取解码后 PCM 数据的采样率
+        /// </summary>
+        /// <param name="payloadType">负载类型</param>
+        /// <returns>解码后的采样率</returns>
+        private int GetDecodedSampleRate(int payloadType) {
+            return payloadType switch {
+                0 => 8000,  // PCMU -> 8kHz PCM
+                8 => 8000,  // PCMA -> 8kHz PCM  
+                9 => 16000, // G722 -> 16kHz PCM
+                _ => 8000   // Default
+            };
         }
-
 
         private AudioResampler<byte> GetOrCreateOutputResampler(int inRate, int outRate) {
             if (_outputResampler != null && (_outputResamplerInRate != inRate || _outputResamplerOutRate != outRate)) {
@@ -268,31 +277,6 @@ namespace AI.Caller.Core {
             return _dtmfResampler;
         }
 
-
-        private void ProcessAudioFrames(byte[] audioData, MediaProfile profile, Action<byte[]> frameProcessor) {
-            if (profile == null) return;
-
-            int frameBytes = profile.SamplesPerFrame * 2;
-            int offset = 0;
-
-            while (offset < audioData.Length) {
-                int remainingBytes = audioData.Length - offset;
-                int currentFrameBytes = Math.Min(frameBytes, remainingBytes);
-
-                var frame = new byte[frameBytes];
-                Array.Copy(audioData, offset, frame, 0, currentFrameBytes);
-
-                if (currentFrameBytes < frameBytes) {
-                    for (int i = currentFrameBytes; i < frameBytes; i++) {
-                        frame[i] = 0;
-                    }
-                }
-
-                frameProcessor(frame);
-                offset += currentFrameBytes;
-            }
-        }
-
         private IAudioCodec? GetCodecForPayloadType(int payloadType) {
             lock (_codecCache) {
                 if (_codecCache.TryGetValue(payloadType, out var codec)) {
@@ -317,19 +301,69 @@ namespace AI.Caller.Core {
                 }
             }
         }
+        
+        private void ProcessAudioFrames(byte[] audioData, MediaProfile profile, Action<byte[]> frameProcessor) {
+            if (profile == null) return;
 
-        /// <summary>
-        /// 获取解码后 PCM 数据的采样率
-        /// </summary>
-        /// <param name="payloadType">负载类型</param>
-        /// <returns>解码后的采样率</returns>
-        private int GetDecodedSampleRate(int payloadType) {
-            return payloadType switch {
-                0 => 8000,  // PCMU -> 8kHz PCM
-                8 => 8000,  // PCMA -> 8kHz PCM  
-                9 => 16000, // G722 -> 16kHz PCM
-                _ => 8000   // Default
-            };
+            int frameBytes = profile.SamplesPerFrame * 2;
+            int offset = 0;
+
+            while (offset < audioData.Length) {
+                int remainingBytes = audioData.Length - offset;
+                int currentFrameBytes = Math.Min(frameBytes, remainingBytes);
+
+                var frame = new byte[frameBytes];
+                Array.Copy(audioData, offset, frame, 0, currentFrameBytes);
+
+                if (currentFrameBytes < frameBytes) {
+                    for (int i = currentFrameBytes; i < frameBytes; i++) {
+                        frame[i] = 0;
+                    }
+                }
+
+                frameProcessor(frame);
+                offset += currentFrameBytes;
+            }
         }
+
+        private void ProcessOutgoingAudioInternal(byte[] audioFrame) {
+            try {
+                OutgoingAudioGenerated?.Invoke(audioFrame);
+
+                var currentCodec = GetCurrentNegotiatedCodec();
+                var codec = _codecFactory.GetCodec(currentCodec);
+                var pcmData = codec.Decode(audioFrame);
+
+                foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
+                    OutgoingAudioReady?.Invoke(listener.UserId, pcmData);
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, "处理系统播放音频失败");
+            }
+        }
+
+        private void ResetDtmfState() {
+            lock (_dtmfLock) {
+                _currentTrackingKey = PhoneKey.None;
+                _sameKeyContinuousCount = 0;
+                _hasReportedCurrentKey = false;
+                _lastReportedTime = DateTime.MinValue;
+
+                _lastConfirmedKey = PhoneKey.None;
+                _lastConfirmedKeyStopTime = DateTime.MinValue;
+            }
+        }
+
+        private void StartMonitoringProcessor() {
+            _ = Task.Run(async () => {
+                await foreach (var audioFrame in _monitoringQueue.Reader.ReadAllAsync()) {
+                    try {
+                        ProcessOutgoingAudioInternal(audioFrame);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "监听音频后台处理异常");
+                    }
+                }
+            });
+        }        
     }
 }

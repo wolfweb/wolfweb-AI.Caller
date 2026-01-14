@@ -6,40 +6,42 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using SIPSorcery.Net;
+using System.Collections.Concurrent;
 using System.Security.Claims;
+using System.Threading.Channels;
 
 namespace AI.Caller.Phone.Hubs {
     [Authorize]
     public class WebRtcHub : Hub {
         private readonly ILogger _logger;
-        private readonly G711Codec _g711Codec;
         private readonly ICallManager _callManager;
         private readonly AppDbContext _appDbContext;
+        private readonly AudioStreamManager _streamManager;
+        private readonly IHubContext<WebRtcHub> _hubContext;
         private readonly ApplicationContext _applicationContext;
         private readonly ISimpleRecordingService _recordingService;
         private readonly AICustomerServiceManager _aiServiceManager;
-        private readonly IMonitoringService _monitoringService;
         private readonly IPlaybackControlService _playbackControlService;
 
         public WebRtcHub(
             ILogger<WebRtcHub> logger,
-            G711Codec g711Codec,
             ICallManager callManager,
             AppDbContext appDbContext,
+            AudioStreamManager streamManager,
+            IHubContext<WebRtcHub> hubContext,
             ApplicationContext applicationContext,
             ISimpleRecordingService recordingService,
             AICustomerServiceManager aiServiceManager,
-            IMonitoringService monitoringService,
             IPlaybackControlService playbackControlService
             ) {
-            _logger           = logger;
-            _g711Codec        = g711Codec;
-            _callManager      = callManager;
-            _appDbContext     = appDbContext;
-            _recordingService = recordingService;
-            _applicationContext = applicationContext;
-            _aiServiceManager = aiServiceManager;
-            _monitoringService = monitoringService;
+            _logger                 = logger;
+            _callManager            = callManager;
+            _hubContext             = hubContext;
+            _appDbContext           = appDbContext;
+            _streamManager          = streamManager;
+            _recordingService       = recordingService;
+            _aiServiceManager       = aiServiceManager;
+            _applicationContext     = applicationContext;
             _playbackControlService = playbackControlService;
         }
 
@@ -51,6 +53,7 @@ namespace AI.Caller.Phone.Hubs {
         }
 
         public async Task SendIceCandidateAsync(IceCandidateModel model) {
+            if (string.IsNullOrEmpty(model.CallId)) return;
             var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
             if (RTCIceCandidateInit.TryParse(model.iceCandidate, out var candidate)) {
                 _callManager.AddIceCandidate(model.CallId, userId, candidate);
@@ -164,35 +167,6 @@ namespace AI.Caller.Phone.Hubs {
         }
 
         #region 监听与接入功能
-
-        /// <summary>
-        /// 发送客户音频到监听者 (Incoming - 客户说话)
-        /// 音频已在AudioBridge中解码为PCM格式
-        /// </summary>
-        private async Task SendIncomingAudioAsync(int monitorUserId, byte[] pcmAudioData) {
-            try {
-                var base64Audio = Convert.ToBase64String(pcmAudioData);
-                await Clients.User(monitorUserId.ToString()).SendAsync("incomingAudio", base64Audio);
-                _logger.LogTrace("客户音频已发送到监听者: UserId {UserId}, PCM大小 {Size} 字节", monitorUserId, pcmAudioData.Length);
-            } catch (Exception ex) {
-                _logger.LogError(ex, "发送客户音频失败: UserId {UserId}", monitorUserId);
-            }
-        }
-
-        /// <summary>
-        /// 发送系统音频到监听者 (Outgoing - AI/系统播放)
-        /// 音频已在AudioBridge中解码为PCM格式
-        /// </summary>
-        private async Task SendOutgoingAudioAsync(int monitorUserId, byte[] pcmAudioData) {
-            try {
-                var base64Audio = Convert.ToBase64String(pcmAudioData);
-                await Clients.User(monitorUserId.ToString()).SendAsync("outgoingAudio", base64Audio);
-                _logger.LogTrace("系统音频已发送到监听者: UserId {UserId}, PCM大小 {Size} 字节", monitorUserId, pcmAudioData.Length);
-            } catch (Exception ex) {
-                _logger.LogError(ex, "发送系统音频失败: UserId {UserId}", monitorUserId);
-            }
-        }
-
         /// <summary>
         /// 开始监听通话
         /// </summary>
@@ -213,30 +187,13 @@ namespace AI.Caller.Phone.Hubs {
                 // 订阅音频事件（双音轨：分别订阅incoming和outgoing）
                 var aiSession = _aiServiceManager.GetActiveSession(targetUserId);
                 if (aiSession?.AudioBridge is AudioBridge audioBridge) {
-                    // 订阅客户音频事件 (Incoming)
-                    Action<int, byte[]> incomingHandler = async (userId, audioData) => {
-                        if (userId == monitorUserId) {
-                            await SendIncomingAudioAsync(monitorUserId, audioData);
-                        }
-                    };
-                    
-                    // 订阅系统音频事件 (Outgoing)
-                    Action<int, byte[]> outgoingHandler = async (userId, audioData) => {
-                        if (userId == monitorUserId) {
-                            await SendOutgoingAudioAsync(monitorUserId, audioData);
-                        }
-                    };
-
-                    audioBridge.IncomingAudioReady += incomingHandler;
-                    audioBridge.OutgoingAudioReady += outgoingHandler;
-
+                    _streamManager.StartForwarding(monitorUserId, audioBridge);
                     _logger.LogInformation("已订阅双音轨事件: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}", monitorUserId, targetUserId);
                 } else {
                     _logger.LogWarning("无法找到AudioBridge，音频流传输可能不可用: TargetUserId {TargetUserId}", targetUserId);
                 }
 
                 _logger.LogInformation("用户 {MonitorUserId} 开始监听通话 {CallId}", monitorUserId, callId);
-
                 return new { success = true, sessionId = session.Id, message = "监听已开始，正在接收音频..." };
             } catch (Exception ex) {
                 _logger.LogError(ex, "开始监听失败");
@@ -256,6 +213,7 @@ namespace AI.Caller.Phone.Hubs {
                 // 取消订阅音频事件
                 var aiSession = _aiServiceManager.GetActiveSession(targetUserId);
                 if (aiSession?.AudioBridge is AudioBridge audioBridge) {
+                    _streamManager.StopForwarding(monitorUserId);
                     _logger.LogInformation("音频事件订阅已清理: MonitorUserId {MonitorUserId}", monitorUserId);
                 }
 
@@ -575,7 +533,7 @@ namespace AI.Caller.Phone.Hubs {
             }
         }
 
-
+        #endregion
 
         /// <summary>
         /// 后台执行DTMF收集
@@ -659,9 +617,107 @@ namespace AI.Caller.Phone.Hubs {
                 "D" => 15,
                 _ => throw new ArgumentException($"Invalid DTMF tone: {tone}")
             };
+        }        
+    }
+
+    public class AudioStreamManager {
+        private readonly ILogger _logger;
+        private readonly IHubContext<WebRtcHub> _hubContext;
+
+        private readonly ConcurrentDictionary<int, MonitoringSessionContext> _sessions = new();
+
+        public AudioStreamManager(IHubContext<WebRtcHub> hubContext, ILogger<AudioStreamManager> logger) {
+            _hubContext = hubContext;
+            _logger = logger;
         }
 
-        #endregion
+        public void StartForwarding(int monitorUserId, AudioBridge audioBridge) {
+            if (_sessions.ContainsKey(monitorUserId)) return;
+
+            var channel = Channel.CreateBounded<AudioMessage>(new BoundedChannelOptions(100) {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true,
+                SingleWriter = false
+            });
+
+            Action<int, byte[]> incomingHandler = (userId, data) => {
+                if (userId == monitorUserId) channel.Writer.TryWrite(new AudioMessage("incomingaudio", data));
+            };
+
+            Action<int, byte[]> outgoingHandler = (userId, data) => {
+                if (userId == monitorUserId) channel.Writer.TryWrite(new AudioMessage("outgoingaudio", data));
+            };
+
+            audioBridge.IncomingAudioReady += incomingHandler;
+            audioBridge.OutgoingAudioReady += outgoingHandler;
+
+            var cts = new CancellationTokenSource();
+            var task = Task.Run(() => ProcessQueueAsync(channel.Reader, monitorUserId, cts.Token));
+
+            var context = new MonitoringSessionContext {
+                AudioBridge = audioBridge,
+                IncomingHandler = incomingHandler,
+                OutgoingHandler = outgoingHandler,
+                CancelSource = cts,
+                Channel = channel
+            };
+
+            _sessions[monitorUserId] = context;
+            _logger.LogInformation("音频转发服务已启动: MonitorUser {Id}", monitorUserId);
+        }
+
+        public void StopForwarding(int monitorUserId) {
+            if (_sessions.TryRemove(monitorUserId, out var ctx)) {
+                ctx.AudioBridge.IncomingAudioReady -= ctx.IncomingHandler;
+                ctx.AudioBridge.OutgoingAudioReady -= ctx.OutgoingHandler;
+
+                ctx.CancelSource.Cancel();
+                ctx.Channel.Writer.TryComplete();
+
+                _logger.LogInformation("音频转发服务已停止: MonitorUser {Id}", monitorUserId);
+            }
+        }
+
+        private async Task ProcessQueueAsync(ChannelReader<AudioMessage> reader, int monitorUserId, CancellationToken token) {
+            var client = _hubContext.Clients.User(monitorUserId.ToString());
+            var buffers = new Dictionary<string, List<byte>>();
+            const int BatchSize = 1600;
+
+            try {
+                while (await reader.WaitToReadAsync(token)) {
+                    while (reader.TryRead(out var msg)) {
+                        if (!buffers.ContainsKey(msg.Method)) buffers[msg.Method] = new List<byte>();
+                        buffers[msg.Method].AddRange(msg.Data);
+
+                        if (buffers[msg.Method].Count >= BatchSize) {
+                            await FlushAsync(client, msg.Method, buffers[msg.Method]);
+                        }
+                    }
+                    foreach (var key in buffers.Keys) {
+                        if (buffers[key].Count > 0) await FlushAsync(client, key, buffers[key]);
+                    }
+                }
+            } catch (OperationCanceledException) {
+                // 正常停止
+            } catch (Exception ex) {
+                _logger.LogError(ex, "音频转发循环异常");
+            }
+        }
+
+        private async Task FlushAsync(IClientProxy client, string method, List<byte> buffer) {
+            await client.SendAsync(method, buffer.ToArray());
+            buffer.Clear();
+        }
+
+        private record AudioMessage(string Method, byte[] Data);
+
+        private class MonitoringSessionContext {
+            public AudioBridge AudioBridge { get; set; } = null!;
+            public Action<int, byte[]> IncomingHandler { get; set; } = null!;
+            public Action<int, byte[]> OutgoingHandler { get; set; } = null!;
+            public CancellationTokenSource CancelSource { get; set; } = null!;
+            public Channel<AudioMessage> Channel { get; set; } = null!;
+        }
     }
 
     public record IceCandidateModel(string CallId, string iceCandidate);
@@ -669,8 +725,6 @@ namespace AI.Caller.Phone.Hubs {
     public record WebRtcAnswerModel(string CallId, string AnswerSdp);
 
     public record WebRtcHangupModel(string CallId, string Target, string? Reason = null);
-
-    public record CallerInfo(string? UserId, string? SipUsername);
 
     public record DtmfToneModel(string CallId, string Tone);
 

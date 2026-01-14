@@ -1,7 +1,6 @@
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Exceptions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace AI.Caller.Phone.Services;
 
@@ -9,8 +8,8 @@ namespace AI.Caller.Phone.Services;
 /// 监听服务实现
 /// </summary>
 public class MonitoringService : IMonitoringService {
+    private readonly ILogger _logger;
     private readonly AppDbContext _dbContext;
-    private readonly ILogger<MonitoringService> _logger;
 
     public MonitoringService(AppDbContext dbContext, ILogger<MonitoringService> logger) {
         _dbContext = dbContext;
@@ -20,12 +19,10 @@ public class MonitoringService : IMonitoringService {
     public async Task<MonitoringSession> StartMonitoringAsync(string callId, int monitorUserId, string monitorUserName) {
         try {
             // 检查是否已有活跃的监听会话
-            var existingSession = await _dbContext.MonitoringSessions
-                .FirstOrDefaultAsync(s => s.CallId == callId && s.IsActive);
+            var existingSession = await _dbContext.MonitoringSessions.FirstOrDefaultAsync(s => s.CallId == callId && s.IsActive);
 
             if (existingSession != null) {
-                _logger.LogWarning("通话已存在活跃的监听会话: {CallId}, SessionId: {SessionId}",
-                    callId, existingSession.Id);
+                _logger.LogWarning("通话已存在活跃的监听会话: {CallId}, SessionId: {SessionId}", callId, existingSession.Id);
                 throw new MonitoringSessionAlreadyExistsException(callId);
             }
 
@@ -40,8 +37,7 @@ public class MonitoringService : IMonitoringService {
             _dbContext.MonitoringSessions.Add(session);
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("监听会话已开始: {SessionId}, CallId: {CallId}, User: {UserId}",
-                session.Id, callId, monitorUserId);
+            _logger.LogInformation("监听会话已开始: {SessionId}, CallId: {CallId}, User: {UserId}", session.Id, callId, monitorUserId);
 
             return session;
         } catch (MonitoringSessionAlreadyExistsException) {
@@ -54,8 +50,7 @@ public class MonitoringService : IMonitoringService {
 
     public async Task StopMonitoringAsync(int sessionId) {
         try {
-            var session = await _dbContext.MonitoringSessions
-                .FirstOrDefaultAsync(s => s.Id == sessionId);
+            var session = await _dbContext.MonitoringSessions.FirstOrDefaultAsync(s => s.Id == sessionId);
 
             if (session == null) {
                 throw new MonitoringSessionNotFoundException(sessionId);
@@ -78,8 +73,7 @@ public class MonitoringService : IMonitoringService {
 
     public async Task InterventionAsync(int sessionId, string reason) {
         try {
-            var session = await _dbContext.MonitoringSessions
-                .FirstOrDefaultAsync(s => s.Id == sessionId);
+            var session = await _dbContext.MonitoringSessions.FirstOrDefaultAsync(s => s.Id == sessionId);
 
             if (session == null) {
                 throw new MonitoringSessionNotFoundException(sessionId);
@@ -95,8 +89,7 @@ public class MonitoringService : IMonitoringService {
 
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("人工接入已记录: {SessionId}, CallId: {CallId}, Reason: {Reason}",
-                sessionId, session.CallId, reason);
+            _logger.LogInformation("人工接入已记录: {SessionId}, CallId: {CallId}, Reason: {Reason}", sessionId, session.CallId, reason);
         } catch (MonitoringSessionNotFoundException) {
             throw;
         } catch (InterventionException) {
@@ -109,10 +102,7 @@ public class MonitoringService : IMonitoringService {
 
     public async Task<List<MonitoringSession>> GetActiveSessionsAsync() {
         try {
-            return await _dbContext.MonitoringSessions
-                .Where(s => s.IsActive)
-                .OrderByDescending(s => s.StartTime)
-                .ToListAsync();
+            return await _dbContext.MonitoringSessions.Where(s => s.IsActive).OrderByDescending(s => s.StartTime).ToListAsync();
         } catch (Exception ex) {
             _logger.LogError(ex, "获取活跃监听会话失败");
             throw;
@@ -121,10 +111,7 @@ public class MonitoringService : IMonitoringService {
 
     public async Task<List<MonitoringSession>> GetUserSessionsAsync(int userId) {
         try {
-            return await _dbContext.MonitoringSessions
-                .Where(s => s.MonitorUserId == userId)
-                .OrderByDescending(s => s.StartTime)
-                .ToListAsync();
+            return await _dbContext.MonitoringSessions.Where(s => s.MonitorUserId == userId).OrderByDescending(s => s.StartTime).ToListAsync();
         } catch (Exception ex) {
             _logger.LogError(ex, "获取用户监听会话失败: UserId {UserId}", userId);
             throw;
@@ -133,10 +120,7 @@ public class MonitoringService : IMonitoringService {
 
     public async Task<List<MonitoringSession>> GetCallSessionsAsync(string callId) {
         try {
-            return await _dbContext.MonitoringSessions
-                .Where(s => s.CallId == callId)
-                .OrderByDescending(s => s.StartTime)
-                .ToListAsync();
+            return await _dbContext.MonitoringSessions.Where(s => s.CallId == callId).OrderByDescending(s => s.StartTime).ToListAsync();
         } catch (Exception ex) {
             _logger.LogError(ex, "获取通话监听会话失败: CallId {CallId}", callId);
             throw;
@@ -145,8 +129,7 @@ public class MonitoringService : IMonitoringService {
 
     public async Task<bool> IsCallBeingMonitoredAsync(string callId) {
         try {
-            return await _dbContext.MonitoringSessions
-                .AnyAsync(s => s.CallId == callId && s.IsActive);
+            return await _dbContext.MonitoringSessions.AnyAsync(s => s.CallId == callId && s.IsActive);
         } catch (Exception ex) {
             _logger.LogError(ex, "检查通话监听状态失败: CallId {CallId}", callId);
             throw;

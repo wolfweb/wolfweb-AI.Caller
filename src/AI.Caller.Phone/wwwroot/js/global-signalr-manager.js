@@ -38,6 +38,7 @@ class GlobalSignalRManager {
     createConnection() {
         this.connection = new signalR.HubConnectionBuilder()
             .withUrl("/webrtc")
+            .withHubProtocol(new signalR.protocols.msgpack.MessagePackHubProtocol()) 
             .configureLogging(signalR.LogLevel.Information)
             .withAutomaticReconnect({
                 nextRetryDelayInMilliseconds: retryContext => {

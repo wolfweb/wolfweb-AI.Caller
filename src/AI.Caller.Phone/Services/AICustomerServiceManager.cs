@@ -1,9 +1,7 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Interfaces;
-using AI.Caller.Core.Media;
-using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Phone.Entities;
-using Microsoft.Extensions.DependencyInjection;
+using AI.Caller.Phone.Hubs;
 using System.Collections.Concurrent;
 
 namespace AI.Caller.Phone.Services {
@@ -13,21 +11,23 @@ namespace AI.Caller.Phone.Services {
     public partial class AICustomerServiceManager : IDisposable {
         private readonly ILogger _logger;
         private readonly IServiceProvider _serviceProvider;
-        private readonly IAIAutoResponderFactory _autoResponderFactory;
         private readonly IServiceScopeFactory _scopeFactory;
-
+        private readonly AudioStreamManager _audioStreamManager;
+        private readonly IAIAutoResponderFactory _autoResponderFactory;
         private readonly ConcurrentDictionary<int, AIAutoResponderSession> _activeSessions = new();
 
         public AICustomerServiceManager(
             ILogger<AICustomerServiceManager> logger,
             IServiceProvider serviceProvider,
-            IAIAutoResponderFactory autoResponderFactory,
-            IServiceScopeFactory scopeFactory
+            IServiceScopeFactory scopeFactory,
+            AudioStreamManager audioStreamManager,
+            IAIAutoResponderFactory autoResponderFactory
             ) {
             _logger = logger;
-            _serviceProvider = serviceProvider;
-            _autoResponderFactory = autoResponderFactory;
             _scopeFactory = scopeFactory;
+            _serviceProvider = serviceProvider;
+            _audioStreamManager = audioStreamManager;
+            _autoResponderFactory = autoResponderFactory;
         }
 
         /// <summary>
@@ -158,6 +158,21 @@ namespace AI.Caller.Phone.Services {
                         _logger.LogWarning("播放任务超时，强制停止");
                     } catch (Exception ex) {
                         _logger.LogWarning(ex, "等待播放任务完成时出错");
+                    }
+                }
+
+                using (var scope = _scopeFactory.CreateScope()) {
+                    var monitoringService = scope.ServiceProvider.GetRequiredService<IMonitoringService>();
+                    var monitors = await monitoringService.GetCallSessionsAsync(session.CallId);
+                    foreach (var monitor in monitors)
+                        await StopMonitoringAsync(userId, monitor.MonitorUserId, monitor.Id);
+                }
+
+                if (session.AudioBridge is AudioBridge audioBridge) {
+                    var monitors = audioBridge.GetActiveMonitors();
+                    foreach (var monitor in monitors) {
+                        _audioStreamManager.StopForwarding(monitor.UserId);
+                        _logger.LogInformation("通话结束，停止监听推送: MonitorUser {MonitorId}", monitor.UserId);
                     }
                 }
 

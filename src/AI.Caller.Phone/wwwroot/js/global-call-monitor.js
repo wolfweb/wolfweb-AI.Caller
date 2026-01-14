@@ -20,7 +20,7 @@ class GlobalWebRTCManager {
             this.pc.onicecandidate = (event) => {
                 if (event.candidate && window.globalSignalRManager) {
                     window.globalSignalRManager.invoke("SendIceCandidateAsync", {
-                        callId: window.globalCallMonitor.currentIncomingCall?.callId,
+                        CallId: window.globalCallMonitor.currentIncomingCall?.callId,
                         iceCandidate: JSON.stringify(event.candidate)
                     }).catch(error => {
                         console.error('发送ICE候选失败:', error);
@@ -1119,6 +1119,7 @@ class GlobalCallMonitor {
     async createIndependentSignalR() {
         this.signalRConnection = new signalR.HubConnectionBuilder()
             .withUrl("/webrtc")
+            .withHubProtocol(new signalR.protocols.msgpack.MessagePackHubProtocol()) 
             .configureLogging(signalR.LogLevel.Information)
             .withAutomaticReconnect()
             .build();

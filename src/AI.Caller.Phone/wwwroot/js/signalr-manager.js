@@ -140,6 +140,7 @@ class SignalRManager {
         
         this.connection = new signalR.HubConnectionBuilder()
             .withUrl("/webrtc")
+            .withHubProtocol(new signalR.protocols.msgpack.MessagePackHubProtocol()) 
             .configureLogging(signalR.LogLevel.Debug)
             .withAutomaticReconnect({
                 nextRetryDelayInMilliseconds: retryContext => {

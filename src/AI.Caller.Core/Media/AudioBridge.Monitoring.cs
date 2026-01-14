@@ -90,19 +90,7 @@ public sealed partial class AudioBridge {
             return;
 
         try {
-            // 触发系统播放音频事件（原始G.711格式）
-            OutgoingAudioGenerated?.Invoke(audioFrame);
-
-            // 解码G.711为PCM，统一监听音频格式
-            var currentCodec = GetCurrentNegotiatedCodec();
-            var codec = _codecFactory.GetCodec(currentCodec);
-            var pcmData = codec.Decode(audioFrame);
-
-            // 发送给所有活跃的监听者（系统音频 - Outgoing，PCM格式）
-            foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
-                OutgoingAudioReady?.Invoke(listener.UserId, pcmData);
-                _logger.LogTrace("推送系统音频到监听者: UserId {UserId}, G.711大小 {G711Size} 字节, PCM大小 {PcmSize} 字节", listener.UserId, audioFrame.Length, pcmData.Length);
-            }
+            _monitoringQueue.Writer.TryWrite(audioFrame);
         } catch (Exception ex) {
             _logger.LogError(ex, "处理系统播放音频失败");
         }
