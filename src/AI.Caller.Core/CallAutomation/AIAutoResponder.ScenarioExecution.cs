@@ -41,11 +41,7 @@ public sealed partial class AIAutoResponder {
     /// <param name="segments">场景片段列表</param>
     /// <param name="variables">变量字典</param>
     /// <param name="ct">取消令牌</param>
-    public async Task PlayScenarioAsync(
-        List<ScenarioSegment> segments,
-        Dictionary<string, string> variables,
-        CancellationToken ct = default, 
-        int speakerId = 0) {
+    public async Task PlayScenarioAsync(List<ScenarioSegment> segments, Dictionary<string, string> variables, CancellationToken ct = default, int speakerId = 0) {
         if (_audioFilePlayer == null) {
             _logger.LogError("AudioFilePlayer未设置，无法播放录音片段");
             throw new InvalidOperationException("AudioFilePlayer未设置");
@@ -195,11 +191,7 @@ public sealed partial class AIAutoResponder {
     /// <summary>
     /// 播放TTS片段
     /// </summary>
-    private async Task PlayTtsSegmentAsync(
-        ScenarioSegment segment,
-        Dictionary<string, string> variables,
-        int speakerId,
-        CancellationToken ct) {
+    private async Task PlayTtsSegmentAsync(ScenarioSegment segment, Dictionary<string, string> variables, int speakerId, CancellationToken ct) {
         if (string.IsNullOrEmpty(segment.TtsText)) {
             _logger.LogWarning("TTS片段文本为空");
             return;
@@ -216,11 +208,7 @@ public sealed partial class AIAutoResponder {
     /// <summary>
     /// 播放DTMF输入片段
     /// </summary>
-    private async Task PlayDtmfInputSegmentAsync(
-        ScenarioSegment segment,
-        Dictionary<string, string> variables,
-        int speakerId,
-        CancellationToken ct) {
+    private async Task PlayDtmfInputSegmentAsync(ScenarioSegment segment, Dictionary<string, string> variables, int speakerId, CancellationToken ct) {
         if (segment.DtmfConfig == null) {
             _logger.LogWarning("DTMF片段配置为空");
             return;
@@ -305,19 +293,9 @@ public sealed partial class AIAutoResponder {
     /// <summary>
     /// 保存DTMF输入到数据库
     /// </summary>
-    private async Task SaveDtmfInputToDatabase(
-        ScenarioSegment segment,
-        DtmfInputConfig config,
-        string input,
-        bool isValid,
-        string? validationMessage,
-        int retryCount,
-        int durationMs) {
+    private async Task SaveDtmfInputToDatabase(ScenarioSegment segment, DtmfInputConfig config, string input, bool isValid, string? validationMessage, int retryCount, int durationMs) {        
+        _logger.LogInformation("DTMF输入收集完成: CallId={CallId}, Input={MaskedInput}, IsValid={IsValid}, RetryCount={RetryCount}, Duration={Duration}ms", _currentCallId, MaskInput(input), isValid, retryCount, durationMs);
         
-        _logger.LogInformation("DTMF输入收集完成: CallId={CallId}, Input={MaskedInput}, IsValid={IsValid}, RetryCount={RetryCount}, Duration={Duration}ms",
-            _currentCallId, MaskInput(input), isValid, retryCount, durationMs);
-        
-        // 触发事件，让上层处理数据库保存
         OnDtmfInputCollected?.Invoke(new DtmfInputEventArgs {
             CallId = _currentCallId ?? string.Empty,
             IsValid = isValid,
@@ -350,10 +328,7 @@ public sealed partial class AIAutoResponder {
     /// <summary>
     /// 评估条件片段
     /// </summary>
-    private int EvaluateConditionSegment(
-        ScenarioSegment segment,
-        Dictionary<string, string> variables,
-        List<ScenarioSegment> segments) {
+    private int EvaluateConditionSegment(ScenarioSegment segment, Dictionary<string, string> variables, List<ScenarioSegment> segments) {
         if (string.IsNullOrEmpty(segment.ConditionExpression)) {
             _logger.LogWarning("条件表达式为空");
             return segments.IndexOf(segment) + 1;

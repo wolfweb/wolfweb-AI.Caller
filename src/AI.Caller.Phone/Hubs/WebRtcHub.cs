@@ -257,11 +257,11 @@ namespace AI.Caller.Phone.Hubs {
         /// <summary>
         /// 退出人工接入
         /// </summary>
-        public async Task<object> ExitInterventionAsync(int targetUserId, string callId, List<int>? skipSegmentIds, bool resumePlayback) {
+        public async Task<object> ExitInterventionAsync(int targetUserId, string callId, List<int>? playSegmentIds, bool resumePlayback) {
             try {
                 var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
 
-                await _aiServiceManager.ExitInterventionAsync(targetUserId, callId, skipSegmentIds, resumePlayback);
+                await _aiServiceManager.ExitInterventionAsync(targetUserId, callId, playSegmentIds, resumePlayback);
 
                 // 通知监听组
                 await Clients.Group($"monitoring_{callId}").SendAsync("interventionEnded", new {

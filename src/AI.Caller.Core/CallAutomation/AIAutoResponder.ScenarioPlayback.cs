@@ -1,3 +1,4 @@
+using AI.Caller.Core.CallAutomation;
 using AI.Caller.Core.Media;
 using Microsoft.Extensions.Logging;
 
@@ -27,6 +28,10 @@ public sealed partial class AIAutoResponder {
             if (!_isPaused) {
                 _isPaused = true;
                 _shouldSendAudio = false;
+
+                //暂停时清空剩余音频
+                while (_jitterBuffer.Reader.TryRead(out _)) { }
+
                 _logger.LogInformation("播放已暂停");
             }
         }
@@ -46,6 +51,22 @@ public sealed partial class AIAutoResponder {
         }
         return Task.CompletedTask;
     }
+
+    public async Task ResumeScenarioFromSegmentAsync(List<ScenarioSegment> segments, int startSegmentId, Dictionary<string, string> variables, CancellationToken ct = default, int speakerId = 0) {
+        var orderedSegments = segments.OrderBy(s => s.Order).ToList();
+        int startIndex = orderedSegments.FindIndex(s => s.Id == startSegmentId);
+
+        if (startIndex < 0) {
+            _logger.LogWarning("未找到指定片段ID: {SegmentId}", startSegmentId);
+            return;
+        }
+
+        _skippedSegmentIds.Clear();
+
+        var segmentsToPlay = orderedSegments.Skip(startIndex).ToList();
+        await PlayScenarioAsync(segmentsToPlay, variables, ct, speakerId);
+    }
+
 
     /// <summary>
     /// 检查是否暂停

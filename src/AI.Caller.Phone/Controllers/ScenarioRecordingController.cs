@@ -225,7 +225,7 @@ public class ScenarioRecordingController : Controller {
             }
 
             // 验证文件类型
-            var allowedExtensions = new[] { ".webm", ".wav", ".mp3", ".ogg", ".m4a" };
+            var allowedExtensions = new[] { ".webm", ".wav", ".mp3", ".ogg", ".m4a", ".pcm" };
             var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
             if (!allowedExtensions.Contains(extension)) {
                 return BadRequest(new { success = false, message = "不支持的音频格式" });
@@ -245,20 +245,30 @@ public class ScenarioRecordingController : Controller {
 
             _logger.LogInformation("在线录音文件已保存到临时目录: {TempPath}", tempPath);
 
-            // 4. 转换为PCM格式（如果需要）
-            var finalDir = Path.Combine("recordings", "online", "final");
-            Directory.CreateDirectory(finalDir);
-            var pcmFileName = Path.ChangeExtension(uniqueFileName, ".pcm");
-            var finalPath = Path.Combine(finalDir, pcmFileName);
+            bool isPcmFile = extension.Equals(".pcm", StringComparison.OrdinalIgnoreCase);
+            string finalPath;
 
-            try {
-                await ConvertToPcmAsync(tempPath, finalPath);
-                _logger.LogInformation("音频文件已转换为PCM格式: {FinalPath}", finalPath);
-            } catch (Exception ex) {
-                _logger.LogError(ex, "音频格式转换失败");
-                // 如果转换失败，使用原始文件
-                finalPath = tempPath;
-                _logger.LogWarning("使用原始文件: {FinalPath}", finalPath);
+            if (isPcmFile) {
+                // 4a. 处理 PCM 文件
+                var finalDir = Path.Combine("recordings", "online", "final");
+                Directory.CreateDirectory(finalDir);
+                var pcmFileName = Path.ChangeExtension(uniqueFileName, ".pcm");
+                finalPath = Path.Combine(finalDir, pcmFileName);
+                System.IO.File.Move(tempPath, finalPath);                
+            } else {
+                // 4. 转换为PCM格式（如果需要）
+                var finalDir = Path.Combine("recordings", "online", "final");
+                Directory.CreateDirectory(finalDir);
+                var pcmFileName = Path.ChangeExtension(uniqueFileName, ".pcm");
+                finalPath = Path.Combine(finalDir, pcmFileName);
+
+                try {
+                    await ConvertToPcmAsync(tempPath, finalPath);
+                    _logger.LogInformation("音频文件已转换为PCM格式: {FinalPath}", finalPath);
+                } catch (Exception ex) {
+                    _logger.LogError(ex, "音频格式转换失败");
+                    throw;
+                }
             }
 
             // 5. 返回路径

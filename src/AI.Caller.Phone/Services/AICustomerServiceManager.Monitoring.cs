@@ -128,9 +128,9 @@ public partial class AICustomerServiceManager {
     /// </summary>
     /// <param name="userId">用户ID</param>
     /// <param name="callId">通话ID</param>
-    /// <param name="skipSegmentIds">要跳过的片段ID列表</param>
+    /// <param name="playSegmentIds">要播放的片段ID列表（为空则从当前位置继续）</param>
     /// <param name="resumePlayback">是否恢复播放</param>
-    public async Task ExitInterventionAsync(int userId, string callId, List<int>? skipSegmentIds = null, bool resumePlayback = true) {
+    public async Task ExitInterventionAsync(int userId, string callId, List<int>? playSegmentIds = null, bool resumePlayback = true) {
         try {
             var session = GetActiveSession(userId);
             if (session == null) {
@@ -140,22 +140,27 @@ public partial class AICustomerServiceManager {
 
             using (var scope = _scopeFactory.CreateScope()) {
                 var playbackControlService = scope.ServiceProvider.GetRequiredService<IPlaybackControlService>();
-
-                // 标记要跳过的片段
-                if (skipSegmentIds != null && skipSegmentIds.Count > 0) {
-                    // 设置到AutoResponder中
-                    session.AutoResponder.SetSkippedSegments(skipSegmentIds);
-                    
-                    // 同时记录到PlaybackControl（用于监控和审计）
-                    foreach (var segmentId in skipSegmentIds) {
-                        await playbackControlService.SkipSegmentAsync(callId, segmentId);
-                    }
-                    _logger.LogInformation("已标记跳过片段: CallId {CallId}, Count {Count}", callId, skipSegmentIds.Count);
-                }
+                var settingProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
+                var settings = await settingProvider.GetSettingsAsync();
 
                 // 恢复AI播放
                 if (resumePlayback) {
-                    await session.AutoResponder.ResumeAsync();
+                    if (playSegmentIds != null && playSegmentIds.Count > 0) {
+                        var firstSegmentId = playSegmentIds.First();
+                        var segments = ConvertToScenarioSegments(session.ScenarioRecording!, scope.ServiceProvider);
+                        await session.AutoResponder.ResumeScenarioFromSegmentAsync(
+                            segments,
+                            firstSegmentId,
+                            new Dictionary<string, string>(),
+                            CancellationToken.None,
+                            settings.DefaultSpeakerId);
+
+                        _logger.LogInformation("AI播放已从片段 {SegmentId} 重新开始", firstSegmentId);
+                    } else {
+                        await session.AutoResponder.ResumeAsync();
+                        _logger.LogInformation("AI播放已从当前位置继续");
+                    }
+
                     await playbackControlService.ResumePlaybackAsync(callId);
                     _logger.LogInformation("AI播放已恢复: UserId {UserId}", userId);
                 } else {

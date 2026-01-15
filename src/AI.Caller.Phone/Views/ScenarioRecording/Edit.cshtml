@@ -578,8 +578,9 @@
                     
                     // 验证文件类型
                     const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a'];
-                    if (!allowedTypes.includes(file.type)) {
-                        alert('不支持的音频格式，请选择 MP3, WAV, OGG 或 M4A 文件');
+                    const isPcmFile = file.name.toLowerCase().endsWith('.pcm');
+                    if (!allowedTypes.includes(file.type) && !isPcmFile) {
+                        alert('不支持的音频格式，请选择 MP3, WAV, OGG 或 M4A 或 PCM 文件');
                         fileInput.value = '';
                         return;
                     }

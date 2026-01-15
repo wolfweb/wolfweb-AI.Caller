@@ -147,7 +147,7 @@
                         <div class="mt-2">
                             <small class="text-info">
                                 <i class="bi bi-info-circle"></i> 
-                                人工接入后可选择要跳过的片段
+                                人工接入后可选择要播放的片段
                             </small>
                         </div>
                     </div>
@@ -359,6 +359,18 @@
                 showToast("播放已恢复", "info");
             });
 
+            connection.on("callEnded", async (data) => {
+                try{
+                    await exitIntervention();
+                } catch(err){
+                }
+
+                try{
+                    await stopMonitoring();
+                } catch(err) {
+                }
+            });
+
             try {
                 if(connection.state !=='Connected'){
                     await connection.start();
@@ -463,6 +475,8 @@
             try {
                 const result = await connection.invoke("InterventAsync", targetUserId, sessionId, reason, callId);
                 if (result.success) {
+                    outgoingPlayer.reset();
+
                     document.getElementById('interventBtn').style.display = 'none';
                     document.getElementById('exitInterventBtn').style.display = 'block';
                     
@@ -492,7 +506,7 @@
             
             const hintText = document.getElementById('segmentHintText');
             if (hintText) {
-                hintText.textContent = '选择要跳过的片段，退出接入时将跳过选中的片段';
+                hintText.textContent = '选择要播放的片段，退出接入时将播放选中的片段';
             }
         }
 
@@ -512,21 +526,21 @@
         }
 
         function showExitDialog() {
-            const selectedIds = getSelectedSegmentIds();
+            const playSegmentIds = getSelectedSegmentIds();
             const delaySeconds = parseInt(document.getElementById('resumeDelay').value) || 2;
             
-            let message = selectedIds.length > 0 
-                ? `确定退出接入吗？\n将跳过 ${selectedIds.length} 个选中的片段。`
-                : '确定退出接入吗？\nAI将继续播放所有剩余片段。';
+            let message = playSegmentIds.length > 0 
+                ? `确定退出接入吗？\n将从第一个选中的片段重新开始，共 ${playSegmentIds.length} 个片段。`
+                : '确定退出接入吗？\nAI将从当前位置继续播放。';
             
             message += `\n\n将在 ${delaySeconds} 秒后恢复AI播放。`;
             
             if (confirm(message)) {
-                exitIntervention(selectedIds, delaySeconds);
+                exitIntervention(playSegmentIds, delaySeconds);
             }
         }
 
-        async function exitIntervention(skipSegmentIds = null, delaySeconds = 2) {
+        async function exitIntervention(playSegmentIds = null, delaySeconds = 2) {
             try {
                 document.getElementById('resumeDelayPanel').style.display = 'none';
                 
@@ -542,13 +556,13 @@
                 
                 await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
                 
-                const result = await connection.invoke("ExitInterventionAsync", targetUserId, callId, skipSegmentIds, true);
+                const result = await connection.invoke("ExitInterventionAsync", targetUserId, callId, playSegmentIds, true);
                 if (result.success) {
                     document.getElementById('interventBtn').style.display = 'block';
                     document.getElementById('exitInterventBtn').style.display = 'none';
                     
-                    if (skipSegmentIds && skipSegmentIds.length > 0) {
-                        showToast(`AI播放已恢复，跳过 ${skipSegmentIds.length} 个片段`, "success");
+                    if (playSegmentIds && playSegmentIds.length > 0) {
+                        showToast(`AI播放已恢复，继续播放 ${playSegmentIds.length} 个片段`, "success");
                     } else {
                         showToast("AI播放已恢复", "success");
                     }

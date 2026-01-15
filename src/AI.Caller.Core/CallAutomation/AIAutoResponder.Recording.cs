@@ -9,8 +9,7 @@ namespace AI.Caller.Core;
 /// AIAutoResponder - 录音播放扩展
 /// Phase 1 - 任务1.1: 录音文件播放功能
 /// </summary>
-public sealed partial class AIAutoResponder {
-    
+public sealed partial class AIAutoResponder {    
     /// <summary>
     /// 播放录音文件
     /// </summary>
