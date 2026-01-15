@@ -253,6 +253,28 @@
         let audioWorkletNode = null;
         let micAudioContext = null;
 
+        async function waitForGlobalSignalR() {
+            return new Promise((resolve) => {
+                let attempts = 0;
+                const maxAttempts = 20; // 最多等待10秒
+
+                const checkGlobalSignalR = () => {
+                    attempts++;
+
+                    if (window.globalSignalRManager && window.globalSignalRManager.isConnected) {
+                        resolve();
+                    } else if (attempts >= maxAttempts) {
+                        console.warn('等待全局SignalR超时');
+                        resolve();
+                    } else {
+                        setTimeout(checkGlobalSignalR, 500);
+                    }
+                };
+
+                checkGlobalSignalR();
+            });
+        }
+
         // 初始化Web Audio API
         function initAudioContext() {
             if (!audioContext) {
@@ -262,11 +284,11 @@
 
                 incomingPlayer = new AudioPlayer(audioContext, {
                     pan: -0.5,
-                    threshold: 10
+                    threshold: 150
                 });
                 outgoingPlayer = new AudioPlayer(audioContext, {
                     pan: -0.5,
-                    threshold: 10
+                    threshold: 150
                 });
 
                 console.log("Web Audio API已初始化");
@@ -277,21 +299,21 @@
 
         // 初始化SignalR连接
         async function initConnection() {
-            connection = new signalR.HubConnectionBuilder()
-                .withUrl("/webrtc")
-                .withHubProtocol(new signalR.protocols.msgpack.MessagePackHubProtocol()) 
-                .withAutomaticReconnect()
-                .build();
+            if(window.globalSignalRManager){
+                connection = window.globalSignalRManager.connection;
+            }else{
+                connection = new signalR.HubConnectionBuilder()
+                    .withUrl("/webrtc")
+                    .withHubProtocol(new signalR.protocols.msgpack.MessagePackHubProtocol()) 
+                    .withAutomaticReconnect()
+                    .build();
+            }
 
             connection.on("incomingAudio", (uint8Array) => {
                 try {
                     incomingFrameCount++;
                     audioFrameCount++;
-                    const pcmData = new Int16Array(
-                        uint8Array.buffer,
-                        uint8Array.byteOffset,
-                        uint8Array.byteLength / 2
-                    );
+                    const pcmData = new Int16Array(uint8Array.slice().buffer);
 
                     if (incomingPlayer) {
                         incomingPlayer.push(pcmData);
@@ -304,13 +326,8 @@
             connection.on("outgoingAudio", (uint8Array) => {
                 try {
                     outgoingFrameCount++;
-                    audioFrameCount++;
-                    
-                    const pcmData = new Int16Array(
-                        uint8Array.buffer,
-                        uint8Array.byteOffset,
-                        uint8Array.byteLength / 2
-                    );
+                    audioFrameCount++;                        
+                    const pcmData = new Int16Array(uint8Array.slice().buffer);
 
                     if (outgoingPlayer) {
                         outgoingPlayer.push(pcmData);
@@ -343,8 +360,10 @@
             });
 
             try {
-                await connection.start();
-                console.log("SignalR连接成功");
+                if(connection.state !=='Connected'){
+                    await connection.start();
+                    console.log("SignalR连接成功");
+                }
             } catch (err) {
                 console.error("SignalR连接失败:", err);
                 showToast("SignalR连接失败: " + err, "error");
@@ -425,8 +444,6 @@
                 showToast("停止监听失败: " + err, "error");
             }
         }
-
-
 
         function selectAllSegments() {
             document.querySelectorAll('.segment-checkbox').forEach(cb => cb.checked = true);
@@ -747,7 +764,8 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            await this.waitForGlobalSignalR();
             initConnection();
         });
     </script>

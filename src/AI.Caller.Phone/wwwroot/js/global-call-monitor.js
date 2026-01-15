@@ -1106,14 +1106,6 @@ class GlobalCallMonitor {
     }
 
     /**
-     * 附加全局事件处理器到现有连接（已废弃 - 现在使用全局SignalR管理器）
-     */
-    attachGlobalEventHandlers() {
-        console.warn('attachGlobalEventHandlers已废弃，现在使用全局SignalR管理器');
-        // 此方法已不再使用，保留仅为兼容性
-    }
-
-    /**
      * 创建独立的SignalR连接（备用方案）
      */
     async createIndependentSignalR() {

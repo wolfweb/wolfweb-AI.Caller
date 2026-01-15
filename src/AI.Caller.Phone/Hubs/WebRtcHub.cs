@@ -641,11 +641,11 @@ namespace AI.Caller.Phone.Hubs {
             });
 
             Action<int, byte[]> incomingHandler = (userId, data) => {
-                if (userId == monitorUserId) channel.Writer.TryWrite(new AudioMessage("incomingaudio", data));
+                if (userId == monitorUserId) channel.Writer.TryWrite(new AudioMessage("incomingAudio", data));
             };
 
             Action<int, byte[]> outgoingHandler = (userId, data) => {
-                if (userId == monitorUserId) channel.Writer.TryWrite(new AudioMessage("outgoingaudio", data));
+                if (userId == monitorUserId) channel.Writer.TryWrite(new AudioMessage("outgoingAudio", data));
             };
 
             audioBridge.IncomingAudioReady += incomingHandler;

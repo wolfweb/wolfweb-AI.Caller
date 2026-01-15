@@ -77,6 +77,9 @@ namespace AI.Caller.Phone.Services {
                     
                     Action<byte[]> audioGeneratedHandler = (audioFrame) => {
                         sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
+                        if (audioBridge is AudioBridge ab) {
+                            ab.ProcessOutgoingAudio(audioFrame);
+                        }
                     };
                     autoResponder.OutgoingAudioGenerated += audioGeneratedHandler;
 
