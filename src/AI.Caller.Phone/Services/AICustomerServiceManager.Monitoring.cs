@@ -20,7 +20,8 @@ public partial class AICustomerServiceManager {
     /// <param name="monitorUserId">监听者用户ID</param>
     /// <param name="monitorUserName">监听者用户名</param>
     /// <param name="callId">通话ID</param>
-    public async Task<MonitoringSession> StartMonitoringAsync(int userId, int monitorUserId, string monitorUserName, string callId) {
+    /// <param name="mediaSession">WebRTC Session</param>
+    public async Task<MonitoringSession> StartMonitoringAsync(int userId, int monitorUserId, string monitorUserName, string callId, MonitorMediaSession mediaSession) {
         try {
             // 检查会话是否存在
             var session = GetActiveSession(userId);
@@ -37,7 +38,7 @@ public partial class AICustomerServiceManager {
 
                 // 在AudioBridge中添加监听者
                 if (session.AudioBridge is AudioBridge audioBridge) {
-                    audioBridge.AddMonitor(monitorUserId, monitorUserName);
+                    audioBridge.AddMonitor(monitorUserId, monitorUserName, mediaSession);
                     _logger.LogInformation("监听者已添加到AudioBridge: UserId {UserId}, MonitorUser {MonitorUserId}", userId, monitorUserId);
                 }
 

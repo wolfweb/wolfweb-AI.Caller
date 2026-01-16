@@ -12,7 +12,6 @@ namespace AI.Caller.Phone.Services {
         private readonly ILogger _logger;
         private readonly IServiceProvider _serviceProvider;
         private readonly IServiceScopeFactory _scopeFactory;
-        private readonly AudioStreamManager _audioStreamManager;
         private readonly IAIAutoResponderFactory _autoResponderFactory;
         private readonly ConcurrentDictionary<int, AIAutoResponderSession> _activeSessions = new();
 
@@ -20,13 +19,11 @@ namespace AI.Caller.Phone.Services {
             ILogger<AICustomerServiceManager> logger,
             IServiceProvider serviceProvider,
             IServiceScopeFactory scopeFactory,
-            AudioStreamManager audioStreamManager,
             IAIAutoResponderFactory autoResponderFactory
             ) {
             _logger = logger;
             _scopeFactory = scopeFactory;
             _serviceProvider = serviceProvider;
-            _audioStreamManager = audioStreamManager;
             _autoResponderFactory = autoResponderFactory;
         }
 
@@ -169,14 +166,6 @@ namespace AI.Caller.Phone.Services {
                     var monitors = await monitoringService.GetCallSessionsAsync(session.CallId);
                     foreach (var monitor in monitors)
                         await StopMonitoringAsync(userId, monitor.MonitorUserId, monitor.Id);
-                }
-
-                if (session.AudioBridge is AudioBridge audioBridge) {
-                    var monitors = audioBridge.GetActiveMonitors();
-                    foreach (var monitor in monitors) {
-                        _audioStreamManager.StopForwarding(monitor.UserId);
-                        _logger.LogInformation("通话结束，停止监听推送: MonitorUser {MonitorId}", monitor.UserId);
-                    }
                 }
 
                 await session.AutoResponder.StopAsync();

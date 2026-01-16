@@ -58,7 +58,6 @@ namespace AI.Caller.Phone {
             builder.Services.AddSingleton(sp => {
                 return new SIPTransportManager(builder.Configuration.GetSection("SipSettings")["ContactHost"], sp.GetRequiredService<ILogger<SIPTransportManager>>());
             });
-            builder.Services.AddSingleton<AudioStreamManager>();
             builder.Services.AddSingleton<SIPClientPoolManager>();
             builder.Services.AddSingleton<HangupMonitoringService>();
             builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();

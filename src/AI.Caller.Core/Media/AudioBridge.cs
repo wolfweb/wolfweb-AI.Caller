@@ -336,6 +336,7 @@ namespace AI.Caller.Core {
 
                 foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
                     OutgoingAudioReady?.Invoke(listener.UserId, pcmData);
+                    listener.Session?.SendAudio(pcmData, true);
                 }
             } catch (Exception ex) {
                 _logger.LogError(ex, "处理系统播放音频失败");

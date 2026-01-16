@@ -1,4 +1,5 @@
 using AI.Caller.Core;
+using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
@@ -16,33 +17,37 @@ namespace AI.Caller.Phone.Hubs {
         private readonly ILogger _logger;
         private readonly ICallManager _callManager;
         private readonly AppDbContext _appDbContext;
-        private readonly AudioStreamManager _streamManager;
         private readonly IHubContext<WebRtcHub> _hubContext;
         private readonly ApplicationContext _applicationContext;
         private readonly ISimpleRecordingService _recordingService;
         private readonly AICustomerServiceManager _aiServiceManager;
         private readonly IPlaybackControlService _playbackControlService;
 
+        private readonly AudioCodecFactory _codecFactory;
+        private readonly WebRTCSettings _webRtcSettings;
+
         public WebRtcHub(
             ILogger<WebRtcHub> logger,
+            AudioCodecFactory codecFactory,
             ICallManager callManager,
             AppDbContext appDbContext,
-            AudioStreamManager streamManager,
             IHubContext<WebRtcHub> hubContext,
             ApplicationContext applicationContext,
             ISimpleRecordingService recordingService,
             AICustomerServiceManager aiServiceManager,
-            IPlaybackControlService playbackControlService
+            IPlaybackControlService playbackControlService,
+            Microsoft.Extensions.Options.IOptions<WebRTCSettings> webRtcSettings
             ) {
             _logger                 = logger;
+            _codecFactory           = codecFactory;
             _callManager            = callManager;
             _hubContext             = hubContext;
             _appDbContext           = appDbContext;
-            _streamManager          = streamManager;
             _recordingService       = recordingService;
             _aiServiceManager       = aiServiceManager;
             _applicationContext     = applicationContext;
             _playbackControlService = playbackControlService;
+            _webRtcSettings         = webRtcSettings.Value;
         }
 
         public async Task AnswerAsync(WebRtcAnswerModel model) {
@@ -168,37 +173,37 @@ namespace AI.Caller.Phone.Hubs {
 
         #region 监听与接入功能
         /// <summary>
-        /// 开始监听通话
+        /// 建立WebRTC监听连接
         /// </summary>
-        public async Task<object> StartMonitoringAsync(int targetUserId, string callId) {
+        public async Task<object> ConnectMonitoringWebRtc(int targetUserId, string callId, string offerSdp) {
+             if (RTCSessionDescriptionInit.TryParse(offerSdp, out var offer)) {
+                return await StartMonitoringInternal(targetUserId, callId, offer);
+             }
+             return new { success = false, message = "Invalid SDP" };
+        }
+
+        /// <summary>
+        /// 用于监控的ICE Candidate
+        /// </summary>
+        public async Task SendMonitorIceCandidate(int targetUserId, string iceCandidate) {
             try {
                 var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
-                var monitorUserName = Context.User!.Identity!.Name ?? "Unknown";
-
-                var session = await _aiServiceManager.StartMonitoringAsync(
-                    targetUserId,
-                    monitorUserId,
-                    monitorUserName,
-                    callId);
-
-                // 加入监听组
-                await Groups.AddToGroupAsync(Context.ConnectionId, $"monitoring_{callId}");
-
-                // 订阅音频事件（双音轨：分别订阅incoming和outgoing）
-                var aiSession = _aiServiceManager.GetActiveSession(targetUserId);
-                if (aiSession?.AudioBridge is AudioBridge audioBridge) {
-                    _streamManager.StartForwarding(monitorUserId, audioBridge);
-                    _logger.LogInformation("已订阅双音轨事件: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}", monitorUserId, targetUserId);
-                } else {
-                    _logger.LogWarning("无法找到AudioBridge，音频流传输可能不可用: TargetUserId {TargetUserId}", targetUserId);
+                if (RTCIceCandidateInit.TryParse(iceCandidate, out var candidate)) {
+                    var session = _aiServiceManager.GetActiveSession(targetUserId);
+                    if (session?.AudioBridge is AudioBridge bridge) {
+                        var monitorSession = bridge.GetMonitorSession(monitorUserId);
+                        if (monitorSession != null) {
+                            monitorSession.AddIceCandidate(candidate);
+                            _logger.LogTrace("Added ICE candidate for monitor session: MonitorUser {MonitorUserId}", monitorUserId);
+                        } else {
+                            _logger.LogWarning("Monitor session not found for ICE candidate: MonitorUser {MonitorUserId}", monitorUserId);
+                        }
+                    }
                 }
-
-                _logger.LogInformation("用户 {MonitorUserId} 开始监听通话 {CallId}", monitorUserId, callId);
-                return new { success = true, sessionId = session.Id, message = "监听已开始，正在接收音频..." };
             } catch (Exception ex) {
-                _logger.LogError(ex, "开始监听失败");
-                return new { success = false, message = $"监听失败: {ex.Message}" };
+                _logger.LogError(ex, "Failed to add ICE candidate for monitoring");
             }
+            await Task.CompletedTask;
         }
 
         /// <summary>
@@ -209,13 +214,6 @@ namespace AI.Caller.Phone.Hubs {
                 var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
 
                 await _aiServiceManager.StopMonitoringAsync(targetUserId, monitorUserId, sessionId);
-
-                // 取消订阅音频事件
-                var aiSession = _aiServiceManager.GetActiveSession(targetUserId);
-                if (aiSession?.AudioBridge is AudioBridge audioBridge) {
-                    _streamManager.StopForwarding(monitorUserId);
-                    _logger.LogInformation("音频事件订阅已清理: MonitorUserId {MonitorUserId}", monitorUserId);
-                }
 
                 // 离开监听组
                 await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"monitoring_{callId}");
@@ -542,7 +540,7 @@ namespace AI.Caller.Phone.Hubs {
             try {
                 var result = await _callManager.StartDtmfCollectionAsync(callId, config);
                 
-                await Clients.User(userId.ToString()).SendAsync("dtmfCollectionCompleted", new {
+                await _hubContext.Clients.User(userId.ToString()).SendAsync("dtmfCollectionCompleted", new {
                     callId = callId,
                     input = result,
                     timestamp = DateTime.UtcNow
@@ -550,7 +548,7 @@ namespace AI.Caller.Phone.Hubs {
             } catch (TimeoutException) {
                 _logger.LogWarning("DTMF收集超时: {CallId}", callId);
                 try {
-                    await Clients.User(userId.ToString()).SendAsync("dtmfCollectionTimeout", new {
+                    await _hubContext.Clients.User(userId.ToString()).SendAsync("dtmfCollectionTimeout", new {
                         callId = callId,
                         message = "DTMF输入超时",
                         timestamp = DateTime.UtcNow
@@ -561,7 +559,7 @@ namespace AI.Caller.Phone.Hubs {
             } catch (OperationCanceledException) {
                 _logger.LogInformation("DTMF收集被取消: {CallId}", callId);
                 try {
-                    await Clients.User(userId.ToString()).SendAsync("dtmfCollectionCancelled", new {
+                    await _hubContext.Clients.User(userId.ToString()).SendAsync("dtmfCollectionCancelled", new {
                         callId = callId,
                         message = "DTMF收集被取消",
                         timestamp = DateTime.UtcNow
@@ -572,7 +570,7 @@ namespace AI.Caller.Phone.Hubs {
             } catch (InvalidOperationException ex) when (ex.Message.Contains("已经在进行DTMF收集")) {
                 _logger.LogWarning("DTMF收集冲突: {CallId}, {Message}", callId, ex.Message);
                 try {
-                    await Clients.User(userId.ToString()).SendAsync("dtmfCollectionError", new {
+                    await _hubContext.Clients.User(userId.ToString()).SendAsync("dtmfCollectionError", new {
                         callId = callId,
                         error = "当前通话已在进行DTMF收集，请先停止现有收集",
                         timestamp = DateTime.UtcNow
@@ -583,7 +581,7 @@ namespace AI.Caller.Phone.Hubs {
             } catch (Exception ex) {
                 _logger.LogError(ex, "DTMF收集异常: {CallId}", callId);
                 try {
-                    await Clients.User(userId.ToString()).SendAsync("dtmfCollectionError", new {
+                    await _hubContext.Clients.User(userId.ToString()).SendAsync("dtmfCollectionError", new {
                         callId = callId,
                         error = ex.Message,
                         timestamp = DateTime.UtcNow
@@ -591,6 +589,42 @@ namespace AI.Caller.Phone.Hubs {
                 } catch (Exception notifyEx) {
                     _logger.LogError(notifyEx, "发送错误通知失败: {CallId}", callId);
                 }
+            }
+        }
+
+        private async Task<object> StartMonitoringInternal(int targetUserId, string callId, RTCSessionDescriptionInit offer) {
+            try {
+                var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+                var monitorUserName = Context.User!.Identity!.Name ?? "Unknown";
+
+                string? answerSdp = null;
+                var connectionId = Context.ConnectionId;
+                var mediaSession = new MonitorMediaSession(_logger, _codecFactory, _webRtcSettings);
+                var answer = await mediaSession.HandleOfferAsync(offer);
+                answerSdp = answer.sdp;
+
+                mediaSession.OnIceCandidate += async (candidate) => {
+                    await _hubContext.Clients.Client(connectionId).SendAsync("receiveIceCandidate", candidate.toJSON());
+                };
+
+                var session = await _aiServiceManager.StartMonitoringAsync(
+                    targetUserId,
+                    monitorUserId,
+                    monitorUserName,
+                    callId,
+                    mediaSession); // 传入 Session
+
+                await Groups.AddToGroupAsync(Context.ConnectionId, $"monitoring_{callId}");
+
+                if (mediaSession != null) {
+                    _logger.LogInformation("WebRTC监听已就绪: MonitorUserId {MonitorUserId}", monitorUserId);
+                }
+
+                _logger.LogInformation("用户 {MonitorUserId} 开始监听通话 {CallId}", monitorUserId, callId);
+                return new { success = true, sessionId = session.Id, answer = answerSdp, message = "监听已开始" };
+            } catch (Exception ex) {
+                _logger.LogError(ex, "开始监听失败");
+                return new { success = false, message = $"监听失败: {ex.Message}" };
             }
         }
 
@@ -618,106 +652,6 @@ namespace AI.Caller.Phone.Hubs {
                 _ => throw new ArgumentException($"Invalid DTMF tone: {tone}")
             };
         }        
-    }
-
-    public class AudioStreamManager {
-        private readonly ILogger _logger;
-        private readonly IHubContext<WebRtcHub> _hubContext;
-
-        private readonly ConcurrentDictionary<int, MonitoringSessionContext> _sessions = new();
-
-        public AudioStreamManager(IHubContext<WebRtcHub> hubContext, ILogger<AudioStreamManager> logger) {
-            _hubContext = hubContext;
-            _logger = logger;
-        }
-
-        public void StartForwarding(int monitorUserId, AudioBridge audioBridge) {
-            if (_sessions.ContainsKey(monitorUserId)) return;
-
-            var channel = Channel.CreateBounded<AudioMessage>(new BoundedChannelOptions(100) {
-                FullMode = BoundedChannelFullMode.DropOldest,
-                SingleReader = true,
-                SingleWriter = false
-            });
-
-            Action<int, byte[]> incomingHandler = (userId, data) => {
-                if (userId == monitorUserId) channel.Writer.TryWrite(new AudioMessage("incomingAudio", data));
-            };
-
-            Action<int, byte[]> outgoingHandler = (userId, data) => {
-                if (userId == monitorUserId) channel.Writer.TryWrite(new AudioMessage("outgoingAudio", data));
-            };
-
-            audioBridge.IncomingAudioReady += incomingHandler;
-            audioBridge.OutgoingAudioReady += outgoingHandler;
-
-            var cts = new CancellationTokenSource();
-            var task = Task.Run(() => ProcessQueueAsync(channel.Reader, monitorUserId, cts.Token));
-
-            var context = new MonitoringSessionContext {
-                AudioBridge = audioBridge,
-                IncomingHandler = incomingHandler,
-                OutgoingHandler = outgoingHandler,
-                CancelSource = cts,
-                Channel = channel
-            };
-
-            _sessions[monitorUserId] = context;
-            _logger.LogInformation("音频转发服务已启动: MonitorUser {Id}", monitorUserId);
-        }
-
-        public void StopForwarding(int monitorUserId) {
-            if (_sessions.TryRemove(monitorUserId, out var ctx)) {
-                ctx.AudioBridge.IncomingAudioReady -= ctx.IncomingHandler;
-                ctx.AudioBridge.OutgoingAudioReady -= ctx.OutgoingHandler;
-
-                ctx.CancelSource.Cancel();
-                ctx.Channel.Writer.TryComplete();
-
-                _logger.LogInformation("音频转发服务已停止: MonitorUser {Id}", monitorUserId);
-            }
-        }
-
-        private async Task ProcessQueueAsync(ChannelReader<AudioMessage> reader, int monitorUserId, CancellationToken token) {
-            var client = _hubContext.Clients.User(monitorUserId.ToString());
-            var buffers = new Dictionary<string, List<byte>>();
-            const int BatchSize = 1600;
-
-            try {
-                while (await reader.WaitToReadAsync(token)) {
-                    while (reader.TryRead(out var msg)) {
-                        if (!buffers.ContainsKey(msg.Method)) buffers[msg.Method] = new List<byte>();
-                        buffers[msg.Method].AddRange(msg.Data);
-
-                        if (buffers[msg.Method].Count >= BatchSize) {
-                            await FlushAsync(client, msg.Method, buffers[msg.Method]);
-                        }
-                    }
-                    foreach (var key in buffers.Keys) {
-                        if (buffers[key].Count > 0) await FlushAsync(client, key, buffers[key]);
-                    }
-                }
-            } catch (OperationCanceledException) {
-                // 正常停止
-            } catch (Exception ex) {
-                _logger.LogError(ex, "音频转发循环异常");
-            }
-        }
-
-        private async Task FlushAsync(IClientProxy client, string method, List<byte> buffer) {
-            await client.SendAsync(method, buffer.ToArray());
-            buffer.Clear();
-        }
-
-        private record AudioMessage(string Method, byte[] Data);
-
-        private class MonitoringSessionContext {
-            public AudioBridge AudioBridge { get; set; } = null!;
-            public Action<int, byte[]> IncomingHandler { get; set; } = null!;
-            public Action<int, byte[]> OutgoingHandler { get; set; } = null!;
-            public CancellationTokenSource CancelSource { get; set; } = null!;
-            public Channel<AudioMessage> Channel { get; set; } = null!;
-        }
     }
 
     public record IceCandidateModel(string CallId, string iceCandidate);

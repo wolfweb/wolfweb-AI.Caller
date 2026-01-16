@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using AI.Caller.Core.Media;
 
 namespace AI.Caller.Core;
 
@@ -34,16 +35,21 @@ public sealed partial class AudioBridge {
     /// </summary>
     /// <param name="userId">监听用户ID</param>
     /// <param name="userName">监听用户名</param>
-    public void AddMonitor(int userId, string userName) {
+    /// <param name="session">WebRTC会话</param>
+    public void AddMonitor(int userId, string userName, MonitorMediaSession session) {
         var listener = new MonitoringListener {
             UserId = userId,
             UserName = userName,
             StartTime = DateTime.UtcNow,
-            IsActive = true
+            IsActive = true,
+            Session = session
         };
 
         if (_monitoringListeners.TryAdd(userId, listener)) {
             _logger.LogInformation("监听者已添加: UserId {UserId}, UserName {UserName}", userId, userName);
+            session.OnInterventionAudioReceived += (pcm) => {
+                ProcessInterventionAudio(pcm);
+            };
         } else {
             _logger.LogWarning("监听者已存在: UserId {UserId}", userId);
         }
@@ -57,8 +63,7 @@ public sealed partial class AudioBridge {
         if (_monitoringListeners.TryRemove(userId, out var listener)) {
             listener.IsActive = false;
             listener.EndTime = DateTime.UtcNow;
-            _logger.LogInformation("监听者已移除: UserId {UserId}, 监听时长: {Duration}秒",
-                userId, (listener.EndTime.Value - listener.StartTime).TotalSeconds);
+            _logger.LogInformation("监听者已移除: UserId {UserId}, 监听时长: {Duration}秒", userId, (listener.EndTime.Value - listener.StartTime).TotalSeconds);
         } else {
             _logger.LogWarning("监听者不存在: UserId {UserId}", userId);
         }
@@ -68,9 +73,7 @@ public sealed partial class AudioBridge {
     /// 获取活跃的监听者列表
     /// </summary>
     public List<MonitoringListener> GetActiveMonitors() {
-        return _monitoringListeners.Values
-            .Where(l => l.IsActive)
-            .ToList();
+        return _monitoringListeners.Values.Where(l => l.IsActive).ToList();
     }
 
     /// <summary>
@@ -108,7 +111,10 @@ public sealed partial class AudioBridge {
             // 发送给所有活跃的监听者（客户音频 - Incoming）
             foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
                 IncomingAudioReady?.Invoke(listener.UserId, audioFrame);
+                listener.Session?.SendAudio(audioFrame, false);
+#if DEBUG
                 _logger.LogTrace("推送客户音频到监听者: UserId {UserId}, 帧大小 {Size} 字节", listener.UserId, audioFrame.Length);
+#endif
             }
         } catch (Exception ex) {
             _logger.LogError(ex, "广播来电音频到监听者失败");
@@ -183,6 +189,16 @@ public sealed partial class AudioBridge {
     }
 
     /// <summary>
+    /// 获取指定监听者的WebRTC会话
+    /// </summary>
+    public MonitorMediaSession? GetMonitorSession(int monitorUserId) {
+        if (_monitoringListeners.TryGetValue(monitorUserId, out var listener)) {
+            return listener.Session;
+        }
+        return null;
+    }
+    
+    /// <summary>
     /// 清除所有监听者
     /// </summary>
     public void ClearAllMonitors() {
@@ -202,4 +218,5 @@ public class MonitoringListener {
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public bool IsActive { get; set; }
+    public MonitorMediaSession? Session { get; set; }
 }

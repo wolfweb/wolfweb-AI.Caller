@@ -229,7 +229,7 @@
 </div>
 
 @section Scripts {
-    <script src="~/js/audio-player.js"></script>
+    <script src="~/js/monitor-webrtc.js"></script>
     <script>
         const targetUserId = @targetUserId;
         const callId = '@callId';
@@ -239,19 +239,10 @@
         let startTime = null;
         let durationInterval = null;
 
-        // 音频相关变量（双音轨）
-        let audioContext = null;
-        let incomingPlayer = null; // 客户音频
-        let outgoingPlayer = null; // 系统音频
-        let audioFrameCount = 0;
-        let incomingFrameCount = 0;
-        let outgoingFrameCount = 0;
-
-        let mediaStream = null;
-        let mediaRecorder = null;
-        let isRecording = false;
-        let audioWorkletNode = null;
-        let micAudioContext = null;
+        // WebRTC Manager
+        let monitorManager = null;
+        let audioFrameCount = 0; // Mocked for UI compatibility or tracked via WebRTC stats? 
+        // MonitorWebRTCManager doesn't expose frame count easily. We can remove it or fake it.
 
         async function waitForGlobalSignalR() {
             return new Promise((resolve) => {
@@ -275,66 +266,23 @@
             });
         }
 
-        // 初始化Web Audio API
-        function initAudioContext() {
-            if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    sampleRate: 8000
-                });                
+        // remove old audio context init logic
 
-                incomingPlayer = new AudioPlayer(audioContext, {
-                    pan: -0.5,
-                    threshold: 150
-                });
-                outgoingPlayer = new AudioPlayer(audioContext, {
-                    pan: -0.5,
-                    threshold: 150
-                });
-
-                console.log("Web Audio API已初始化");
-            }
-
-            return audioContext;
-        }
-
-        // 初始化SignalR连接
+        // 初始化SignalR连接和MonitorWebRTCManager
         async function initConnection() {
             if(window.globalSignalRManager){
                 connection = window.globalSignalRManager.connection;
             }else{
-                connection = new signalR.HubConnectionBuilder()
-                    .withUrl("/webrtc")
-                    .withHubProtocol(new signalR.protocols.msgpack.MessagePackHubProtocol()) 
-                    .withAutomaticReconnect()
-                    .build();
+                 // Fallback if global not found (should not happen in this app structure)
+                 console.error("GlobalSignalRManager not found.");
+                 return;
             }
 
-            connection.on("incomingAudio", (uint8Array) => {
-                try {
-                    incomingFrameCount++;
-                    audioFrameCount++;
-                    const pcmData = new Int16Array(uint8Array.slice().buffer);
-
-                    if (incomingPlayer) {
-                        incomingPlayer.push(pcmData);
-                    }
-                } catch (err) {
-                    console.error("处理客户音频数据失败:", err);
-                }
-            });
-
-            connection.on("outgoingAudio", (uint8Array) => {
-                try {
-                    outgoingFrameCount++;
-                    audioFrameCount++;                        
-                    const pcmData = new Int16Array(uint8Array.slice().buffer);
-
-                    if (outgoingPlayer) {
-                        outgoingPlayer.push(pcmData);
-                    }
-                } catch (err) {
-                    console.error("处理系统音频数据失败:", err);
-                }
+            // Register ICE Candidate Handler
+            window.globalSignalRManager.registerEventHandler('monitor_page', 'receiveIceCandidate', (candidate) => {
+                 if (monitorManager) {
+                     monitorManager.addIceCandidate(candidate);
+                 }
             });
 
             connection.on("interventionStarted", (data) => {
@@ -370,27 +318,20 @@
                 } catch(err) {
                 }
             });
-
-            try {
-                if(connection.state !=='Connected'){
-                    await connection.start();
-                    console.log("SignalR连接成功");
-                }
-            } catch (err) {
-                console.error("SignalR连接失败:", err);
-                showToast("SignalR连接失败: " + err, "error");
-            }
         }
 
         async function startMonitoring() {
             try {
-                initAudioContext();
-
-                if (audioContext.state === 'suspended') {
-                    await audioContext.resume();
-                }
+                // Initialize WebRTC Manager
+                monitorManager = new MonitorWebRTCManager(
+                    window.globalSignalRManager, 
+                    document.getElementById('monitoringAudio')
+                );
+                await monitorManager.initialize();
                 
-                const result = await connection.invoke("StartMonitoringAsync", targetUserId, callId);
+                // Start Monitoring (Create Offer -> ConnectMonitoringWebRtc)
+                const result = await monitorManager.startMonitoring(targetUserId, callId);
+                
                 if (result.success) {
                     sessionId = result.sessionId;
                     document.getElementById('sessionId').textContent = sessionId;
@@ -399,8 +340,7 @@
                     
                     document.getElementById('audioStatus').innerHTML = `
                         <i class="bi bi-volume-up" style="font-size: 3rem; color: green;"></i>
-                        <p class="mt-2">正在接收音频...</p>
-                        <p class="text-muted">已接收 <span id="frameCount">0</span> 帧</p>
+                        <p class="mt-2">正在接收音频 (WebRTC)...</p>
                     `;
                     
                     updateStatus("监听中", "bg-success");
@@ -408,25 +348,26 @@
                     startTime = new Date();
                     durationInterval = setInterval(updateDuration, 1000);
                     
-                    setInterval(() => {
-                        const frameCountEl = document.getElementById('frameCount');
-                        if (frameCountEl) {
-                            frameCountEl.textContent = audioFrameCount;
-                        }
-                    }, 1000);
-                    
                     showToast(result.message, "success");
                 } else {
                     showToast(result.message, "error");
                 }
             } catch (err) {
                 console.error("开始监听失败:", err);
-                showToast("开始监听失败: " + err, "error");
+                showToast("开始监听失败: " + err.message, "error");
+                document.getElementById('startMonitorBtn').disabled = false;
             }
         }
 
         async function stopMonitoring() {
             try {
+                // Stop WebRTC
+                if (monitorManager) {
+                    monitorManager.stop();
+                    monitorManager = null;
+                }
+
+                // Call server to stop
                 const result = await connection.invoke("StopMonitoringAsync", targetUserId, sessionId, callId);
                 if (result.success) {
                     document.getElementById('startMonitorBtn').style.display = 'inline-block';
@@ -435,7 +376,6 @@
                     document.getElementById('audioStatus').innerHTML = `
                         <i class="bi bi-volume-mute" style="font-size: 3rem;"></i>
                         <p class="mt-2">监听已停止</p>
-                        <p class="text-muted">共接收 ${audioFrameCount} 帧音频</p>
                     `;
                     
                     updateStatus("已停止", "bg-secondary");
@@ -443,9 +383,6 @@
                     if (durationInterval) {
                         clearInterval(durationInterval);
                     }
-                    
-                    if (incomingPlayer) incomingPlayer.reset();
-                    if (outgoingPlayer) outgoingPlayer.reset();
                                         
                     showToast(result.message, "success");
                 } else {
@@ -475,7 +412,8 @@
             try {
                 const result = await connection.invoke("InterventAsync", targetUserId, sessionId, reason, callId);
                 if (result.success) {
-                    outgoingPlayer.reset();
+                    // Start Intervention Audio
+                    await startMicrophone();
 
                     document.getElementById('interventBtn').style.display = 'none';
                     document.getElementById('exitInterventBtn').style.display = 'block';
@@ -500,9 +438,10 @@
             document.querySelectorAll('.segment-checkbox').forEach(cb => {
                 cb.disabled = false;
             });
-            
-            document.getElementById('selectAllBtn').disabled = false;
-            document.getElementById('clearAllBtn').disabled = false;
+            try{
+                document.getElementById('selectAllBtn').disabled = false;
+                document.getElementById('clearAllBtn').disabled = false;
+            }catch{}
             
             const hintText = document.getElementById('segmentHintText');
             if (hintText) {
@@ -515,9 +454,10 @@
                 cb.disabled = true;
                 cb.checked = false;
             });
-            
+            try{
             document.getElementById('selectAllBtn').disabled = true;
             document.getElementById('clearAllBtn').disabled = true;
+            }catch{}
             
             const hintText = document.getElementById('segmentHintText');
             if (hintText) {
@@ -548,8 +488,8 @@
                 
                 document.getElementById('interventionAudioCard').style.display = 'none';
                 
-                if (isRecording) {
-                    stopMicrophone();
+                if (monitorManager) {
+                    stopMicrophone(); // Logic updated
                 }
                 
                 showToast(`退出接入成功，${delaySeconds} 秒后恢复AI播放...`, "info");
@@ -621,161 +561,34 @@
         }
 
         async function startMicrophone() {
-            try {
-                mediaStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        sampleRate: 8000,
-                        channelCount: 1,
-                        echoCancellation: true,
-                        noiseSuppression: true
-                    } 
-                });
-
-                micAudioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    sampleRate: 8000
-                });
-                
-                const source = micAudioContext.createMediaStreamSource(mediaStream);
-                
+            if (monitorManager) {
                 try {
-                    await micAudioContext.audioWorklet.addModule('/js/audio/intervention-audio-processor.js');
-                    audioWorkletNode = new AudioWorkletNode(micAudioContext, 'intervention-audio-processor');
-                    
-                    audioWorkletNode.port.onmessage = async (event) => {
-                        const { audioData, volume } = event.data;
-                        
-                        updateVolumeMeter(volume);
-                        
-                        const byteArray = new Uint8Array(audioData.buffer);
-                        try {
-                            await connection.invoke("SendInterventionAudioBinary", targetUserId, callId, byteArray);
-                        } catch (err) {
-                            console.error("发送二进制音频失败:", err);
-                            try {
-                                const base64Audio = btoa(String.fromCharCode(...byteArray));
-                                await connection.invoke("SendInterventionAudio", targetUserId, callId, base64Audio);
-                            } catch (fallbackErr) {
-                                console.error("降级发送Base64音频也失败:", fallbackErr);
-                            }
-                        }
-                    };
-                    
-                    source.connect(audioWorkletNode);
-                    audioWorkletNode.connect(micAudioContext.destination);
-                    
-                    console.log("麦克风已启动 - 使用 AudioWorklet（推荐方式）");
-                    document.getElementById('micStatus').innerHTML = '<small class="text-success">麦克风已启用 (AudioWorklet)</small>';
-                    
-                } catch (workletErr) {
-                    console.warn("AudioWorklet 不可用，降级到 ScriptProcessor:", workletErr);
-                    
-                    const processor = micAudioContext.createScriptProcessor(1024, 1, 1);
-                    
-                    processor.onaudioprocess = async (event) => {
-                        const inputBuffer = event.inputBuffer;
-                        const inputData = inputBuffer.getChannelData(0);
-                        
-                        let sumSquares = 0;
-                        for (let i = 0; i < inputData.length; i++) {
-                            sumSquares += inputData[i] * inputData[i];
-                        }
-                        const volume = Math.sqrt(sumSquares / inputData.length);
-                        updateVolumeMeter(volume);
-                        
-                        const int16Data = new Int16Array(inputData.length);
-                        for (let i = 0; i < inputData.length; i++) {
-                            int16Data[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
-                        }
-                        
-                        const byteArray = new Uint8Array(int16Data.buffer);
-                        
-                        try {
-                            await connection.invoke("SendInterventionAudioBinary", targetUserId, callId, byteArray);
-                        } catch (err) {
-                            console.error("发送二进制音频失败:", err);
-                            try {
-                                const base64Audio = btoa(String.fromCharCode(...byteArray));
-                                await connection.invoke("SendInterventionAudio", targetUserId, callId, base64Audio);
-                            } catch (fallbackErr) {
-                                console.error("降级发送Base64音频也失败:", fallbackErr);
-                            }
-                        }
-                    };
-                    
-                    source.connect(processor);
-                    processor.connect(micAudioContext.destination);
-                    
-                    console.log("麦克风已启动 - 使用 ScriptProcessor（兼容模式）");
-                    document.getElementById('micStatus').innerHTML = '<small class="text-warning">麦克风已启用 (兼容模式)</small>';
+                    await monitorManager.startIntervention();
+                    document.getElementById('startMicBtn').style.display = 'none';
+                    document.getElementById('stopMicBtn').style.display = 'inline-block';
+                    document.getElementById('micStatus').innerHTML = '<small class="text-success">麦克风已启用 (WebRTC)</small>';
+                } catch (e) {
+                    showToast("启动麦克风失败: " + e.message, "error");
                 }
-                
-                isRecording = true;
-
-                document.getElementById('startMicBtn').style.display = 'none';
-                document.getElementById('stopMicBtn').style.display = 'inline-block';
-                document.getElementById('volumeMeterContainer').style.display = 'block';
-
-            } catch (err) {
-                console.error("启动麦克风失败:", err);
-                showToast("启动麦克风失败: " + err.message, "error");
             }
         }
 
         async function stopMicrophone() {
-            try {
-                isRecording = false;
-                
-                if (audioWorkletNode) {
-                    audioWorkletNode.disconnect();
-                    audioWorkletNode = null;
+             if (monitorManager) {
+                try {
+                    monitorManager.stopIntervention();
+                    document.getElementById('startMicBtn').style.display = 'inline-block';
+                    document.getElementById('stopMicBtn').style.display = 'none';
+                    document.getElementById('micStatus').innerHTML = '<small class="text-muted">麦克风未启用</small>';
+                } catch (e) {
+                    showToast("停止麦克风失败: " + e.message, "error");
                 }
-                
-                if (micAudioContext) {
-                    await micAudioContext.close();
-                    micAudioContext = null;
-                }
-
-                if (mediaStream) {
-                    mediaStream.getTracks().forEach(track => track.stop());
-                    mediaStream = null;
-                }
-
-                document.getElementById('startMicBtn').style.display = 'inline-block';
-                document.getElementById('stopMicBtn').style.display = 'none';
-                document.getElementById('micStatus').innerHTML = '<small class="text-muted">麦克风未启用</small>';
-                document.getElementById('volumeMeterContainer').style.display = 'none';
-                document.getElementById('volumeMeter').style.width = '0%';
-
-                console.log("麦克风已停止");
-            } catch (err) {
-                console.error("停止麦克风失败:", err);
-                showToast("停止麦克风失败: " + err.message, "error");
             }
         }
 
         function updateVolumeMeter(volume) {
-            const minVolume = 0.01;
-            let displayVolume = 0;
-            
-            if (volume > minVolume) {
-                displayVolume = Math.min(100, volume * 400); 
-            }
-            
-            const meter = document.getElementById('volumeMeter');
-            if (meter) {
-                meter.style.width = `${displayVolume}%`;
-                
-                if (displayVolume > 80) {
-                    meter.classList.remove('bg-success', 'bg-warning');
-                    meter.classList.add('bg-danger'); // 音量过大
-                } else if (displayVolume > 50) {
-                    meter.classList.remove('bg-success', 'bg-danger');
-                    meter.classList.add('bg-warning'); // 音量适中偏大
-                } else {
-                    meter.classList.remove('bg-warning', 'bg-danger');
-                    meter.classList.add('bg-success'); // 正常对话音量
-                }
-            }
+             // Not easily supported in simple WebRTC stream without AudioContext analysis
+             // Can add if needed later using AudioContext analyzer on localStream
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
