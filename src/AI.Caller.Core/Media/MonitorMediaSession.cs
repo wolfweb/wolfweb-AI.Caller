@@ -15,15 +15,18 @@ namespace AI.Caller.Core.Media {
         private readonly IAudioCodec _codecPCMA;
         private readonly IAudioCodec _codecPCMU;
 
-        private readonly ConcurrentQueue<short> _customerBuffer = new();
-        private readonly ConcurrentQueue<short> _aiBuffer = new();
-
         private readonly CancellationTokenSource _mixingCts = new();
+        private readonly ConcurrentQueue<short> _aiBuffer = new();
+        private readonly ConcurrentQueue<short> _customerBuffer = new();
+        
         private Task? _mixingTask;
+        private bool _isAiBuffering = true;
+        private bool _isCustomerBuffering = true;
 
         private const int SAMPLE_RATE = 8000;
         private const int SAMPLES_PER_FRAME = 160; // 20ms @ 8kHz
-        private const int MAX_BUFFER_SIZE = 1600;  // 200ms 最大缓冲，超过丢弃
+        private const int MAX_BUFFER_SIZE = 2400;  // 300ms，超过这个值说明积压了，需要丢弃旧数据
+        private const int START_BUFFER_THRESHOLD = 480; // 只有当缓冲区积攒了 3 帧 (60ms) 数据后才开始混合，抵抗网络抖动
 
         public event Action<byte[]>? OnInterventionAudioReceived;
         public event Action<RTCIceCandidateInit>? OnIceCandidate;
@@ -47,15 +50,13 @@ namespace AI.Caller.Core.Media {
             var audioTrack = new MediaStreamTrack(_audioSource.GetAudioSourceFormats(), MediaStreamStatusEnum.SendRecv);
             _pc.addTrack(audioTrack);
 
-            _audioSource.OnAudioSourceEncodedSample += _pc.SendAudio;
-            _audioSource.SetAudioSourceFormat(new AudioFormat(SDPWellKnownMediaFormatsEnum.PCMA));
-            _audioSource.StartAudio();
+            _audioSource.OnAudioSourceEncodedSample += _pc.SendAudio;           
 
             _pc.onicecandidate += (candidate) => {
                 if (candidate != null) {
                     OnIceCandidate?.Invoke(new RTCIceCandidateInit {
-                        candidate = candidate.candidate,
                         sdpMid = candidate.sdpMid,
+                        candidate = candidate.candidate,
                         sdpMLineIndex = candidate.sdpMLineIndex
                     });
                 }
@@ -107,10 +108,30 @@ namespace AI.Caller.Core.Media {
 
             short[] mixBuffer = new short[SAMPLES_PER_FRAME];
 
-            bool hasCust = _customerBuffer.Count >= SAMPLES_PER_FRAME;
-            bool hasAi = _aiBuffer.Count >= SAMPLES_PER_FRAME;
+            if (_isCustomerBuffering) {
+                if (_customerBuffer.Count >= START_BUFFER_THRESHOLD) {
+                    _isCustomerBuffering = false;
+                }
+            } else {
+                if (_customerBuffer.Count < SAMPLES_PER_FRAME) {
+                    _isCustomerBuffering = true;
+                }
+            }
 
-            if (!hasCust && !hasAi) {
+            if (_isAiBuffering) {
+                if (_aiBuffer.Count >= START_BUFFER_THRESHOLD) {
+                    _isAiBuffering = false;
+                }
+            } else {
+                if (_aiBuffer.Count < SAMPLES_PER_FRAME) {
+                    _isAiBuffering = true;
+                }
+            }
+
+            bool canPlayCust = !_isCustomerBuffering;
+            bool canPlayAi = !_isAiBuffering;
+
+            if (!canPlayCust && !canPlayAi) {
                 _audioSource.SendAudio(mixBuffer, SAMPLE_RATE);
                 return;
             }
@@ -119,14 +140,20 @@ namespace AI.Caller.Core.Media {
                 int sampleCust = 0;
                 int sampleAi = 0;
 
-                if (hasCust) {
-                    _customerBuffer.TryDequeue(out short s);
-                    sampleCust = s;
+                if (canPlayCust) {
+                    if (_customerBuffer.TryDequeue(out short s)) {
+                        sampleCust = s;
+                    } else {
+                        _isCustomerBuffering = true;
+                    }
                 }
 
-                if (hasAi) {
-                    _aiBuffer.TryDequeue(out short s);
-                    sampleAi = s;
+                if (canPlayAi) {
+                    if (_aiBuffer.TryDequeue(out short s)) {
+                        sampleAi = s;
+                    } else {
+                        _isAiBuffering = true;
+                    }
                 }
 
                 int mixed = sampleCust + sampleAi;
@@ -137,7 +164,6 @@ namespace AI.Caller.Core.Media {
                 mixBuffer[i] = (short)mixed;
             }
 
-            // 发送混音后的 PCM 数据
             _audioSource.SendAudio(mixBuffer, SAMPLE_RATE);
         }
 
@@ -158,7 +184,9 @@ namespace AI.Caller.Core.Media {
             }
 
             if (dropCount > 0) {
-                _logger.LogTrace($"Dropped {dropCount} samples from {(isAiAudio ? "AI" : "Customer")} buffer to sync.");
+                if (dropCount > 500) {
+                    _logger.LogWarning($"Dropped {dropCount} samples from {(isAiAudio ? "AI" : "Customer")} buffer to sync latency.");
+                }
             }
         }
 
@@ -180,6 +208,21 @@ namespace AI.Caller.Core.Media {
             _pc.setRemoteDescription(offer);
             var answer = _pc.createAnswer(null);
             await _pc.setLocalDescription(answer);
+
+            try {
+                var audioMedia = _pc.localDescription.sdp.Media.FirstOrDefault(m => m.Media == SDPMediaTypesEnum.audio);
+
+                if (audioMedia != null && audioMedia.MediaFormats.Count > 0) {                    
+                    var selectedFormat = audioMedia.MediaFormats.First();
+                    _audioSource.SetAudioSourceFormat(selectedFormat.Value.ToAudioFormat());
+                } else {
+                    _logger.LogWarning("Monitor WebRTC: No audio media found in local SDP answer.");
+                }
+                _audioSource?.StartAudio();                
+            }catch( Exception ex) {
+                _logger.LogError(ex, "Error determining negotiated audio format.");
+            }
+
             return answer;
         }
 
