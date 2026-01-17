@@ -39,9 +39,9 @@ namespace AI.Caller.Phone.Hubs {
             Microsoft.Extensions.Options.IOptions<WebRTCSettings> webRtcSettings
             ) {
             _logger                 = logger;
-            _codecFactory           = codecFactory;
-            _callManager            = callManager;
             _hubContext             = hubContext;
+            _callManager            = callManager;
+            _codecFactory           = codecFactory;
             _appDbContext           = appDbContext;
             _recordingService       = recordingService;
             _aiServiceManager       = aiServiceManager;

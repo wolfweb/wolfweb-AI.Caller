@@ -48,22 +48,26 @@ namespace AI.Caller.Phone {
             builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
 
             builder.Services.AddScoped<IAICustomerServiceSettingsProvider, AICustomerServiceSettingsProvider>();
-            builder.Services.AddSingleton(_ => Channel.CreateUnbounded<SipRegisterModel>());
-            builder.Services.AddSingleton(_ => new ApplicationContext());
 
             builder.Services.AddHostedService<SipBackgroundTask>();
+            builder.Services.AddHostedService<QueuedHostedService>();
             builder.Services.AddHostedService<AISipRegistrationService>();
             builder.Services.AddHostedService<SipRegistrationBackgroundService>();
 
+            builder.Services.AddSingleton(_ => Channel.CreateUnbounded<SipRegisterModel>());
+            builder.Services.AddSingleton(_ => new ApplicationContext());
             builder.Services.AddSingleton(sp => {
                 return new SIPTransportManager(builder.Configuration.GetSection("SipSettings")["ContactHost"], sp.GetRequiredService<ILogger<SIPTransportManager>>());
             });
+            builder.Services.AddSingleton<RecordingManager>();
             builder.Services.AddSingleton<SIPClientPoolManager>();
             builder.Services.AddSingleton<HangupMonitoringService>();
+            builder.Services.AddSingleton<ICallManager, CallManager>();
+            builder.Services.AddSingleton<AICustomerServiceManager>();
             builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();
             builder.Services.AddSingleton<INetworkMonitoringService, NetworkMonitoringService>();
-            builder.Services.AddSingleton<ICallManager, CallManager>();
-            builder.Services.AddSingleton<RecordingManager>();
+            builder.Services.AddSingleton<IBackgroundTaskQueue>(sp => new BackgroundTaskQueue(100));
+
             builder.Services.AddTransient<WebToWebScenario>();
             builder.Services.AddTransient<WebToMobileScenario>();
             builder.Services.AddTransient<MobileToWebScenario>();
@@ -71,25 +75,22 @@ namespace AI.Caller.Phone {
             builder.Services.AddTransient<WebToServerScenario>();
             builder.Services.AddTransient<ServerToMobileScenario>();
             builder.Services.AddTransient<MobileToServerScenario>();
+            builder.Services.AddTransient<ICallProcessor, CallProcessor>();
+
             builder.Services.AddScoped<UserService>();
             builder.Services.AddScoped<ContactService>();
             builder.Services.AddScoped<SipService>();
             builder.Services.AddScoped<DataMigrationService>();
-
-            builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<IRingtoneService, RingtoneService>();
-
+            builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
-            builder.Services.AddScoped<ISipLineSelector, SipLineSelector>();
 
+            builder.Services.AddScoped<ISipLineSelector, SipLineSelector>();
             builder.Services.AddScoped<ICallFlowOrchestrator, CallFlowOrchestrator>();
             builder.Services.AddScoped<IVariableResolverService, VariableResolverService>();
             builder.Services.AddScoped<ICallTaskService, CallTaskService>();
             builder.Services.AddScoped<ITtsPlayerService, TtsPlayerService>();
 
-            builder.Services.AddSingleton<IBackgroundTaskQueue>(sp => new BackgroundTaskQueue(100));
-            builder.Services.AddHostedService<QueuedHostedService>();
-            builder.Services.AddTransient<ICallProcessor, CallProcessor>();
             builder.Services.AddScoped<IBatchProcessor, BatchProcessor>();
 
             // 场景录音、DTMF和监听服务
@@ -97,12 +98,9 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<IDtmfInputService, DtmfInputService>();
             builder.Services.AddScoped<IMonitoringService, MonitoringService>();
             builder.Services.AddScoped<IPlaybackControlService, PlaybackControlService>();
-            
-            // 音频转换服务
             builder.Services.AddScoped<AI.Caller.Core.Media.Interfaces.IAudioConverter, AI.Caller.Core.Media.AudioConverter>();
-
+            
             builder.Services.AddAIAutoResponder();
-            builder.Services.AddSingleton<AICustomerServiceManager>();
             builder.Services.AddAuthentication(options => {
                 options.DefaultScheme = "CookieAuth";
                 options.DefaultChallengeScheme = "CookieAuth";
