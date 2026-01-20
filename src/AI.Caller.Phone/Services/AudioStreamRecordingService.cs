@@ -730,8 +730,7 @@ namespace AI.Caller.Phone.Services {
 
             _mixingTask = Task.Run(MixingLoopAsync, _cts.Token);
 
-            _logger.LogInformation("AudioRecorder initialized: {FilePath}, Output: {SampleRate}Hz {Channels}ch {Bits}bit",
-                filePath, OutputSampleRate, Channels, BitsPerSample);
+            _logger.LogInformation("AudioRecorder initialized: {FilePath}, Output: {SampleRate}Hz {Channels}ch {Bits}bit", filePath, OutputSampleRate, Channels, BitsPerSample);
         }
 
         public async Task WriteAudioDataAsync(byte[] rtpPayload, AudioDirection direction, uint rtpTimestamp, int payloadType) {

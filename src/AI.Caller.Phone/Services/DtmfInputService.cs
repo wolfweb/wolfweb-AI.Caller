@@ -58,8 +58,7 @@ public class DtmfInputService : IDtmfInputService {
             _dbContext.DtmfInputTemplates.Add(template);
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("DTMF模板已创建: {TemplateId}, {Name}",
-                template.Id, template.Name);
+            _logger.LogInformation("DTMF模板已创建: {TemplateId}, {Name}", template.Id, template.Name);
 
             return template;
         } catch (Exception ex) {
@@ -132,8 +131,7 @@ public class DtmfInputService : IDtmfInputService {
             _dbContext.DtmfInputRecords.Add(record);
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("DTMF输入已记录: {RecordId}, CallId: {CallId}",
-                record.Id, record.CallId);
+            _logger.LogInformation("DTMF输入已记录: {RecordId}, CallId: {CallId}", record.Id, record.CallId);
 
             return record;
         } catch (Exception ex) {

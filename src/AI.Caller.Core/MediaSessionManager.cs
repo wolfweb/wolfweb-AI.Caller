@@ -176,8 +176,7 @@ namespace AI.Caller.Core {
                     _peerConnection = tempPeerConnection;
                     tempPeerConnection = null;
 
-                    _logger.LogInformation("RTCPeerConnection initialized with {IceServerCount} ICE servers",
-                        config.iceServers?.Count ?? 0);
+                    _logger.LogInformation("RTCPeerConnection initialized with {IceServerCount} ICE servers", config.iceServers?.Count ?? 0);
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Failed to initialize RTCPeerConnection");
 

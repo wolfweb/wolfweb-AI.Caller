@@ -75,8 +75,7 @@ namespace AI.Caller.Core.Network {
                 _clientStatuses[clientId] = clientStatus;
                 _stats.RegisteredClientsCount = _registeredClients.Count;
 
-                _logger.LogInformation("Registered SIP client for monitoring: {ClientId} ({ClientType})",
-                    clientId, clientStatus.ClientType);
+                _logger.LogInformation("Registered SIP client for monitoring: {ClientId} ({ClientType})", clientId, clientStatus.ClientType);
             }
         }
 
@@ -269,8 +268,7 @@ namespace AI.Caller.Core.Network {
 
                 var restoredClients = _clientStatuses.Keys.ToList();
 
-                _logger.LogInformation("Network connection restored after {Duration}. Restored clients: {ClientCount}",
-                    outageDuration, restoredClients.Count);
+                _logger.LogInformation("Network connection restored after {Duration}. Restored clients: {ClientCount}", outageDuration, restoredClients.Count);
 
                 NetworkConnectionRestored?.Invoke(this, new NetworkConnectionRestoredEventArgs(
                     newStatus, outageDuration, restoredClients));

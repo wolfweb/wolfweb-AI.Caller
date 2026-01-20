@@ -218,8 +218,7 @@ namespace AI.Caller.Core {
                             if (isFirstStable || isLongPressGap) {
                                 byte tone = _currentTrackingKey.ToByte();
 
-                                _logger.LogInformation("DTMF Confirmed: {Key} (Count: {Count}, IsRepeat: {IsRepeat})",
-                                    _currentTrackingKey, _sameKeyContinuousCount, _hasReportedCurrentKey);
+                                _logger.LogInformation("DTMF Confirmed: {Key} (Count: {Count}, IsRepeat: {IsRepeat})", _currentTrackingKey, _sameKeyContinuousCount, _hasReportedCurrentKey);
 
                                 OnDtmfToneReceived?.Invoke(tone);
 

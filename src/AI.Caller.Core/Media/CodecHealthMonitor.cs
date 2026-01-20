@@ -311,10 +311,7 @@ namespace AI.Caller.Core.Media {
 
             // Notify if health status changed
             if (previousResult == null || previousResult.IsHealthy != result.IsHealthy) {
-                _logger.LogInformation("🔄 Codec {Codec} health status changed: {PreviousStatus} -> {NewStatus}", 
-                    codecType, 
-                    previousResult?.IsHealthy.ToString() ?? "Unknown", 
-                    result.IsHealthy);
+                _logger.LogInformation("🔄 Codec {Codec} health status changed: {PreviousStatus} -> {NewStatus}", codecType, previousResult?.IsHealthy.ToString() ?? "Unknown", result.IsHealthy);
 
                 // Update codec factory health status
                 if (result.IsHealthy) {

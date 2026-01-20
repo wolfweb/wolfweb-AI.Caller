@@ -32,18 +32,14 @@ public partial class AICustomerServiceManager {
 
             using (var scope = _scopeFactory.CreateScope()) {
                 var monitoringService = scope.ServiceProvider.GetRequiredService<IMonitoringService>();
-
-                // 创建监听会话记录
                 var monitoringSession = await monitoringService.StartMonitoringAsync(callId, monitorUserId, monitorUserName);
 
-                // 在AudioBridge中添加监听者
                 if (session.AudioBridge is AudioBridge audioBridge) {
                     audioBridge.AddMonitor(monitorUserId, monitorUserName, mediaSession);
                     _logger.LogInformation("监听者已添加到AudioBridge: UserId {UserId}, MonitorUser {MonitorUserId}", userId, monitorUserId);
                 }
 
-                _logger.LogInformation("监听会话已开始: SessionId {SessionId}, CallId {CallId}",
-                    monitoringSession.Id, callId);
+                _logger.LogInformation("监听会话已开始: SessionId {SessionId}, CallId {CallId}", monitoringSession.Id, callId);
 
                 return monitoringSession;
             }
@@ -111,11 +107,9 @@ public partial class AICustomerServiceManager {
 
                 // 更新播放控制状态
                 await playbackControlService.PausePlaybackAsync(callId);
-                await playbackControlService.RecordInterventionAsync(callId,
-                    session.AutoResponder.IsPaused ? 0 : -1); // 记录当前片段
+                await playbackControlService.RecordInterventionAsync(callId, session.AutoResponder.IsPaused ? 0 : -1);
 
-                _logger.LogInformation("人工接入成功: UserId {UserId}, MonitorUser {MonitorUserId}, Reason: {Reason}",
-                    userId, monitorUserId, reason);
+                _logger.LogInformation("人工接入成功: UserId {UserId}, MonitorUser {MonitorUserId}, Reason: {Reason}", userId, monitorUserId, reason);
             }
         } catch (Exception ex) {
             _logger.LogError(ex, "人工接入失败: UserId {UserId}, SessionId {SessionId}",
@@ -286,8 +280,8 @@ public partial class AICustomerServiceManager {
                     }
                 };
 
-                if (audioBridge is AudioBridge ab2) {
-                    ab2.InterventionAudioSend += (audioFrame) => {
+                if (audioBridge is AudioBridge ab) {
+                    ab.InterventionAudioSend += (audioFrame) => {
                         try {
                             sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
                             _logger.LogTrace("人工接入音频已发送到SIP通话: {Size} 字节", audioFrame.Length);

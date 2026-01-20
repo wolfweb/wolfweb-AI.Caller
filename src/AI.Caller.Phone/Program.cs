@@ -61,7 +61,6 @@ namespace AI.Caller.Phone {
             });
             builder.Services.AddSingleton<RecordingManager>();
             builder.Services.AddSingleton<SIPClientPoolManager>();
-            builder.Services.AddSingleton<HangupMonitoringService>();
             builder.Services.AddSingleton<ICallManager, CallManager>();
             builder.Services.AddSingleton<AICustomerServiceManager>();
             builder.Services.AddSingleton<ISimpleRecordingService, AudioStreamRecordingService>();

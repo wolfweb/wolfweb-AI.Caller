@@ -105,8 +105,7 @@ public unsafe class AudioConverter : IAudioConverter {
                 return false;
             }
 
-            _logger.LogInformation("输入音频: 采样率={SampleRate}Hz, 声道={Channels}, 格式={Format}",
-                codecContext->sample_rate, codecContext->ch_layout.nb_channels, codecContext->sample_fmt);
+            _logger.LogInformation("输入音频: 采样率={SampleRate}Hz, 声道={Channels}, 格式={Format}", codecContext->sample_rate, codecContext->ch_layout.nb_channels, codecContext->sample_fmt);
 
             // 6. 创建重采样上下文
             swrContext = ffmpeg.swr_alloc();

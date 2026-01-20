@@ -68,8 +68,7 @@ public class SipLineController : ControllerBase {
         _context.SipLines.Add(line);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("用户 {User} 创建了SIP线路 {LineName} (ID: {LineId})", 
-            User.Identity?.Name, line.Name, line.Id);
+        _logger.LogInformation("用户 {User} 创建了SIP线路 {LineName} (ID: {LineId})", User.Identity?.Name, line.Name, line.Id);
 
         return CreatedAtAction(nameof(GetLine), new { id = line.Id }, line);
     }
@@ -98,8 +97,7 @@ public class SipLineController : ControllerBase {
 
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("用户 {User} 更新了SIP线路 {LineName} (ID: {LineId})", 
-            User.Identity?.Name, line.Name, line.Id);
+        _logger.LogInformation("用户 {User} 更新了SIP线路 {LineName} (ID: {LineId})", User.Identity?.Name, line.Name, line.Id);
 
         return NoContent();
     }
@@ -128,8 +126,7 @@ public class SipLineController : ControllerBase {
         _context.SipLines.Remove(line);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("用户 {User} 删除了SIP线路 {LineName} (ID: {LineId})", 
-            User.Identity?.Name, line.Name, line.Id);
+        _logger.LogInformation("用户 {User} 删除了SIP线路 {LineName} (ID: {LineId})", User.Identity?.Name, line.Name, line.Id);
 
         return NoContent();
     }
@@ -159,8 +156,7 @@ public class SipLineController : ControllerBase {
         account.DefaultLineId = request.LineId;
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("用户 {User} 设置SIP账户 {SipAccount} 的默认线路为 {LineName} (ID: {LineId})", 
-            User.Identity?.Name, account.SipUsername, line.Name, line.Id);
+        _logger.LogInformation("用户 {User} 设置SIP账户 {SipAccount} 的默认线路为 {LineName} (ID: {LineId})", User.Identity?.Name, account.SipUsername, line.Name, line.Id);
 
         return NoContent();
     }
@@ -228,8 +224,7 @@ public class SipLineController : ControllerBase {
         account.AvailableLines.Add(line);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("用户 {User} 关联SIP账户 {SipAccount} 与线路 {LineName} (ID: {LineId})", 
-            User.Identity?.Name, account.SipUsername, line.Name, line.Id);
+        _logger.LogInformation("用户 {User} 关联SIP账户 {SipAccount} 与线路 {LineName} (ID: {LineId})", User.Identity?.Name, account.SipUsername, line.Name, line.Id);
 
         return NoContent();
     }
@@ -260,8 +255,7 @@ public class SipLineController : ControllerBase {
         account.AvailableLines.Remove(line);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("用户 {User} 取消关联SIP账户 {SipAccount} 与线路 {LineName} (ID: {LineId})", 
-            User.Identity?.Name, account.SipUsername, line.Name, line.Id);
+        _logger.LogInformation("用户 {User} 取消关联SIP账户 {SipAccount} 与线路 {LineName} (ID: {LineId})", User.Identity?.Name, account.SipUsername, line.Name, line.Id);
 
         return NoContent();
     }

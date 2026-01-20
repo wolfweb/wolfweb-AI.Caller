@@ -49,8 +49,7 @@ namespace AI.Caller.Core.Media {
             NetworkQuality networkQuality = NetworkQuality.Good,
             bool preferHighQuality = true) {
             
-            _logger.LogInformation("🔄 Negotiating codec: SupportedCodecs=[{SupportedCodecs}], NetworkQuality={NetworkQuality}, PreferHighQuality={PreferHighQuality}",
-                string.Join(", ", supportedCodecs), networkQuality, preferHighQuality);
+            _logger.LogInformation("🔄 Negotiating codec: SupportedCodecs=[{SupportedCodecs}], NetworkQuality={NetworkQuality}, PreferHighQuality={PreferHighQuality}", string.Join(", ", supportedCodecs), networkQuality, preferHighQuality);
 
             var result = new CodecNegotiationResult();
             

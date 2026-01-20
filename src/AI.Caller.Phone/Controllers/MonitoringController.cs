@@ -172,8 +172,7 @@ public class MonitoringController : Controller {
                     duration = s.Duration
                 }).ToList();
 
-            _logger.LogInformation("获取场景片段成功: CallId={CallId}, ScenarioId={ScenarioId}, SegmentCount={Count}",
-                callId, scenario.Id, segments.Count);
+            _logger.LogInformation("获取场景片段成功: CallId={CallId}, ScenarioId={ScenarioId}, SegmentCount={Count}", callId, scenario.Id, segments.Count);
 
             return Json(new { 
                 success = true, 

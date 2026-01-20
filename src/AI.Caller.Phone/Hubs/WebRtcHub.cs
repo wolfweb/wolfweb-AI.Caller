@@ -1,15 +1,13 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Media;
-using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Phone.Models;
 using AI.Caller.Phone.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SIPSorcery.Net;
-using System.Collections.Concurrent;
 using System.Security.Claims;
-using System.Threading.Channels;
 
 namespace AI.Caller.Phone.Hubs {
     [Authorize]
@@ -18,6 +16,7 @@ namespace AI.Caller.Phone.Hubs {
         private readonly ICallManager _callManager;
         private readonly AppDbContext _appDbContext;
         private readonly IHubContext<WebRtcHub> _hubContext;
+        private readonly IMonitoringService _monitoringService;
         private readonly ApplicationContext _applicationContext;
         private readonly ISimpleRecordingService _recordingService;
         private readonly AICustomerServiceManager _aiServiceManager;
@@ -28,15 +27,16 @@ namespace AI.Caller.Phone.Hubs {
 
         public WebRtcHub(
             ILogger<WebRtcHub> logger,
-            AudioCodecFactory codecFactory,
             ICallManager callManager,
             AppDbContext appDbContext,
+            AudioCodecFactory codecFactory,
             IHubContext<WebRtcHub> hubContext,
+            IMonitoringService monitoringService,
             ApplicationContext applicationContext,
             ISimpleRecordingService recordingService,
             AICustomerServiceManager aiServiceManager,
             IPlaybackControlService playbackControlService,
-            Microsoft.Extensions.Options.IOptions<WebRTCSettings> webRtcSettings
+            IOptions<WebRTCSettings> webRtcSettings
             ) {
             _logger                 = logger;
             _hubContext             = hubContext;
@@ -44,6 +44,7 @@ namespace AI.Caller.Phone.Hubs {
             _codecFactory           = codecFactory;
             _appDbContext           = appDbContext;
             _recordingService       = recordingService;
+            _monitoringService      = monitoringService;
             _aiServiceManager       = aiServiceManager;
             _applicationContext     = applicationContext;
             _playbackControlService = playbackControlService;
@@ -607,12 +608,16 @@ namespace AI.Caller.Phone.Hubs {
                     await _hubContext.Clients.Client(connectionId).SendAsync("receiveIceCandidate", candidate.toJSON());
                 };
 
-                var session = await _aiServiceManager.StartMonitoringAsync(
-                    targetUserId,
-                    monitorUserId,
-                    monitorUserName,
-                    callId,
-                    mediaSession); // 传入 Session
+                var sessions = await _monitoringService.GetCallSessionsAsync(callId);
+                var session = sessions.FirstOrDefault(x => x.MonitorUserId == monitorUserId && x.IsActive);
+                if (session == null) {
+                    session = await _aiServiceManager.StartMonitoringAsync(
+                        targetUserId,
+                        monitorUserId,
+                        monitorUserName,
+                        callId,
+                        mediaSession); // 传入 Session
+                }
 
                 await Groups.AddToGroupAsync(Context.ConnectionId, $"monitoring_{callId}");
 

@@ -96,8 +96,7 @@ namespace AI.Caller.Core.Network {
         }
 
         private void OnNetworkConnectionRestored(object? sender, NetworkConnectionRestoredEventArgs e) {
-            _logger.LogInformation("Network connection restored after {Duration}, Restored clients: {ClientCount}",
-                e.OutageDuration, e.RestoredClientIds.Count);
+            _logger.LogInformation("Network connection restored after {Duration}, Restored clients: {ClientCount}", e.OutageDuration, e.RestoredClientIds.Count);
 
             // 这里可以添加连接恢复时的处理逻辑
             // 例如：恢复服务、重新注册客户端等

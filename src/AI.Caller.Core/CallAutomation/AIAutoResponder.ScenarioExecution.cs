@@ -73,8 +73,7 @@ public sealed partial class AIAutoResponder {
                 var segment = orderedSegments[currentIndex];
                 
                 if (_skippedSegmentIds.Contains(segment.Id)) {
-                    _logger.LogInformation("跳过片段 {Order}/{Total}: {Type} (SegmentId={SegmentId})",
-                        segment.Order, orderedSegments.Count, segment.Type, segment.Id);
+                    _logger.LogInformation("跳过片段 {Order}/{Total}: {Type} (SegmentId={SegmentId})", segment.Order, orderedSegments.Count, segment.Type, segment.Id);
                     currentIndex++;
                     continue;
                 }
@@ -335,8 +334,7 @@ public sealed partial class AIAutoResponder {
         }
 
         bool result = EvaluateCondition(segment.ConditionExpression, variables);
-        _logger.LogInformation("条件评估结果: {Expression} = {Result}",
-            segment.ConditionExpression, result);
+        _logger.LogInformation("条件评估结果: {Expression} = {Result}", segment.ConditionExpression, result);
 
         if (result && segment.NextSegmentIdOnTrue.HasValue) {
             var nextSegment = segments.FirstOrDefault(s => s.Id == segment.NextSegmentIdOnTrue.Value);

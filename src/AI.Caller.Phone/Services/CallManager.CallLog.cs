@@ -57,8 +57,7 @@ public partial class CallManager {
         }
         await dbContext.SaveChangesAsync();
 
-        _logger.LogInformation("创建外呼CallLog: CallId={CallId}, Scenario={Scenario}, Caller={CallerUserId}, Callee={Callee}",
-            ctx.CallId, ctx.Type, caller.Id, callLog.CalleeNumber ?? callLog.CalleeUserId?.ToString());
+        _logger.LogInformation("创建外呼CallLog: CallId={CallId}, Scenario={Scenario}, Caller={CallerUserId}, Callee={Callee}", ctx.CallId, ctx.Type, caller.Id, callLog.CalleeNumber ?? callLog.CalleeUserId?.ToString());
 
         return callLog;
     }
@@ -99,8 +98,7 @@ public partial class CallManager {
         }
         await dbContext.SaveChangesAsync();
 
-        _logger.LogInformation("创建来电CallLog: CallId={CallId}, Scenario={Scenario}, Caller={Caller}, Callee={CalleeUserId}",
-            ctx.CallId, callLog.CallScenario, callLog.CallerNumber ?? callLog.CallerUserId?.ToString(), callLog.CalleeUserId);
+        _logger.LogInformation("创建来电CallLog: CallId={CallId}, Scenario={Scenario}, Caller={Caller}, Callee={CalleeUserId}", ctx.CallId, callLog.CallScenario, callLog.CallerNumber ?? callLog.CallerUserId?.ToString(), callLog.CalleeUserId);
 
         return callLog;
     }
@@ -153,8 +151,7 @@ public partial class CallManager {
 
         await dbContext.SaveChangesAsync();
 
-        _logger.LogInformation("更新CallLog: CallId={CallId}, Status={Status}, Duration={Duration}",
-            callId, callLog.Status, callLog.Duration);
+        _logger.LogInformation("更新CallLog: CallId={CallId}, Status={Status}, Duration={Duration}", callId, callLog.Status, callLog.Duration);
     }
 
     /// <summary>
