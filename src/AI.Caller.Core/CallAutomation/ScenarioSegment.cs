@@ -221,6 +221,10 @@ public enum ScenarioExecutionStatus {
 /// 场景执行进度信息
 /// </summary>
 public class ScenarioProgressInfo {
+    public ScenarioProgressInfo(string callId) {
+        CallId = callId;
+    }
+    public string CallId { get; set; }
     /// <summary>
     /// 当前片段索引
     /// </summary>

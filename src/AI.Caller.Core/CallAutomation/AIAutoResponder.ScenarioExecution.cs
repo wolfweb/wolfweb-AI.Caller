@@ -41,7 +41,7 @@ public sealed partial class AIAutoResponder {
     /// <param name="segments">场景片段列表</param>
     /// <param name="variables">变量字典</param>
     /// <param name="ct">取消令牌</param>
-    public async Task PlayScenarioAsync(List<ScenarioSegment> segments, Dictionary<string, string> variables, CancellationToken ct = default, int speakerId = 0) {
+    public async Task PlayScenarioAsync(string callId, List<ScenarioSegment> segments, Dictionary<string, string> variables, CancellationToken ct = default, int speakerId = 0) {
         if (_audioFilePlayer == null) {
             _logger.LogError("AudioFilePlayer未设置，无法播放录音片段");
             throw new InvalidOperationException("AudioFilePlayer未设置");
@@ -81,7 +81,7 @@ public sealed partial class AIAutoResponder {
                 _logger.LogInformation("播放片段 {Order}/{Total}: {Type} (SegmentId={SegmentId})", segment.Order, orderedSegments.Count, segment.Type, segment.Id);
 
                 try {
-                    OnScenarioProgress?.Invoke(new ScenarioProgressInfo {
+                    OnScenarioProgress?.Invoke(new ScenarioProgressInfo(callId) {
                         CurrentSegmentIndex = currentIndex,
                         TotalSegments = orderedSegments.Count,
                         CurrentSegment = segment,
@@ -100,7 +100,7 @@ public sealed partial class AIAutoResponder {
                             break;
 
                         case ScenarioSegmentType.DtmfInput:
-                            OnScenarioProgress?.Invoke(new ScenarioProgressInfo {
+                            OnScenarioProgress?.Invoke(new ScenarioProgressInfo (callId){
                                 CurrentSegmentIndex = currentIndex,
                                 TotalSegments = orderedSegments.Count,
                                 CurrentSegment = segment,
@@ -143,7 +143,7 @@ public sealed partial class AIAutoResponder {
 
             _logger.LogInformation("场景播放完成");
             
-            OnScenarioProgress?.Invoke(new ScenarioProgressInfo {
+            OnScenarioProgress?.Invoke(new ScenarioProgressInfo(callId) {
                 CurrentSegmentIndex = orderedSegments.Count,
                 TotalSegments = orderedSegments.Count,
                 CurrentSegment = null,
@@ -153,7 +153,7 @@ public sealed partial class AIAutoResponder {
         } catch (Exception ex) {
             _logger.LogError(ex, "场景播放失败");
             
-            OnScenarioProgress?.Invoke(new ScenarioProgressInfo {
+            OnScenarioProgress?.Invoke(new ScenarioProgressInfo(callId) {
                 CurrentSegmentIndex = currentIndex,
                 TotalSegments = orderedSegments.Count,
                 CurrentSegment = orderedSegments.ElementAtOrDefault(currentIndex),

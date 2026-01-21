@@ -292,44 +292,6 @@ namespace AI.Caller.Phone.Hubs {
         }
 
         /// <summary>
-        /// 暂停播放
-        /// </summary>
-        public async Task<object> PausePlaybackAsync(string callId) {
-            try {
-                await _playbackControlService.PausePlaybackAsync(callId);
-
-                await Clients.Group($"monitoring_{callId}").SendAsync("playbackPaused", new {
-                    callId,
-                    timestamp = DateTime.UtcNow
-                });
-
-                return new { success = true, message = "播放已暂停" };
-            } catch (Exception ex) {
-                _logger.LogError(ex, "暂停播放失败");
-                return new { success = false, message = $"暂停播放失败: {ex.Message}" };
-            }
-        }
-
-        /// <summary>
-        /// 恢复播放
-        /// </summary>
-        public async Task<object> ResumePlaybackAsync(string callId) {
-            try {
-                await _playbackControlService.ResumePlaybackAsync(callId);
-
-                await Clients.Group($"monitoring_{callId}").SendAsync("playbackResumed", new {
-                    callId,
-                    timestamp = DateTime.UtcNow
-                });
-
-                return new { success = true, message = "播放已恢复" };
-            } catch (Exception ex) {
-                _logger.LogError(ex, "恢复播放失败");
-                return new { success = false, message = $"恢复播放失败: {ex.Message}" };
-            }
-        }
-
-        /// <summary>
         /// 跳过片段
         /// </summary>
         public async Task<object> SkipSegmentAsync(string callId, int segmentId) {
@@ -598,11 +560,10 @@ namespace AI.Caller.Phone.Hubs {
                 var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
                 var monitorUserName = Context.User!.Identity!.Name ?? "Unknown";
 
-                string? answerSdp = null;
                 var connectionId = Context.ConnectionId;
                 var mediaSession = new MonitorMediaSession(_logger, _codecFactory, _webRtcSettings);
                 var answer = await mediaSession.HandleOfferAsync(offer);
-                answerSdp = answer.sdp;
+                var answerSdp = answer.sdp;
 
                 mediaSession.OnIceCandidate += async (candidate) => {
                     await _hubContext.Clients.Client(connectionId).SendAsync("receiveIceCandidate", candidate.toJSON());
@@ -610,23 +571,37 @@ namespace AI.Caller.Phone.Hubs {
 
                 var sessions = await _monitoringService.GetCallSessionsAsync(callId);
                 var session = sessions.FirstOrDefault(x => x.MonitorUserId == monitorUserId && x.IsActive);
+                
+                bool isReconnect = session != null;
+                
                 if (session == null) {
                     session = await _aiServiceManager.StartMonitoringAsync(
                         targetUserId,
                         monitorUserId,
                         monitorUserName,
                         callId,
-                        mediaSession); // 传入 Session
+                        mediaSession);
+                } else {
+                    var aiSession = _aiServiceManager.GetActiveSession(targetUserId);
+                    if (aiSession?.AudioBridge is AudioBridge audioBridge) {
+                        audioBridge.AddMonitor(monitorUserId, monitorUserName, mediaSession);
+                        _logger.LogInformation("监听重连成功: UserId {MonitorUserId}, CallId {CallId}", monitorUserId, callId);
+                    } else {
+                        _logger.LogWarning("重连时未找到活跃的AudioBridge: TargetUserId {TargetUserId}", targetUserId);
+                    }
                 }
 
                 await Groups.AddToGroupAsync(Context.ConnectionId, $"monitoring_{callId}");
 
-                if (mediaSession != null) {
-                    _logger.LogInformation("WebRTC监听已就绪: MonitorUserId {MonitorUserId}", monitorUserId);
-                }
-
-                _logger.LogInformation("用户 {MonitorUserId} 开始监听通话 {CallId}", monitorUserId, callId);
-                return new { success = true, sessionId = session.Id, answer = answerSdp, message = "监听已开始" };
+                _logger.LogInformation("用户 {MonitorUserId} {Action}监听通话 {CallId}",monitorUserId, isReconnect ? "重连" : "开始", callId);
+                    
+                return new { 
+                    success = true, 
+                    sessionId = session.Id, 
+                    answer = answerSdp, 
+                    message = isReconnect ? "监听重连成功" : "监听已开始",
+                    isReconnect = isReconnect
+                };
             } catch (Exception ex) {
                 _logger.LogError(ex, "开始监听失败");
                 return new { success = false, message = $"监听失败: {ex.Message}" };

@@ -14,6 +14,7 @@ namespace AI.Caller.Core {
         private readonly object _lock = new();
         private readonly object _dtmfLock = new();
         private readonly AudioCodecFactory _codecFactory;
+        private readonly CancellationTokenSource _cts = new();
         private readonly Dictionary<int, IAudioCodec> _codecCache = new();
         private readonly Channel<byte[]> _monitoringQueue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(100) {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -87,6 +88,9 @@ namespace AI.Caller.Core {
                 if (!_isStarted) return;
 
                 _isStarted = false;
+
+                _cts.Cancel();
+                _monitoringQueue.Writer.TryComplete();
 
                 ResetDtmfState();
 
@@ -356,14 +360,20 @@ namespace AI.Caller.Core {
 
         private void StartMonitoringProcessor() {
             _ = Task.Run(async () => {
-                await foreach (var audioFrame in _monitoringQueue.Reader.ReadAllAsync()) {
-                    try {
-                        ProcessOutgoingAudioInternal(audioFrame);
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, "监听音频后台处理异常");
+                try {
+                    await foreach (var audioFrame in _monitoringQueue.Reader.ReadAllAsync(_cts.Token)) {
+                        try {
+                            ProcessOutgoingAudioInternal(audioFrame);
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "监听音频后台处理异常");
+                        }
                     }
+                } catch (OperationCanceledException) {
+                    _logger.LogInformation("监听音频后台处理任务已取消");
+                } catch (Exception ex) {
+                    _logger.LogError(ex, "监听音频后台处理任务发生未预期的异常");
                 }
-            });
-        }        
+            }, _cts.Token);
+        }
     }
 }

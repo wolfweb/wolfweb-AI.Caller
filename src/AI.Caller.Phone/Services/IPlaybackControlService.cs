@@ -12,6 +12,13 @@ public interface IPlaybackControlService {
     Task<PlaybackControl?> GetPlaybackControlAsync(string callId);
 
     /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="playbackControl"></param>
+    /// <returns></returns>
+    Task AddOrUpdateAsync(PlaybackControl playbackControl);
+
+    /// <summary>
     /// 创建播放控制
     /// </summary>
     Task<PlaybackControl> CreatePlaybackControlAsync(string callId);
@@ -20,21 +27,6 @@ public interface IPlaybackControlService {
     /// 更新当前播放片段
     /// </summary>
     Task UpdateCurrentSegmentAsync(string callId, int segmentId);
-
-    /// <summary>
-    /// 暂停播放
-    /// </summary>
-    Task PausePlaybackAsync(string callId);
-
-    /// <summary>
-    /// 恢复播放
-    /// </summary>
-    Task ResumePlaybackAsync(string callId);
-
-    /// <summary>
-    /// 停止播放
-    /// </summary>
-    Task StopPlaybackAsync(string callId);
 
     /// <summary>
     /// 跳过片段

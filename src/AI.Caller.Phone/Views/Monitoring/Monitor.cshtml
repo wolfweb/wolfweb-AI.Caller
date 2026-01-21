@@ -49,25 +49,7 @@
                 </div>
             </div>
 
-            <!-- 播放控制 -->
-            <div class="card mt-3">
-                <div class="card-header">
-                    <h5>播放控制</h5>
-                </div>
-                <div class="card-body">
-                    <div class="btn-group" role="group">
-                        <button class="btn btn-outline-primary" onclick="pausePlayback()">
-                            <i class="bi bi-pause"></i> 暂停播放
-                        </button>
-                        <button class="btn btn-outline-success" onclick="resumePlayback()">
-                            <i class="bi bi-play"></i> 恢复播放
-                        </button>
-                    </div>
-                    <div id="playbackState" class="mt-3">
-                        <span class="badge bg-secondary">状态: 未知</span>
-                    </div>
-                </div>
-            </div>
+
 
             <!-- 人工接入音频控制 -->
             <div class="card mt-3" id="interventionAudioCard" style="display:none;">
@@ -407,12 +389,35 @@
             return Array.from(checkboxes).map(cb => parseInt(cb.value));
         }
 
+        function selectUnplayedSegments(currentSegmentId) {
+            let foundCurrent = false;
+            
+            document.querySelectorAll('.segment-checkbox').forEach(cb => {
+                const id = parseInt(cb.value);
+                
+                if (currentSegmentId) {
+                    if (id == currentSegmentId) {
+                        foundCurrent = true;
+                        cb.checked = false;
+                        return;
+                    }
+                    
+                    if (foundCurrent) {
+                        cb.checked = true; 
+                    } else {
+                        cb.checked = false;
+                    }
+                } else {
+                    cb.checked = false;
+                }
+            });
+        }
+
         async function intervent() {
             const reason = document.getElementById('interventionReason').value;
             try {
                 const result = await connection.invoke("InterventAsync", targetUserId, sessionId, reason, callId);
                 if (result.success) {
-                    // Start Intervention Audio
                     await startMicrophone();
 
                     document.getElementById('interventBtn').style.display = 'none';
@@ -424,7 +429,22 @@
                     
                     document.getElementById('interventionAudioCard').style.display = 'block';
                     
+                    updateStatus("已接入", "bg-warning");
+                    
                     showToast(result.message, "success");
+                    
+                    try {
+                        const status = await checkMonitoringStatus();
+                        if (status && status.currentSegmentId) {
+                            selectUnplayedSegments(status.currentSegmentId);
+                            showToast("已自动选中未播放片段", "info");
+                        } else {
+                            document.querySelectorAll('.segment-checkbox').forEach(cp=> cp.checked = true);
+                        }
+                    } catch(e) {
+                         console.error("Auto selection failed", e);
+                    }
+                    
                 } else {
                     showToast(result.message, "error");
                 }
@@ -497,9 +517,11 @@
                 await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
                 
                 const result = await connection.invoke("ExitInterventionAsync", targetUserId, callId, playSegmentIds, true);
-                if (result.success) {
+                if (result.success) {                    
                     document.getElementById('interventBtn').style.display = 'block';
                     document.getElementById('exitInterventBtn').style.display = 'none';
+
+                    updateStatus("监听中", "bg-success");
                     
                     if (playSegmentIds && playSegmentIds.length > 0) {
                         showToast(`AI播放已恢复，继续播放 ${playSegmentIds.length} 个片段`, "success");
@@ -591,9 +613,92 @@
              // Can add if needed later using AudioContext analyzer on localStream
         }
 
+        // 检查当前用户的监听状态（用于页面刷新后恢复）
+        async function checkMonitoringStatus() {
+            try {
+                const response = await fetch(`/Monitoring/GetMyMonitoringStatus?callId=${callId}`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    console.error("检查监听状态失败:", result.message);
+                    return null;
+                }
+                
+                if (!result.callActive) {
+                    console.log("通话已结束，无需恢复监听");
+                    return null;
+                }
+                
+                return result;
+            } catch (err) {
+                console.error("检查监听状态异常:", err);
+                return null;
+            }
+        }
+
+        // 自动恢复监听状态
+        async function autoResumeMonitoring(status) {
+            if (!status.isMonitoring) {
+                console.log("当前无活跃监听会话，无需恢复");
+                return;
+            }
+            
+            console.log("检测到活跃监听会话，正在自动重连...", status);
+            showToast("正在恢复监听连接...", "info");
+            
+            try {
+                // 禁用开始按钮，防止重复点击
+                document.getElementById('startMonitorBtn').disabled = true;
+                
+                // 恢复监听
+                await startMonitoring();
+                
+                // 如果之前处于人工介入状态，恢复介入UI
+                if (status.isIntervening) {
+                    document.getElementById('interventBtn').style.display = 'none';
+                    document.getElementById('exitInterventBtn').style.display = 'block';
+                    document.getElementById('resumeDelayPanel').style.display = 'block';
+                    document.getElementById('interventionAudioCard').style.display = 'block';
+                    document.getElementById('interventionAudioCard').style.display = 'block';
+                    enableSegmentSelection();
+                    
+                    // Smart Selection for auto-resume
+                    if (status.currentSegmentId) {
+                        selectUnplayedSegments(status.currentSegmentId);
+                    }
+                    
+                    updateStatus("已接入", "bg-warning");
+                    
+                    // 提示用户需要重新开启麦克风
+                    showToast("监听已恢复，如需继续人工介入请重新开启麦克风", "info");
+                }
+                
+                // 恢复计时（从服务器时间开始）
+                if (status.startTime) {
+                    startTime = new Date(status.startTime);
+                    if (durationInterval) clearInterval(durationInterval);
+                    durationInterval = setInterval(updateDuration, 1000);
+                    updateDuration();  // 立即更新一次
+                }
+                
+                showToast("监听连接已恢复", "success");
+                
+            } catch (err) {
+                console.error("自动恢复监听失败:", err);
+                showToast("自动恢复失败，请手动点击开始监听", "error");
+                document.getElementById('startMonitorBtn').disabled = false;
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
-            await this.waitForGlobalSignalR();
+            await waitForGlobalSignalR();
             initConnection();
+            
+            // 检查是否需要自动恢复监听（页面刷新后）
+            const status = await checkMonitoringStatus();
+            if (status && status.isMonitoring) {
+                await autoResumeMonitoring(status);
+            }
         });
     </script>
 }

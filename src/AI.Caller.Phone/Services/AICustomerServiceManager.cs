@@ -10,7 +10,6 @@ namespace AI.Caller.Phone.Services {
     /// </summary>
     public partial class AICustomerServiceManager : IDisposable {
         private readonly ILogger _logger;
-        private readonly IServiceProvider _serviceProvider;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IAIAutoResponderFactory _autoResponderFactory;
         private readonly ConcurrentDictionary<int, AIAutoResponderSession> _activeSessions = new();
@@ -23,7 +22,6 @@ namespace AI.Caller.Phone.Services {
             ) {
             _logger = logger;
             _scopeFactory = scopeFactory;
-            _serviceProvider = serviceProvider;
             _autoResponderFactory = autoResponderFactory;
         }
 
@@ -43,7 +41,7 @@ namespace AI.Caller.Phone.Services {
                     return false;
                 }
 
-                var scope = _scopeFactory.CreateScope(); // Create scope for the session
+                using var scope = _scopeFactory.CreateScope(); // Create scope for the session
                 
                 try {
                     if (sipClient.MediaSessionManager == null) {
@@ -142,6 +140,8 @@ namespace AI.Caller.Phone.Services {
                     return false;
                 }
 
+                session.SessionCompletionSource.TrySetResult(true);
+
                 if (session.AudioGeneratedHandler != null) {
                     session.AutoResponder.OutgoingAudioGenerated -= session.AudioGeneratedHandler;
                 }
@@ -171,8 +171,8 @@ namespace AI.Caller.Phone.Services {
                 await session.AutoResponder.StopAsync();
                 await session.AutoResponder.DisposeAsync();
 
-                session.AudioBridge?.Stop();
-                session.AudioBridge?.Dispose();
+                session.AudioBridge.Stop();
+                session.AudioBridge.Dispose();
                 session.Scope?.Dispose(); // Dispose scope
 
                 _logger.LogInformation("AI customer service stopped for user {Username}", session.User.Username);
@@ -319,5 +319,10 @@ namespace AI.Caller.Phone.Services {
         public ScenarioRecording? ScenarioRecording { get; set; }
         public IServiceScope? Scope { get; set; }
         public Task? PlaybackTask { get; set; }
+        public TaskCompletionSource<bool> SessionCompletionSource { get; set; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool IsIntervening { get; set; }
+        public CancellationTokenSource? ScenarioCts { get; set; }
+        public Dictionary<string, string> Variables { get; set; } = new();
+        public SIPClient? SipClient { get; set; }
     }
 }

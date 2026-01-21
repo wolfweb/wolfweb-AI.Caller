@@ -31,12 +31,22 @@ public sealed partial class AudioBridge {
     public event Action<byte[]>? InterventionAudioSend;
 
     /// <summary>
-    /// 添加监听者
+    /// 添加监听者（支持替换已存在的会话，用于重连）
     /// </summary>
     /// <param name="userId">监听用户ID</param>
     /// <param name="userName">监听用户名</param>
     /// <param name="session">WebRTC会话</param>
     public void AddMonitor(int userId, string userName, MonitorMediaSession session) {
+        if (_monitoringListeners.TryGetValue(userId, out var existingListener)) {
+            _logger.LogInformation("监听者已存在，替换旧会话: UserId {UserId}", userId);
+            try {
+                existingListener.Session?.Dispose();
+            } catch (Exception ex) {
+                _logger.LogWarning(ex, "清理旧监听会话时出错: UserId {UserId}", userId);
+            }
+            _monitoringListeners.TryRemove(userId, out _);
+        }
+
         var listener = new MonitoringListener {
             UserId = userId,
             UserName = userName,
@@ -45,14 +55,12 @@ public sealed partial class AudioBridge {
             Session = session
         };
 
-        if (_monitoringListeners.TryAdd(userId, listener)) {
-            _logger.LogInformation("监听者已添加: UserId {UserId}, UserName {UserName}", userId, userName);
-            session.OnInterventionAudioReceived += (pcm) => {
-                ProcessInterventionAudio(pcm);
-            };
-        } else {
-            _logger.LogWarning("监听者已存在: UserId {UserId}", userId);
-        }
+        _monitoringListeners[userId] = listener;
+        _logger.LogInformation("监听者已添加/更新: UserId {UserId}, UserName {UserName}", userId, userName);
+        
+        session.OnInterventionAudioReceived += (pcm) => {
+            ProcessInterventionAudio(pcm);
+        };
     }
 
     /// <summary>

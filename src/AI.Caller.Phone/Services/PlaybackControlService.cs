@@ -1,6 +1,5 @@
 using AI.Caller.Phone.Entities;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
 namespace AI.Caller.Phone.Services;
@@ -19,10 +18,25 @@ public class PlaybackControlService : IPlaybackControlService {
 
     public async Task<PlaybackControl?> GetPlaybackControlAsync(string callId) {
         try {
-            return await _dbContext.PlaybackControls
-                .FirstOrDefaultAsync(p => p.CallId == callId);
+            return await _dbContext.PlaybackControls.FirstOrDefaultAsync(p => p.CallId == callId);
         } catch (Exception ex) {
             _logger.LogError(ex, "获取播放控制失败: {CallId}", callId);
+            throw;
+        }
+    }
+
+    public async Task AddOrUpdateAsync(PlaybackControl playbackControl) {
+        try {
+            if(playbackControl.Id > 0) {
+                _dbContext.PlaybackControls.Update(playbackControl);
+            } else {
+                _dbContext.PlaybackControls.Add(playbackControl);
+            }
+            await _dbContext.SaveChangesAsync();
+
+            _logger.LogInformation("播放控制已创建: {ControlId}, CallId: {CallId}", playbackControl.Id, playbackControl.CallId);
+        } catch (Exception ex) {
+            _logger.LogError(ex, "创建播放控制失败: {CallId}", playbackControl.CallId);
             throw;
         }
     }
@@ -39,8 +53,7 @@ public class PlaybackControlService : IPlaybackControlService {
             _dbContext.PlaybackControls.Add(control);
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("播放控制已创建: {ControlId}, CallId: {CallId}",
-                control.Id, callId);
+            _logger.LogInformation("播放控制已创建: {ControlId}, CallId: {CallId}", control.Id, callId);
 
             return control;
         } catch (Exception ex) {
@@ -58,60 +71,9 @@ public class PlaybackControlService : IPlaybackControlService {
 
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogDebug("当前片段已更新: CallId {CallId}, SegmentId {SegmentId}",
-                callId, segmentId);
+            _logger.LogDebug("当前片段已更新: CallId {CallId}, SegmentId {SegmentId}", callId, segmentId);
         } catch (Exception ex) {
             _logger.LogError(ex, "更新当前片段失败: {CallId}, {SegmentId}", callId, segmentId);
-            throw;
-        }
-    }
-
-    public async Task PausePlaybackAsync(string callId) {
-        try {
-            var control = await GetOrCreateControlAsync(callId);
-
-            control.PlaybackState = PlaybackState.Paused;
-            control.PausedAt = DateTime.UtcNow;
-            control.UpdatedAt = DateTime.UtcNow;
-
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation("播放已暂停: CallId {CallId}", callId);
-        } catch (Exception ex) {
-            _logger.LogError(ex, "暂停播放失败: {CallId}", callId);
-            throw;
-        }
-    }
-
-    public async Task ResumePlaybackAsync(string callId) {
-        try {
-            var control = await GetOrCreateControlAsync(callId);
-
-            control.PlaybackState = PlaybackState.Playing;
-            control.ResumedAt = DateTime.UtcNow;
-            control.UpdatedAt = DateTime.UtcNow;
-
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation("播放已恢复: CallId {CallId}", callId);
-        } catch (Exception ex) {
-            _logger.LogError(ex, "恢复播放失败: {CallId}", callId);
-            throw;
-        }
-    }
-
-    public async Task StopPlaybackAsync(string callId) {
-        try {
-            var control = await GetOrCreateControlAsync(callId);
-
-            control.PlaybackState = PlaybackState.Completed;
-            control.UpdatedAt = DateTime.UtcNow;
-
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation("播放已停止: CallId {CallId}", callId);
-        } catch (Exception ex) {
-            _logger.LogError(ex, "停止播放失败: {CallId}", callId);
             throw;
         }
     }
@@ -128,8 +90,7 @@ public class PlaybackControlService : IPlaybackControlService {
 
                 await _dbContext.SaveChangesAsync();
 
-                _logger.LogInformation("片段已跳过: CallId {CallId}, SegmentId {SegmentId}",
-                    callId, segmentId);
+                _logger.LogInformation("片段已跳过: CallId {CallId}, SegmentId {SegmentId}", callId, segmentId);
             }
         } catch (Exception ex) {
             _logger.LogError(ex, "跳过片段失败: {CallId}, {SegmentId}", callId, segmentId);
@@ -146,8 +107,7 @@ public class PlaybackControlService : IPlaybackControlService {
 
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("人工干预已记录: CallId {CallId}, SegmentId {SegmentId}",
-                callId, segmentId);
+            _logger.LogInformation("人工干预已记录: CallId {CallId}, SegmentId {SegmentId}", callId, segmentId);
         } catch (Exception ex) {
             _logger.LogError(ex, "记录人工干预失败: {CallId}, {SegmentId}", callId, segmentId);
             throw;

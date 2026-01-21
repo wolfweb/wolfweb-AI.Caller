@@ -140,6 +140,53 @@ public class MonitoringController : Controller {
         }
     }
 
+    // API: 获取当前用户的监听状态（用于页面刷新后恢复）
+    [HttpGet]
+    public async Task<IActionResult> GetMyMonitoringStatus(string callId) {
+        try {
+            var userId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+            
+            var session = _aiServiceManager.GetSessionByCallId(callId);
+            if (session == null) {
+                return Json(new { 
+                    success = true, 
+                    callActive = false, 
+                    message = "通话已结束" 
+                });
+            }
+            
+            var monitoringSessions = await _monitoringService.GetCallSessionsAsync(callId);
+            var mySession = monitoringSessions.FirstOrDefault(s => 
+                s.MonitorUserId == userId && s.IsActive);
+            
+            if (mySession == null) {
+                return Json(new { 
+                    success = true, 
+                    callActive = true, 
+                    isMonitoring = false 
+                });
+            }
+            
+            var playbackState = await _playbackControlService.GetPlaybackControlAsync(callId);
+            var isIntervening = playbackState?.PlaybackState == PlaybackState.Paused && 
+                               mySession.InterventionTime != null;
+            
+            return Json(new { 
+                success = true, 
+                callActive = true,
+                isMonitoring = true,
+                sessionId = mySession.Id,
+                isIntervening = isIntervening,
+                interventionReason = mySession.InterventionReason,
+                startTime = mySession.StartTime,
+                currentSegmentId = playbackState?.CurrentSegmentId
+            });
+        } catch (Exception ex) {
+            _logger.LogError(ex, "获取监听状态失败");
+            return Json(new { success = false, message = ex.Message });
+        }
+    }
+
     // API: 获取场景片段列表
     [HttpGet]
     public IActionResult GetScenarioSegments(string callId) {

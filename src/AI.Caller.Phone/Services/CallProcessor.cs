@@ -120,8 +120,8 @@ public class CallProcessor : ICallProcessor {
 
                         var variables = JsonSerializer.Deserialize<Dictionary<string, string>>(callLog.ResolvedContent ?? "{}") ?? new Dictionary<string, string>();
 
-                        if(await aiManager.StartScenarioServiceAsync(agent, sc, scenario, variables, callContext.CallId)) {
-                            await aiManager.GetSessionByCallId(callContext.CallId)!.PlaybackTask!;
+                        if(await aiManager.StartScenarioServiceAsync(callContext.CallId, agent, sc, scenario, variables)) {
+                            await aiManager.GetSessionByCallId(callContext.CallId)!.SessionCompletionSource.Task;
                         }
                         await aiManager.StopAICustomerServiceAsync(agent.Id);
                     } else {
