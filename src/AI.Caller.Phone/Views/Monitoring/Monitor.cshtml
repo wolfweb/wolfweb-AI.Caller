@@ -420,7 +420,7 @@
                     
                     document.getElementById('resumeDelayPanel').style.display = 'block';
                     
-                    enableSegmentSelection();
+                    enableSegmentSelection(result.currentSegmentId);
                     
                     document.getElementById('interventionAudioCard').style.display = 'block';
                     
@@ -434,9 +434,23 @@
             }
         }
 
-        function enableSegmentSelection() {
+        function enableSegmentSelection(currentSegmentId = null) {
             document.querySelectorAll('.segment-checkbox').forEach(cb => {
                 cb.disabled = false;
+
+                if (currentSegmentId) {
+                    const segmentId = parseInt(cb.value);
+                    const segmentOrder = getSegmentOrder(segmentId);
+                    const currentOrder = getSegmentOrder(currentSegmentId);
+
+                    if (segmentOrder !== null && currentOrder !== null) {
+                        cb.checked = segmentOrder > currentOrder;
+                    } else {
+                        cb.checked = segmentId > currentSegmentId;
+                    }
+                } else {
+                    cb.checked = false;
+                }
             });
             try{
                 document.getElementById('selectAllBtn').disabled = false;
@@ -447,6 +461,22 @@
             if (hintText) {
                 hintText.textContent = '选择要播放的片段，退出接入时将播放选中的片段';
             }
+        }
+
+        function getSegmentOrder(segmentId) {
+            const checkbox = document.querySelector(`input[value="${segmentId}"]`);
+            if (checkbox) {
+                const listItem = checkbox.closest('.list-group-item');
+                if (listItem) {
+                    const orderBadge = listItem.querySelector('.badge');
+                    if (orderBadge) {
+                        const orderText = orderBadge.textContent.trim();
+                        const order = parseInt(orderText);
+                        return isNaN(order) ? null : order;
+                    }
+                }
+            }
+            return null;
         }
 
         function disableSegmentSelection() {

@@ -236,16 +236,20 @@ namespace AI.Caller.Phone.Hubs {
 
                 await _aiServiceManager.InterventAsync(targetUserId, monitorUserId, sessionId, reason, callId);
 
+                var playbackState = await _playbackControlService.GetPlaybackControlAsync(callId);
+                int? currentSegmentId = playbackState?.CurrentSegmentId;
+
                 // 通知监听组
                 await Clients.Group($"monitoring_{callId}").SendAsync("interventionStarted", new {
                     userId = monitorUserId,
                     reason,
+                    currentSegmentId,
                     timestamp = DateTime.UtcNow
                 });
 
                 _logger.LogInformation("用户 {MonitorUserId} 接入通话 {CallId}", monitorUserId, callId);
 
-                return new { success = true, message = "接入成功" };
+                return new { success = true, message = "接入成功", currentSegmentId };
             } catch (Exception ex) {
                 _logger.LogError(ex, "人工接入失败");
                 return new { success = false, message = $"接入失败: {ex.Message}" };
@@ -287,44 +291,6 @@ namespace AI.Caller.Phone.Hubs {
             } catch (Exception ex) {
                 _logger.LogError(ex, "获取播放状态失败");
                 return new { success = false, message = $"获取播放状态失败: {ex.Message}" };
-            }
-        }
-
-        /// <summary>
-        /// 暂停播放
-        /// </summary>
-        public async Task<object> PausePlaybackAsync(string callId) {
-            try {
-                await _playbackControlService.PausePlaybackAsync(callId);
-
-                await Clients.Group($"monitoring_{callId}").SendAsync("playbackPaused", new {
-                    callId,
-                    timestamp = DateTime.UtcNow
-                });
-
-                return new { success = true, message = "播放已暂停" };
-            } catch (Exception ex) {
-                _logger.LogError(ex, "暂停播放失败");
-                return new { success = false, message = $"暂停播放失败: {ex.Message}" };
-            }
-        }
-
-        /// <summary>
-        /// 恢复播放
-        /// </summary>
-        public async Task<object> ResumePlaybackAsync(string callId) {
-            try {
-                await _playbackControlService.ResumePlaybackAsync(callId);
-
-                await Clients.Group($"monitoring_{callId}").SendAsync("playbackResumed", new {
-                    callId,
-                    timestamp = DateTime.UtcNow
-                });
-
-                return new { success = true, message = "播放已恢复" };
-            } catch (Exception ex) {
-                _logger.LogError(ex, "恢复播放失败");
-                return new { success = false, message = $"恢复播放失败: {ex.Message}" };
             }
         }
 

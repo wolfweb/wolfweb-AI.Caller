@@ -82,7 +82,6 @@ namespace AI.Caller.Phone {
             builder.Services.AddScoped<SipService>();
             builder.Services.AddScoped<DataMigrationService>();
             builder.Services.AddScoped<IRingtoneService, RingtoneService>();
-            builder.Services.AddScoped<IFileStorageService, FileStorageService>();
             builder.Services.AddScoped<ICallRoutingService, CallRouting.Services.CallRoutingService>();
 
             builder.Services.AddScoped<ISipLineSelector, SipLineSelector>();

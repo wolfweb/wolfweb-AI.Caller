@@ -5,6 +5,7 @@ using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Exceptions;
 using SIPSorcery.SIP;
 using Newtonsoft.Json;
+using System.Threading.Tasks;
 
 namespace AI.Caller.Phone.Services;
 
@@ -109,13 +110,9 @@ public partial class AICustomerServiceManager {
                 await session.AutoResponder.PauseAsync();
                 _logger.LogInformation("AI播放已暂停: UserId {UserId}", userId);
 
-                // 更新播放控制状态
-                await playbackControlService.PausePlaybackAsync(callId);
-                await playbackControlService.RecordInterventionAsync(callId,
-                    session.AutoResponder.IsPaused ? 0 : -1); // 记录当前片段
+                await playbackControlService.RecordInterventionAsync(callId, session.AutoResponder.IsPaused ? 0 : -1); // 记录当前片段
 
-                _logger.LogInformation("人工接入成功: UserId {UserId}, MonitorUser {MonitorUserId}, Reason: {Reason}",
-                    userId, monitorUserId, reason);
+                _logger.LogInformation("人工接入成功: UserId {UserId}, MonitorUser {MonitorUserId}, Reason: {Reason}", userId, monitorUserId, reason);
             }
         } catch (Exception ex) {
             _logger.LogError(ex, "人工接入失败: UserId {UserId}, SessionId {SessionId}",
@@ -150,11 +147,13 @@ public partial class AICustomerServiceManager {
                         var firstSegmentId = playSegmentIds.First();
                         var segments = ConvertToScenarioSegments(session.ScenarioRecording!, scope.ServiceProvider);
                         await session.AutoResponder.ResumeScenarioFromSegmentAsync(
+                            callId,
                             segments,
                             firstSegmentId,
                             new Dictionary<string, string>(),
                             CancellationToken.None,
-                            settings.DefaultSpeakerId);
+                            settings.DefaultSpeakerId
+                        );
 
                         _logger.LogInformation("AI播放已从片段 {SegmentId} 重新开始", firstSegmentId);
                     } else {
@@ -162,10 +161,8 @@ public partial class AICustomerServiceManager {
                         _logger.LogInformation("AI播放已从当前位置继续");
                     }
 
-                    await playbackControlService.ResumePlaybackAsync(callId);
                     _logger.LogInformation("AI播放已恢复: UserId {UserId}", userId);
                 } else {
-                    await playbackControlService.StopPlaybackAsync(callId);
                     _logger.LogInformation("AI播放已停止: UserId {UserId}", userId);
                 }
 
@@ -217,14 +214,14 @@ public partial class AICustomerServiceManager {
     /// <param name="scenarioRecording">场景录音</param>
     /// <param name="variables">变量字典</param>
     /// <param name="callId">通话ID（用于关联DTMF记录）</param>
-    public async Task<bool> StartScenarioServiceAsync(User user, SIPClient sipClient, ScenarioRecording scenarioRecording, Dictionary<string, string> variables, string? callId = null) {
+    public async Task<bool> StartScenarioServiceAsync(User user, SIPClient sipClient, ScenarioRecording scenarioRecording, Dictionary<string, string> variables, string callId) {
         try {
             if (_activeSessions.ContainsKey(user.Id)) {
                 _logger.LogWarning("AI客服已在运行: User {Username}", user.Username);
                 return false;
             }
 
-            var scope = _scopeFactory.CreateScope(); // Create scope
+            using var scope = _scopeFactory.CreateScope(); // Create scope
             var settingProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
             var settings = await settingProvider.GetSettingsAsync();
 
@@ -258,17 +255,14 @@ public partial class AICustomerServiceManager {
                     autoResponder.OnDtmfToneReceived(tone);
                 };
 
-                if (!string.IsNullOrEmpty(callId)) {
-                    autoResponder.SetCallContext(callId);
-                    _logger.LogDebug("已设置CallContext: {CallId}", callId);
-                } else {
-                    _logger.LogWarning("未提供CallId，DTMF输入将不会保存到数据库");
-                }
-
+                autoResponder.SetCallContext(callId);
+                _logger.LogDebug("已设置CallContext: {CallId}", callId);
+                
                 Action<DtmfInputEventArgs> dtmfHandler = async (dtmfEventArgs) => {
                     await HandleDtmfInputCollectedAsync(dtmfEventArgs);
                 };
                 autoResponder.OnDtmfInputCollected += dtmfHandler;
+                autoResponder.OnScenarioProgress += OnScenarioProgressHandler;
 
                 Action<byte[]> audioGeneratedHandler = (audioFrame) => {
                     sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
@@ -332,8 +326,8 @@ public partial class AICustomerServiceManager {
                                 }
                             }
                         }, callStatusCts.Token);
-                        
-                        var scenarioTask = autoResponder.PlayScenarioAsync(segments, variables, callStatusCts.Token, settings.DefaultSpeakerId);
+
+                        var scenarioTask = autoResponder.PlayScenarioAsync(callId, segments, variables, callStatusCts.Token, settings.DefaultSpeakerId);
                         await Task.WhenAny(scenarioTask, callStatusTask);
 
                         if (callStatusTask.IsCompleted) {
@@ -391,6 +385,26 @@ public partial class AICustomerServiceManager {
         } catch (Exception ex) {
             _logger.LogError(ex, "启动场景录音AI客服失败: User {Username}", user.Username);
             return false;
+        }
+    }
+
+    private async void OnScenarioProgressHandler(ScenarioProgressInfo info) {
+        using var scope = _scopeFactory.CreateScope();
+        var playbackControlService = scope.ServiceProvider.GetRequiredService<IPlaybackControlService>();
+        if (info.CurrentSegment != null) {
+            await playbackControlService.UpdateCurrentSegmentAsync(info.CallId, info.CurrentSegment.Id);
+        } else {
+            var playbackControl = await playbackControlService.GetPlaybackControlAsync(info.CallId);
+            if(playbackControl == null) {
+                playbackControl = new PlaybackControl {
+                    CallId = info.CallId,
+                    CurrentSegmentId = null,                    
+                    PlaybackState = info.Status == ScenarioExecutionStatus.Completed ? PlaybackState.Completed : PlaybackState.NotStarted,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+            }
+            await playbackControlService.AddOrUpdateAsync(playbackControl);
         }
     }
 

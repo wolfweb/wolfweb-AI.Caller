@@ -1,6 +1,5 @@
 using AI.Caller.Phone.Entities;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
 namespace AI.Caller.Phone.Services;
@@ -17,10 +16,18 @@ public class PlaybackControlService : IPlaybackControlService {
         _logger = logger;
     }
 
+    public async Task AddOrUpdateAsync(PlaybackControl playbackControl) {
+        if(playbackControl.Id == 0) {
+            _dbContext.PlaybackControls.Add(playbackControl);
+        } else {
+            _dbContext.PlaybackControls.Update(playbackControl);
+        }
+        await _dbContext.SaveChangesAsync();
+    }
+
     public async Task<PlaybackControl?> GetPlaybackControlAsync(string callId) {
         try {
-            return await _dbContext.PlaybackControls
-                .FirstOrDefaultAsync(p => p.CallId == callId);
+            return await _dbContext.PlaybackControls.FirstOrDefaultAsync(p => p.CallId == callId);
         } catch (Exception ex) {
             _logger.LogError(ex, "获取播放控制失败: {CallId}", callId);
             throw;
@@ -66,55 +73,6 @@ public class PlaybackControlService : IPlaybackControlService {
         }
     }
 
-    public async Task PausePlaybackAsync(string callId) {
-        try {
-            var control = await GetOrCreateControlAsync(callId);
-
-            control.PlaybackState = PlaybackState.Paused;
-            control.PausedAt = DateTime.UtcNow;
-            control.UpdatedAt = DateTime.UtcNow;
-
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation("播放已暂停: CallId {CallId}", callId);
-        } catch (Exception ex) {
-            _logger.LogError(ex, "暂停播放失败: {CallId}", callId);
-            throw;
-        }
-    }
-
-    public async Task ResumePlaybackAsync(string callId) {
-        try {
-            var control = await GetOrCreateControlAsync(callId);
-
-            control.PlaybackState = PlaybackState.Playing;
-            control.ResumedAt = DateTime.UtcNow;
-            control.UpdatedAt = DateTime.UtcNow;
-
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation("播放已恢复: CallId {CallId}", callId);
-        } catch (Exception ex) {
-            _logger.LogError(ex, "恢复播放失败: {CallId}", callId);
-            throw;
-        }
-    }
-
-    public async Task StopPlaybackAsync(string callId) {
-        try {
-            var control = await GetOrCreateControlAsync(callId);
-
-            control.PlaybackState = PlaybackState.Completed;
-            control.UpdatedAt = DateTime.UtcNow;
-
-            await _dbContext.SaveChangesAsync();
-
-            _logger.LogInformation("播放已停止: CallId {CallId}", callId);
-        } catch (Exception ex) {
-            _logger.LogError(ex, "停止播放失败: {CallId}", callId);
-            throw;
-        }
-    }
 
     public async Task SkipSegmentAsync(string callId, int segmentId) {
         try {

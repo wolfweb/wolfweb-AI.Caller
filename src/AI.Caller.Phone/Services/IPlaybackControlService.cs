@@ -6,6 +6,7 @@ namespace AI.Caller.Phone.Services;
 /// 播放控制服务接口
 /// </summary>
 public interface IPlaybackControlService {
+    Task AddOrUpdateAsync(PlaybackControl playbackControl);
     /// <summary>
     /// 获取通话的播放控制
     /// </summary>
@@ -20,21 +21,6 @@ public interface IPlaybackControlService {
     /// 更新当前播放片段
     /// </summary>
     Task UpdateCurrentSegmentAsync(string callId, int segmentId);
-
-    /// <summary>
-    /// 暂停播放
-    /// </summary>
-    Task PausePlaybackAsync(string callId);
-
-    /// <summary>
-    /// 恢复播放
-    /// </summary>
-    Task ResumePlaybackAsync(string callId);
-
-    /// <summary>
-    /// 停止播放
-    /// </summary>
-    Task StopPlaybackAsync(string callId);
 
     /// <summary>
     /// 跳过片段

@@ -1,6 +1,7 @@
 using AI.Caller.Core.CallAutomation;
 using AI.Caller.Core.Media;
 using Microsoft.Extensions.Logging;
+using Org.BouncyCastle.Asn1.Ocsp;
 
 namespace AI.Caller.Core;
 
@@ -52,7 +53,7 @@ public sealed partial class AIAutoResponder {
         return Task.CompletedTask;
     }
 
-    public async Task ResumeScenarioFromSegmentAsync(List<ScenarioSegment> segments, int startSegmentId, Dictionary<string, string> variables, CancellationToken ct = default, int speakerId = 0) {
+    public async Task ResumeScenarioFromSegmentAsync(string callId, List<ScenarioSegment> segments, int startSegmentId, Dictionary<string, string> variables, CancellationToken ct = default, int speakerId = 0) {
         var orderedSegments = segments.OrderBy(s => s.Order).ToList();
         int startIndex = orderedSegments.FindIndex(s => s.Id == startSegmentId);
 
@@ -64,7 +65,7 @@ public sealed partial class AIAutoResponder {
         _skippedSegmentIds.Clear();
 
         var segmentsToPlay = orderedSegments.Skip(startIndex).ToList();
-        await PlayScenarioAsync(segmentsToPlay, variables, ct, speakerId);
+        await PlayScenarioAsync(callId, segmentsToPlay, variables, ct, speakerId);
     }
 
 

@@ -10,20 +10,17 @@ namespace AI.Caller.Phone.Services {
     /// </summary>
     public partial class AICustomerServiceManager : IDisposable {
         private readonly ILogger _logger;
-        private readonly IServiceProvider _serviceProvider;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IAIAutoResponderFactory _autoResponderFactory;
         private readonly ConcurrentDictionary<int, AIAutoResponderSession> _activeSessions = new();
 
         public AICustomerServiceManager(
             ILogger<AICustomerServiceManager> logger,
-            IServiceProvider serviceProvider,
             IServiceScopeFactory scopeFactory,
             IAIAutoResponderFactory autoResponderFactory
             ) {
             _logger = logger;
             _scopeFactory = scopeFactory;
-            _serviceProvider = serviceProvider;
             _autoResponderFactory = autoResponderFactory;
         }
 
@@ -43,7 +40,7 @@ namespace AI.Caller.Phone.Services {
                     return false;
                 }
 
-                var scope = _scopeFactory.CreateScope(); // Create scope for the session
+                using var scope = _scopeFactory.CreateScope(); // Create scope for the session
                 
                 try {
                     if (sipClient.MediaSessionManager == null) {
@@ -148,6 +145,7 @@ namespace AI.Caller.Phone.Services {
 
                 if (session.DtmfInputHandler != null) {
                     session.AutoResponder.OnDtmfInputCollected -= session.DtmfInputHandler;
+                    session.AutoResponder.OnScenarioProgress -= OnScenarioProgressHandler;
                 }
 
                 if (session.PlaybackTask != null && !session.PlaybackTask.IsCompleted) {

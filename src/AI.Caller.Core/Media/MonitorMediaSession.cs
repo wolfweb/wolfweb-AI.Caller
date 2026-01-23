@@ -112,22 +112,13 @@ namespace AI.Caller.Core.Media {
                 if (_customerBuffer.Count >= START_BUFFER_THRESHOLD) {
                     _isCustomerBuffering = false;
                 }
-            } else {
-                if (_customerBuffer.Count < SAMPLES_PER_FRAME) {
-                    _isCustomerBuffering = true;
-                }
             }
-
+            
             if (_isAiBuffering) {
                 if (_aiBuffer.Count >= START_BUFFER_THRESHOLD) {
                     _isAiBuffering = false;
                 }
-            } else {
-                if (_aiBuffer.Count < SAMPLES_PER_FRAME) {
-                    _isAiBuffering = true;
-                }
             }
-
             bool canPlayCust = !_isCustomerBuffering;
             bool canPlayAi = !_isAiBuffering;
 
@@ -141,19 +132,13 @@ namespace AI.Caller.Core.Media {
                 int sampleAi = 0;
 
                 if (canPlayCust) {
-                    if (_customerBuffer.TryDequeue(out short s)) {
-                        sampleCust = s;
-                    } else {
-                        _isCustomerBuffering = true;
-                    }
+                    _customerBuffer.TryDequeue(out short s);
+                    sampleCust = s;
                 }
 
                 if (canPlayAi) {
-                    if (_aiBuffer.TryDequeue(out short s)) {
-                        sampleAi = s;
-                    } else {
-                        _isAiBuffering = true;
-                    }
+                    _aiBuffer.TryDequeue(out short s);
+                    sampleAi = s; 
                 }
 
                 int mixed = sampleCust + sampleAi;
