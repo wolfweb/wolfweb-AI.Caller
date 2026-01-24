@@ -263,7 +263,7 @@ namespace AI.Caller.Phone.Hubs {
             try {
                 var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
 
-                await _aiServiceManager.ExitInterventionAsync(targetUserId, callId, playSegmentIds, resumePlayback);
+                _ = _aiServiceManager.ExitInterventionAsync(targetUserId, callId, playSegmentIds, resumePlayback);
 
                 // 通知监听组
                 await Clients.Group($"monitoring_{callId}").SendAsync("interventionEnded", new {

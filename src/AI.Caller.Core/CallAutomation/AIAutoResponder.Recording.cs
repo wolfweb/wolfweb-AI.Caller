@@ -81,8 +81,7 @@ public sealed partial class AIAutoResponder {
             _isTtsStreamFinished = true;
 
             stopwatch.Stop();
-            _logger.LogInformation("录音文件播放完成: {FilePath}, 耗时: {ElapsedMs}ms", 
-                filePath, stopwatch.ElapsedMilliseconds);
+            _logger.LogInformation("录音文件播放完成: {FilePath}, 耗时: {ElapsedMs}ms", filePath, stopwatch.ElapsedMilliseconds);
 
         } catch (Exception ex) {
             _logger.LogError(ex, "播放录音文件失败: {FilePath}", filePath);

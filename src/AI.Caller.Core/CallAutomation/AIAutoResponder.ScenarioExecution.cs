@@ -43,7 +43,7 @@ public sealed partial class AIAutoResponder {
     /// <param name="segments">场景片段列表</param>
     /// <param name="variables">变量字典</param>
     /// <param name="ct">取消令牌</param>
-    public async Task PlayScenarioAsync(string callId, List<ScenarioSegment> segments, Dictionary<string, string> variables, CancellationToken ct = default, int speakerId = 0) {
+    public async Task PlayScenarioAsync(string callId, List<ScenarioSegment> segments, Dictionary<string, string> variables, CancellationToken ct, int speakerId = 0) {
         if (_audioFilePlayer == null) {
             _logger.LogError("AudioFilePlayer未设置，无法播放录音片段");
             throw new InvalidOperationException("AudioFilePlayer未设置");
@@ -61,85 +61,79 @@ public sealed partial class AIAutoResponder {
             }
         }
 
-        _logger.LogInformation("开始播放场景，共 {SegmentCount} 个片段", segments.Count);
+        // 初始化执行上下文
+        InitializeExecutionContext(callId, segments, variables, speakerId, ct);
         
-        if (_isPaused) {
-            _logger.LogWarning("AIAutoResponder处于暂停状态，自动恢复播放");
-            await ResumeAsync();
-        }
-
-        var orderedSegments = segments.OrderBy(s => s.Order).ToList();
-        int currentIndex = 0;
         try {
-            while (currentIndex < orderedSegments.Count && !ct.IsCancellationRequested) {
-                var segment = orderedSegments[currentIndex];
+            _logger.LogInformation("开始场景执行: CallId={CallId}, 片段数={SegmentCount}", callId, segments.Count);
+            
+            if (_isPaused) {
+                _logger.LogWarning("AIAutoResponder处于暂停状态，自动恢复播放");
+                await ResumeAsync();
+            }
+            
+            while (!ct.IsCancellationRequested) {
                 
-                if (_skippedSegmentIds.Contains(segment.Id)) {
-                    _logger.LogInformation("跳过片段 {Order}/{Total}: {Type} (SegmentId={SegmentId})",
-                        segment.Order, orderedSegments.Count, segment.Type, segment.Id);
-                    currentIndex++;
+                // 1. 检查停止状态
+                if (IsExecutionStopped()) {
+                    _logger.LogInformation("场景执行已停止");
+                    break;
+                }
+                
+                // 2. 检查暂停状态
+                await WaitIfPausedAsync(ct);
+                
+                // 3. 处理跳转指令
+                HandleJumpInstruction();
+                
+                // 4. 检查是否完成
+                if (IsExecutionComplete()) {
+                    _logger.LogInformation("场景执行完成");
+                    break;
+                }
+                
+                // 5. 获取当前片段
+                var currentSegment = GetCurrentSegment();
+                if (currentSegment == null) break;
+                
+                // 6. 检查是否跳过
+                if (ShouldSkipSegment(currentSegment)) {
+                    _logger.LogInformation("跳过片段: SegmentId={SegmentId}", currentSegment.Id);
+                    MoveToNextSegment();
                     continue;
                 }
                 
-                _logger.LogInformation("播放片段 {Order}/{Total}: {Type} (SegmentId={SegmentId})", segment.Order, orderedSegments.Count, segment.Type, segment.Id);
-
+                // 7. 执行当前片段
                 try {
+                    _logger.LogInformation("执行片段 {Order}/{Total}: {Type} (SegmentId={SegmentId})", currentSegment.Order, _executionContext.Segments.Count, currentSegment.Type, currentSegment.Id);
+                    
+                    // 发送进度事件
                     OnScenarioProgress?.Invoke(new ScenarioProgressInfo(callId) {
-                        CurrentSegmentIndex = currentIndex,
-                        TotalSegments = orderedSegments.Count,
-                        CurrentSegment = segment,
+                        CurrentSegmentIndex = _executionContext.CurrentSegmentIndex,
+                        TotalSegments = _executionContext.Segments.Count,
+                        CurrentSegment = currentSegment,
                         Status = ScenarioExecutionStatus.ExecutingSegment
                     });
-
-                    switch (segment.Type) {
-                        case ScenarioSegmentType.Recording:
-                            await PlayRecordingSegmentAsync(segment, ct);
-                            currentIndex++;
-                            break;
-
-                        case ScenarioSegmentType.TTS:
-                            await PlayTtsSegmentAsync(segment, variables, speakerId, ct);
-                            currentIndex++;
-                            break;
-
-                        case ScenarioSegmentType.DtmfInput:
-                            OnScenarioProgress?.Invoke(new ScenarioProgressInfo(callId) {
-                                CurrentSegmentIndex = currentIndex,
-                                TotalSegments = orderedSegments.Count,
-                                CurrentSegment = segment,
-                                Status = ScenarioExecutionStatus.WaitingForDtmfInput
-                            });
-                            
-                            await PlayDtmfInputSegmentAsync(segment, variables, speakerId, ct);
-                            currentIndex++;
-                            break;
-
-                        case ScenarioSegmentType.Condition:
-                            currentIndex = EvaluateConditionSegment(segment, variables, orderedSegments);
-                            break;
-
-                        case ScenarioSegmentType.Silence:
-                            await PlaySilenceSegmentAsync(segment, ct);
-                            currentIndex++;
-                            break;
-
-                        default:
-                            _logger.LogWarning("未知的片段类型: {Type}，跳过该片段", segment.Type);
-                            currentIndex++;
-                            break;
-                    }
-                } catch (OperationCanceledException) {
-                    _logger.LogInformation("场景播放被取消");
-                    throw;
-                } catch (Exception ex) {
-                    _logger.LogError(ex, "播放片段失败: {SegmentId}, {Type}，尝试继续执行下一片段", segment.Id, segment.Type);
                     
-                    if (segment.Type == ScenarioSegmentType.DtmfInput) {
+                    await ExecuteSegmentAsync(currentSegment, ct);
+                    
+                    // 移动到下一片段（条件片段会自己控制跳转）
+                    if (currentSegment.Type != ScenarioSegmentType.Condition) {
+                        MoveToNextSegment();
+                    }
+                    
+                } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                    _logger.LogInformation("场景执行被取消");
+                    break;
+                } catch (Exception ex) {
+                    _logger.LogError(ex, "片段执行失败: SegmentId={SegmentId}, Type={Type}，尝试继续执行下一片段", currentSegment.Id, currentSegment.Type);
+                    
+                    if (currentSegment.Type == ScenarioSegmentType.DtmfInput) {
                         _logger.LogError("DTMF片段执行失败，停止场景播放");
                         throw;
                     } else {
                         _logger.LogWarning("非关键片段失败，继续执行下一片段");
-                        currentIndex++;
+                        MoveToNextSegment();
                     }
                 }
             }
@@ -147,8 +141,8 @@ public sealed partial class AIAutoResponder {
             _logger.LogInformation("场景播放完成");
             
             OnScenarioProgress?.Invoke(new ScenarioProgressInfo(callId) {
-                CurrentSegmentIndex = orderedSegments.Count,
-                TotalSegments = orderedSegments.Count,
+                CurrentSegmentIndex = _executionContext?.Segments.Count ?? 0,
+                TotalSegments = _executionContext?.Segments.Count ?? 0,
                 CurrentSegment = null,
                 Status = ScenarioExecutionStatus.Completed
             });
@@ -157,203 +151,17 @@ public sealed partial class AIAutoResponder {
             _logger.LogError(ex, "场景播放失败");
             
             OnScenarioProgress?.Invoke(new ScenarioProgressInfo(callId) {
-                CurrentSegmentIndex = currentIndex,
-                TotalSegments = orderedSegments.Count,
-                CurrentSegment = orderedSegments.ElementAtOrDefault(currentIndex),
+                CurrentSegmentIndex = _executionContext?.CurrentSegmentIndex ?? 0,
+                TotalSegments = _executionContext?.Segments.Count ?? 0,
+                CurrentSegment = GetCurrentSegment(),
                 Status = ScenarioExecutionStatus.Failed,
                 ErrorMessage = ex.Message
             });
             
             throw;
+        } finally {
+            CleanupExecutionContext();
         }
-    }
-
-    /// <summary>
-    /// 播放录音片段
-    /// </summary>
-    private async Task PlayRecordingSegmentAsync(ScenarioSegment segment, CancellationToken ct) {
-        if (string.IsNullOrEmpty(segment.FilePath)) {
-            _logger.LogWarning("录音片段文件路径为空，SegmentId: {SegmentId}", segment.Id);
-            return;
-        }
-
-        if (!File.Exists(segment.FilePath)) {
-            _logger.LogError("录音文件不存在: {FilePath}", segment.FilePath);
-            return;
-        }
-
-        var fileInfo = new FileInfo(segment.FilePath);
-        
-        await PlayRecordingAsync(segment.FilePath, ct);
-        await WaitForPlaybackToCompleteAsync();
-        
-        await Task.Delay(50, ct);
-    }
-
-    /// <summary>
-    /// 播放TTS片段
-    /// </summary>
-    private async Task PlayTtsSegmentAsync(ScenarioSegment segment, Dictionary<string, string> variables, int speakerId, CancellationToken ct) {
-        if (string.IsNullOrEmpty(segment.TtsText)) {
-            _logger.LogWarning("TTS片段文本为空");
-            return;
-        }
-
-        // 替换变量
-        var text = ReplaceVariables(segment.TtsText, variables);
-        _logger.LogDebug("TTS文本（替换变量后）: {Text}", text);
-
-        await PlayScriptAsync(text, speakerId, ct: ct);
-        await WaitForPlaybackToCompleteAsync();
-    }
-
-    /// <summary>
-    /// 播放DTMF输入片段
-    /// </summary>
-    private async Task PlayDtmfInputSegmentAsync(ScenarioSegment segment, Dictionary<string, string> variables, int speakerId, CancellationToken ct) {
-        if (segment.DtmfConfig == null) {
-            _logger.LogWarning("DTMF片段配置为空");
-            return;
-        }
-
-        var config = segment.DtmfConfig;
-        int retryCount = 0;
-        var startTime = DateTime.UtcNow;
-
-        while (retryCount < config.MaxRetries) {
-            try {
-                // 播放提示
-                if (!string.IsNullOrEmpty(config.PromptText)) {
-                    var promptText = ReplaceVariables(config.PromptText, variables);
-                    await PlayScriptAsync(promptText, speakerId, ct: ct);
-                    await WaitForPlaybackToCompleteAsync();
-                    
-                    await Task.Delay(200, ct);
-                }
-
-                // 收集输入
-                var inputStartTime = DateTime.UtcNow;
-                var timeout = TimeSpan.FromSeconds(config.TimeoutSeconds);
-                var input = await CollectDtmfInputAsync(
-                    config.MaxLength,
-                    config.TerminationKey,
-                    config.BackspaceKey,
-                    timeout,
-                    ct,
-                    config.InputMapping);
-                var inputDuration = (int)(DateTime.UtcNow - inputStartTime).TotalMilliseconds;
-
-                var validationResult = ValidateInputByConfig(input, config);
-                
-                if (!validationResult.IsValid) {
-                    _logger.LogWarning("DTMF输入验证失败: {ValidationMessage}", validationResult.Message);
-
-                    var errorText = !string.IsNullOrEmpty(config.ErrorText) ? config.ErrorText : GetDefaultErrorMessage(validationResult.ErrorType, config);
-                    
-                    await PlayScriptAsync(errorText, speakerId, ct: ct);
-                    await WaitForPlaybackToCompleteAsync();
-
-                    await SaveDtmfInputToDatabase(segment, config, input, false, validationResult.Message, retryCount, inputDuration);
-
-                    retryCount++;
-                    continue;
-                }
-
-                // 保存到变量
-                if (!string.IsNullOrEmpty(config.VariableName)) {
-                    variables[config.VariableName] = input;
-                    _logger.LogInformation("DTMF输入已保存到变量: {VariableName}", config.VariableName);
-                }
-
-                await SaveDtmfInputToDatabase(segment, config, input, true, null, retryCount, inputDuration);
-
-                if (!string.IsNullOrEmpty(config.SuccessText)) {
-                    await PlayScriptAsync(config.SuccessText, speakerId, ct: ct);
-                    await WaitForPlaybackToCompleteAsync();
-                }
-
-                return;
-            } catch (TimeoutException) {
-                _logger.LogWarning("DTMF输入超时，重试次数: {RetryCount}/{MaxRetries}",
-                    retryCount + 1, config.MaxRetries);
-
-                var timeoutDuration = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
-                await SaveDtmfInputToDatabase(segment, config, "", false, "输入超时", retryCount, timeoutDuration);
-
-                var timeoutText = !string.IsNullOrEmpty(config.TimeoutText) ? config.TimeoutText : "输入超时，请重新输入。";
-                
-                await PlayScriptAsync(timeoutText, speakerId, ct: ct);
-                await WaitForPlaybackToCompleteAsync();
-
-                retryCount++;
-            }
-        }
-
-        throw new Exception($"DTMF输入失败，已达到最大重试次数: {config.MaxRetries}");
-    }
-
-    /// <summary>
-    /// 保存DTMF输入到数据库
-    /// </summary>
-    private async Task SaveDtmfInputToDatabase(ScenarioSegment segment, DtmfInputConfig config, string input, bool isValid, string? validationMessage, int retryCount, int durationMs) {        
-        _logger.LogInformation("DTMF输入收集完成: CallId={CallId}, Input={MaskedInput}, IsValid={IsValid}, RetryCount={RetryCount}, Duration={Duration}ms", _currentCallId, MaskInput(input), isValid, retryCount, durationMs);
-        
-        OnDtmfInputCollected?.Invoke(new DtmfInputEventArgs {
-            CallId = _currentCallId ?? string.Empty,
-            IsValid = isValid,
-            Duration = durationMs,
-            InputTime = DateTime.UtcNow,
-            SegmentId = segment.Id,
-            RetryCount = retryCount,
-            TemplateId = config.TemplateId,
-            InputValue = input,
-            VariableName = config.VariableName,
-            ValidationMessage = validationMessage,
-        });
-        
-        await Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// 播放静音片段
-    /// </summary>
-    private async Task PlaySilenceSegmentAsync(ScenarioSegment segment, CancellationToken ct) {
-        if (!segment.SilenceDurationMs.HasValue || segment.SilenceDurationMs.Value <= 0) {
-            _logger.LogWarning("静音片段时长无效");
-            return;
-        }
-
-        _logger.LogDebug("播放静音: {Duration}ms", segment.SilenceDurationMs.Value);
-        await Task.Delay(segment.SilenceDurationMs.Value, ct);
-    }
-
-    /// <summary>
-    /// 评估条件片段
-    /// </summary>
-    private int EvaluateConditionSegment(ScenarioSegment segment, Dictionary<string, string> variables, List<ScenarioSegment> segments) {
-        if (string.IsNullOrEmpty(segment.ConditionExpression)) {
-            _logger.LogWarning("条件表达式为空");
-            return segments.IndexOf(segment) + 1;
-        }
-
-        bool result = EvaluateCondition(segment.ConditionExpression, variables);
-        _logger.LogInformation("条件评估结果: {Expression} = {Result}",
-            segment.ConditionExpression, result);
-
-        if (result && segment.NextSegmentIdOnTrue.HasValue) {
-            var nextSegment = segments.FirstOrDefault(s => s.Id == segment.NextSegmentIdOnTrue.Value);
-            if (nextSegment != null) {
-                return segments.IndexOf(nextSegment);
-            }
-        } else if (!result && segment.NextSegmentIdOnFalse.HasValue) {
-            var nextSegment = segments.FirstOrDefault(s => s.Id == segment.NextSegmentIdOnFalse.Value);
-            if (nextSegment != null) {
-                return segments.IndexOf(nextSegment);
-            }
-        }
-
-        // 默认继续下一个片段
-        return segments.IndexOf(segment) + 1;
     }
 
     /// <summary>
@@ -542,6 +350,217 @@ public sealed partial class AIAutoResponder {
             _ => "输入格式不正确，请重新输入。"
         };
     }
+
+    /// <summary>
+    /// 执行片段
+    /// </summary>
+    private async Task ExecuteSegmentAsync(ScenarioSegment segment, CancellationToken ct) {
+        switch (segment.Type) {
+            case ScenarioSegmentType.Recording:
+                await ExecuteRecordingSegmentAsync(segment, ct);
+                break;
+            case ScenarioSegmentType.TTS:
+                await ExecuteTtsSegmentAsync(segment, ct);
+                break;
+            case ScenarioSegmentType.DtmfInput:
+                await ExecuteDtmfInputSegmentAsync(segment, ct);
+                break;
+            case ScenarioSegmentType.Condition:
+                ExecuteConditionSegment(segment);
+                break;
+            case ScenarioSegmentType.Silence:
+                await ExecuteSilenceSegmentAsync(segment, ct);
+                break;
+            default:
+                _logger.LogWarning("未知片段类型: {Type}", segment.Type);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 执行录音片段
+    /// </summary>
+    private async Task ExecuteRecordingSegmentAsync(ScenarioSegment segment, CancellationToken ct) {
+        if (string.IsNullOrEmpty(segment.FilePath)) {
+            _logger.LogWarning("录音片段文件路径为空，SegmentId: {SegmentId}", segment.Id);
+            return;
+        }
+
+        if (!File.Exists(segment.FilePath)) {
+            _logger.LogError("录音文件不存在: {FilePath}", segment.FilePath);
+            return;
+        }
+
+        var fileInfo = new FileInfo(segment.FilePath);
+        
+        await PlayRecordingAsync(segment.FilePath, ct);
+        await WaitForPlaybackToCompleteAsync();
+        
+        await Task.Delay(50, ct);
+    }
+
+    /// <summary>
+    /// 执行TTS片段
+    /// </summary>
+    private async Task ExecuteTtsSegmentAsync(ScenarioSegment segment, CancellationToken ct) {
+        if (string.IsNullOrEmpty(segment.TtsText)) {
+            _logger.LogWarning("TTS片段文本为空");
+            return;
+        }
+
+        var variables = GetCurrentVariables();
+        var text = ReplaceVariables(segment.TtsText, variables);
+        var speakerId = GetCurrentSpeakerId();
+        
+        _logger.LogDebug("TTS文本（替换变量后）: {Text}", text);
+
+        await PlayScriptAsync(text, speakerId, ct: ct);
+        await WaitForPlaybackToCompleteAsync();
+    }
+
+    /// <summary>
+    /// 执行DTMF输入片段
+    /// </summary>
+    private async Task ExecuteDtmfInputSegmentAsync(ScenarioSegment segment, CancellationToken ct) {
+        if (segment.DtmfConfig == null) {
+            _logger.LogWarning("DTMF片段配置为空");
+            return;
+        }
+
+        var variables = GetCurrentVariables();
+        var speakerId = GetCurrentSpeakerId();
+        var config = segment.DtmfConfig;
+        int retryCount = 0;
+        var startTime = DateTime.UtcNow;
+
+        while (retryCount < config.MaxRetries) {
+            try {
+                // 播放提示
+                if (!string.IsNullOrEmpty(config.PromptText)) {
+                    var promptText = ReplaceVariables(config.PromptText, variables);
+                    await PlayScriptAsync(promptText, speakerId, ct: ct);
+                    await WaitForPlaybackToCompleteAsync();
+                    
+                    await Task.Delay(200, ct);
+                }
+
+                // 收集输入
+                var inputStartTime = DateTime.UtcNow;
+                var timeout = TimeSpan.FromSeconds(config.TimeoutSeconds);
+                var input = await CollectDtmfInputAsync(
+                    config.MaxLength,
+                    config.TerminationKey,
+                    config.BackspaceKey,
+                    timeout,
+                    ct,
+                    config.InputMapping);
+                var inputDuration = (int)(DateTime.UtcNow - inputStartTime).TotalMilliseconds;
+
+                var validationResult = ValidateInputByConfig(input, config);
+                
+                if (!validationResult.IsValid) {
+                    _logger.LogWarning("DTMF输入验证失败: {ValidationMessage}", validationResult.Message);
+
+                    var errorText = !string.IsNullOrEmpty(config.ErrorText) ? config.ErrorText : GetDefaultErrorMessage(validationResult.ErrorType, config);
+                    
+                    await PlayScriptAsync(errorText, speakerId, ct: ct);
+                    await WaitForPlaybackToCompleteAsync();
+
+                    await SaveDtmfInputToDatabase(segment, config, input, false, validationResult.Message, retryCount, inputDuration);
+
+                    retryCount++;
+                    continue;
+                }
+
+                // 保存到变量
+                if (!string.IsNullOrEmpty(config.VariableName)) {
+                    SetVariable(config.VariableName, input);
+                    _logger.LogInformation("DTMF输入已保存到变量: {VariableName}", config.VariableName);
+                }
+
+                await SaveDtmfInputToDatabase(segment, config, input, true, null, retryCount, inputDuration);
+
+                if (!string.IsNullOrEmpty(config.SuccessText)) {
+                    await PlayScriptAsync(config.SuccessText, speakerId, ct: ct);
+                    await WaitForPlaybackToCompleteAsync();
+                }
+
+                return;
+            } catch (TimeoutException) {
+                _logger.LogWarning("DTMF输入超时，重试次数: {RetryCount}/{MaxRetries}",
+                    retryCount + 1, config.MaxRetries);
+
+                var timeoutDuration = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
+                await SaveDtmfInputToDatabase(segment, config, "", false, "输入超时", retryCount, timeoutDuration);
+
+                var timeoutText = !string.IsNullOrEmpty(config.TimeoutText) ? config.TimeoutText : "输入超时，请重新输入。";
+                
+                await PlayScriptAsync(timeoutText, speakerId, ct: ct);
+                await WaitForPlaybackToCompleteAsync();
+
+                retryCount++;
+            }
+        }
+
+        throw new Exception($"DTMF输入失败，已达到最大重试次数: {config.MaxRetries}");
+    }
+
+    /// <summary>
+    /// 执行条件片段
+    /// </summary>
+    private void ExecuteConditionSegment(ScenarioSegment segment) {
+        if (string.IsNullOrEmpty(segment.ConditionExpression)) {
+            _logger.LogWarning("条件表达式为空");
+            return;
+        }
+
+        var variables = GetCurrentVariables();
+        bool result = EvaluateCondition(segment.ConditionExpression, variables);
+        
+        _logger.LogInformation("条件评估结果: {Expression} = {Result}", segment.ConditionExpression, result);
+
+        if (result && segment.NextSegmentIdOnTrue.HasValue) {
+            JumpToSegment(segment.NextSegmentIdOnTrue.Value);
+        } else if (!result && segment.NextSegmentIdOnFalse.HasValue) {
+            JumpToSegment(segment.NextSegmentIdOnFalse.Value);
+        }
+        // 如果没有指定跳转目标，则继续下一个片段（由主循环处理）
+    }
+
+    /// <summary>
+    /// 执行静音片段
+    /// </summary>
+    private async Task ExecuteSilenceSegmentAsync(ScenarioSegment segment, CancellationToken ct) {
+        if (!segment.SilenceDurationMs.HasValue || segment.SilenceDurationMs.Value <= 0) {
+            _logger.LogWarning("静音片段时长无效");
+            return;
+        }
+
+        _logger.LogDebug("播放静音: {Duration}ms", segment.SilenceDurationMs.Value);
+        await Task.Delay(segment.SilenceDurationMs.Value, ct);
+    }
+
+    /// <summary>
+    /// 保存DTMF输入到数据库
+    /// </summary>
+    private async Task SaveDtmfInputToDatabase(ScenarioSegment segment, DtmfInputConfig config, string input, bool isValid, string? validationMessage, int retryCount, int durationMs) {        
+        _logger.LogInformation("DTMF输入收集完成: CallId={CallId}, Input={MaskedInput}, IsValid={IsValid}, RetryCount={RetryCount}, Duration={Duration}ms", _currentCallId, MaskInput(input), isValid, retryCount, durationMs);
+        
+        OnDtmfInputCollected?.Invoke(new DtmfInputEventArgs {
+            CallId = _currentCallId ?? string.Empty,
+            IsValid = isValid,
+            Duration = durationMs,
+            InputTime = DateTime.UtcNow,
+            SegmentId = segment.Id,
+            RetryCount = retryCount,
+            TemplateId = config.TemplateId,
+            InputValue = input,
+            VariableName = config.VariableName,
+            ValidationMessage = validationMessage,
+        });
+        
+        await Task.CompletedTask;
+    }
 }
 
 /// <summary>
@@ -598,7 +617,6 @@ public class DtmfInputEventArgs {
     /// </summary>
     public string? VariableName { get; set; }
 }
-    
 
 /// <summary>
 /// 验证结果

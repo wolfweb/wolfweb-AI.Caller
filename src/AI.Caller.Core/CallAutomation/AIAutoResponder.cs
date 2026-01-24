@@ -363,6 +363,16 @@ namespace AI.Caller.Core {
 
             _logger.LogInformation("Stopping AIAutoResponder...");
 
+            // 停止场景播放
+            lock (_contextLock) {
+                if (_executionContext != null) {
+                    lock (_executionContext.StateLock) {
+                        _executionContext.State = ScenarioPlaybackState.Stopped;
+                        _executionContext.PauseEvent.Set(); // 唤醒主循环以便检查停止状态
+                    }
+                }
+            }
+
             _jitterBuffer.Writer.TryComplete();
 
             if (_cts != null) {

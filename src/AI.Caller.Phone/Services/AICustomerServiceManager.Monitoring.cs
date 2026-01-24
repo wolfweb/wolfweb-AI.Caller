@@ -145,10 +145,8 @@ public partial class AICustomerServiceManager {
                 if (resumePlayback) {
                     if (playSegmentIds != null && playSegmentIds.Count > 0) {
                         var firstSegmentId = playSegmentIds.First();
-                        var segments = ConvertToScenarioSegments(session.ScenarioRecording!, scope.ServiceProvider);
                         await session.AutoResponder.ResumeScenarioFromSegmentAsync(
                             callId,
-                            segments,
                             firstSegmentId,
                             new Dictionary<string, string>(),
                             CancellationToken.None,
