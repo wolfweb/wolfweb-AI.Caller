@@ -331,7 +331,13 @@ namespace AI.Caller.Core {
                 OutgoingAudioGenerated?.Invoke(audioFrame);
 
                 var currentCodec = GetCurrentNegotiatedCodec();
-                var codec = _codecFactory.GetCodec(currentCodec);
+                var codec = GetCodecForPayloadType((int)currentCodec);
+
+                if (codec == null) {
+                    _logger.LogWarning("Unsupported payload type: {PayloadType}", currentCodec);
+                    return;
+                }
+
                 var pcmData = codec.Decode(audioFrame);
 
                 foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {

@@ -5,8 +5,74 @@ using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
 using System.Collections.Concurrent;
 using System.Net;
+using System.Runtime.InteropServices;
 
 namespace AI.Caller.Core.Media {
+    public class AudioRingBuffer {
+        private readonly short[] _buffer;
+        private int _writePos;
+        private int _readPos;
+        private int _count;
+        private readonly object _lock = new();
+        private readonly int _capacity;
+
+        private const int MAX_LATENCY_SAMPLES = 1600;
+
+        private const int CATCH_UP_DROP_SAMPLES = 160;
+
+        public AudioRingBuffer(int size) {
+            _capacity = size;
+            _buffer = new short[size];
+        }
+
+        public void Write(ReadOnlySpan<short> data) {
+            lock (_lock) {
+                int futureCount = _count + data.Length;
+                if (futureCount > MAX_LATENCY_SAMPLES) {
+                    int samplesToDrop = futureCount - MAX_LATENCY_SAMPLES;
+                    samplesToDrop = Math.Max(samplesToDrop, CATCH_UP_DROP_SAMPLES);
+
+                    _readPos = (_readPos + samplesToDrop) % _capacity;
+                    _count -= samplesToDrop;
+
+                    if (_count < 0) _count = 0;
+                }
+
+                for (int i = 0; i < data.Length; i++) {
+                    _buffer[_writePos] = data[i];
+                    _writePos = (_writePos + 1) % _capacity;
+                }
+                _count += data.Length;
+
+                if (_count > _capacity) {
+                    _count = _capacity;
+                    _readPos = _writePos;
+                }
+            }
+        }
+
+        public bool TryReadFrame(Span<short> destination) {
+            lock (_lock) {
+                if (_count < destination.Length) {
+                    return false;
+                }
+
+                for (int i = 0; i < destination.Length; i++) {
+                    destination[i] = _buffer[_readPos];
+                    _readPos = (_readPos + 1) % _capacity;
+                }
+                _count -= destination.Length;
+                return true;
+            }
+        }
+
+        public void Clear() {
+            lock (_lock) {
+                _count = 0; _readPos = 0; _writePos = 0;
+            }
+        }
+    }
+
     public class MonitorMediaSession : IDisposable {
         private readonly ILogger _logger;
         private readonly RTCPeerConnection _pc;
@@ -16,17 +82,16 @@ namespace AI.Caller.Core.Media {
         private readonly IAudioCodec _codecPCMU;
 
         private readonly CancellationTokenSource _mixingCts = new();
-        private readonly ConcurrentQueue<short> _aiBuffer = new();
-        private readonly ConcurrentQueue<short> _customerBuffer = new();
-        
-        private Task? _mixingTask;
-        private bool _isAiBuffering = true;
-        private bool _isCustomerBuffering = true;
+        private readonly AudioRingBuffer _aiBuffer;
+        private readonly AudioRingBuffer _customerBuffer;
+        private readonly AudioRingBuffer _interventionBuffer;
 
+        private Task? _mixingTask;
+
+        private readonly short[] _mixBuffer;
         private const int SAMPLE_RATE = 8000;
-        private const int SAMPLES_PER_FRAME = 160; // 20ms @ 8kHz
-        private const int MAX_BUFFER_SIZE = 2400;  // 300ms，超过这个值说明积压了，需要丢弃旧数据
-        private const int START_BUFFER_THRESHOLD = 480; // 只有当缓冲区积攒了 3 帧 (60ms) 数据后才开始混合，抵抗网络抖动
+        private const int SAMPLES_PER_FRAME = 160; // 20ms
+        private const int BUFFER_SIZE = 8000; // 1秒总容量
 
         public event Action<byte[]>? OnInterventionAudioReceived;
         public event Action<RTCIceCandidateInit>? OnIceCandidate;
@@ -34,9 +99,13 @@ namespace AI.Caller.Core.Media {
 
         public MonitorMediaSession(ILogger logger, AudioCodecFactory codecFactory, WebRTCSettings settings) {
             _logger = logger;
-
             _codecPCMA = codecFactory.GetCodec(AudioCodec.PCMA);
             _codecPCMU = codecFactory.GetCodec(AudioCodec.PCMU);
+
+            _aiBuffer = new AudioRingBuffer(BUFFER_SIZE);
+            _customerBuffer = new AudioRingBuffer(BUFFER_SIZE);
+            _interventionBuffer = new AudioRingBuffer(BUFFER_SIZE);
+            _mixBuffer = new short[SAMPLES_PER_FRAME];
 
             var config = new RTCConfiguration {
                 iceServers = settings.GetRTCIceServers()
@@ -45,12 +114,12 @@ namespace AI.Caller.Core.Media {
             _pc = new RTCPeerConnection(config);
 
             _audioSource = new MixerAudioSource(new AudioEncoder());
-            _audioSource.RestrictFormats(f =>f.FormatID == (int)SDPWellKnownMediaFormatsEnum.PCMA || f.FormatID == (int)SDPWellKnownMediaFormatsEnum.PCMU);
+            _audioSource.RestrictFormats(f => f.FormatID == (int)SDPWellKnownMediaFormatsEnum.PCMA || f.FormatID == (int)SDPWellKnownMediaFormatsEnum.PCMU);
 
             var audioTrack = new MediaStreamTrack(_audioSource.GetAudioSourceFormats(), MediaStreamStatusEnum.SendRecv);
             _pc.addTrack(audioTrack);
 
-            _audioSource.OnAudioSourceEncodedSample += _pc.SendAudio;           
+            _audioSource.OnAudioSourceEncodedSample += _pc.SendAudio;
 
             _pc.onicecandidate += (candidate) => {
                 if (candidate != null) {
@@ -82,11 +151,9 @@ namespace AI.Caller.Core.Media {
 
         private void StartMixing() {
             if (_mixingTask != null) return;
-
             _mixingTask = Task.Run(async () => {
                 var interval = TimeSpan.FromMilliseconds(20);
                 using var timer = new PeriodicTimer(interval);
-
                 try {
                     while (await timer.WaitForNextTickAsync(_mixingCts.Token)) {
                         MixAndSendAudio();
@@ -106,73 +173,41 @@ namespace AI.Caller.Core.Media {
         private void MixAndSendAudio() {
             if (_pc.connectionState != RTCPeerConnectionState.connected) return;
 
-            short[] mixBuffer = new short[SAMPLES_PER_FRAME];
+            Span<short> mixSpan = _mixBuffer.AsSpan();
 
-            if (_isCustomerBuffering) {
-                if (_customerBuffer.Count >= START_BUFFER_THRESHOLD) {
-                    _isCustomerBuffering = false;
-                }
-            }
-            
-            if (_isAiBuffering) {
-                if (_aiBuffer.Count >= START_BUFFER_THRESHOLD) {
-                    _isAiBuffering = false;
-                }
-            }
-            bool canPlayCust = !_isCustomerBuffering;
-            bool canPlayAi = !_isAiBuffering;
+            Span<short> aiFrame = stackalloc short[SAMPLES_PER_FRAME];
+            Span<short> custFrame = stackalloc short[SAMPLES_PER_FRAME];
+            Span<short> intFrame = stackalloc short[SAMPLES_PER_FRAME];
 
-            if (!canPlayCust && !canPlayAi) {
-                _audioSource.SendAudio(mixBuffer, SAMPLE_RATE);
+            bool hasAi = _aiBuffer.TryReadFrame(aiFrame);
+            bool hasCust = _customerBuffer.TryReadFrame(custFrame);
+            bool hasInt = _interventionBuffer.TryReadFrame(intFrame);
+
+            if (!hasAi && !hasCust && !hasInt) {
+                mixSpan.Clear();
+                _audioSource.SendAudio(_mixBuffer, SAMPLE_RATE);
                 return;
             }
 
             for (int i = 0; i < SAMPLES_PER_FRAME; i++) {
-                int sampleCust = 0;
-                int sampleAi = 0;
+                int sample = 0;
+                if (hasAi) sample += aiFrame[i];
+                if (hasCust) sample += custFrame[i];
+                if (hasInt) sample += intFrame[i];
 
-                if (canPlayCust) {
-                    _customerBuffer.TryDequeue(out short s);
-                    sampleCust = s;
-                }
+                if (sample > short.MaxValue) sample = short.MaxValue;
+                else if (sample < short.MinValue) sample = short.MinValue;
 
-                if (canPlayAi) {
-                    _aiBuffer.TryDequeue(out short s);
-                    sampleAi = s; 
-                }
-
-                int mixed = sampleCust + sampleAi;
-
-                if (mixed > short.MaxValue) mixed = short.MaxValue;
-                else if (mixed < short.MinValue) mixed = short.MinValue;
-
-                mixBuffer[i] = (short)mixed;
+                mixSpan[i] = (short)sample;
             }
 
-            _audioSource.SendAudio(mixBuffer, SAMPLE_RATE);
+            _audioSource.SendAudio(_mixBuffer, SAMPLE_RATE);
         }
 
         public void SendAudio(byte[] pcmData, bool isAiAudio) {
             var targetBuffer = isAiAudio ? _aiBuffer : _customerBuffer;
-
-            for (int i = 0; i < pcmData.Length; i += 2) {
-                if (i + 1 < pcmData.Length) {
-                    short sample = (short)(pcmData[i] | (pcmData[i + 1] << 8));
-                    targetBuffer.Enqueue(sample);
-                }
-            }
-
-            int dropCount = 0;
-            while (targetBuffer.Count > MAX_BUFFER_SIZE) {
-                targetBuffer.TryDequeue(out _);
-                dropCount++;
-            }
-
-            if (dropCount > 0) {
-                if (dropCount > 500) {
-                    _logger.LogWarning($"Dropped {dropCount} samples from {(isAiAudio ? "AI" : "Customer")} buffer to sync latency.");
-                }
-            }
+            ReadOnlySpan<short> samples = MemoryMarshal.Cast<byte, short>(pcmData);
+            targetBuffer.Write(samples);
         }
 
         private void ProcessIncomingRtp(RTPPacket rtp) {
@@ -186,6 +221,8 @@ namespace AI.Caller.Core.Media {
 
             if (pcm != null && pcm.Length > 0) {
                 OnInterventionAudioReceived?.Invoke(pcm);
+                ReadOnlySpan<short> samples = MemoryMarshal.Cast<byte, short>(pcm);
+                _interventionBuffer.Write(samples);
             }
         }
 
@@ -197,17 +234,17 @@ namespace AI.Caller.Core.Media {
             try {
                 var audioMedia = _pc.localDescription.sdp.Media.FirstOrDefault(m => m.Media == SDPMediaTypesEnum.audio);
 
-                if (audioMedia != null && audioMedia.MediaFormats.Count > 0) {                    
+                if (audioMedia != null && audioMedia.MediaFormats.Count > 0) {
                     var selectedFormat = audioMedia.MediaFormats.First();
                     _audioSource.SetAudioSourceFormat(selectedFormat.Value.ToAudioFormat());
                 } else {
                     _logger.LogWarning("Monitor WebRTC: No audio media found in local SDP answer.");
                 }
-                _audioSource?.StartAudio();                
-            }catch( Exception ex) {
-                _logger.LogError(ex, "Error determining negotiated audio format.");
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Error setting audio format from SDP");
             }
 
+            _audioSource?.StartAudio();
             return answer;
         }
 

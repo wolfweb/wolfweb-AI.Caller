@@ -166,7 +166,13 @@ public sealed partial class AudioBridge {
             var currentCodec = GetCurrentNegotiatedCodec();
             _logger.LogDebug("使用当前协商的编码器: {Codec}", currentCodec);
 
-            var codec = _codecFactory.GetCodec(currentCodec);
+            var codec = GetCodecForPayloadType((int)currentCodec);
+
+            if (codec == null) {
+                _logger.LogWarning("Unsupported payload type: {PayloadType}", currentCodec);
+                return Array.Empty<byte>();
+            }
+
             var encodedData = codec.Encode(pcmData);
             
             _logger.LogTrace("音频编码完成: {Codec}, 输出大小 {Size} 字节", currentCodec, encodedData.Length);
