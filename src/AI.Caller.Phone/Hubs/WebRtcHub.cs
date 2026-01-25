@@ -358,6 +358,45 @@ namespace AI.Caller.Phone.Hubs {
             }
         }
 
+        /// <summary>
+        /// WebRTC重新协商（用于人工介入时启用音频发送）
+        /// </summary>
+        public async Task<object> RenegotiateMonitoringWebRtc(int targetUserId, string callId, string offerSdp) {
+            try {
+                var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+                
+                _logger.LogInformation("WebRTC重新协商请求: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}, CallId {CallId}", 
+                    monitorUserId, targetUserId, callId);
+
+                if (RTCSessionDescriptionInit.TryParse(offerSdp, out var offer)) {
+                    var session = _aiServiceManager.GetActiveSession(targetUserId);
+                    if (session?.AudioBridge is AudioBridge bridge) {
+                        var monitorSession = bridge.GetMonitorSession(monitorUserId);
+                        if (monitorSession != null) {
+                            // 重新协商现有会话
+                            var answer = await monitorSession.HandleOfferAsync(offer);
+                            
+                            _logger.LogInformation("WebRTC重新协商成功: MonitorUserId {MonitorUserId}", monitorUserId);
+                            return new { success = true, answer = answer.sdp };
+                        } else {
+                            _logger.LogWarning("未找到监听会话: MonitorUserId {MonitorUserId}", monitorUserId);
+                            return new { success = false, message = "未找到监听会话" };
+                        }
+                    } else {
+                        _logger.LogWarning("未找到音频桥接或活跃会话: TargetUserId {TargetUserId}", targetUserId);
+                        return new { success = false, message = "未找到活跃会话" };
+                    }
+                } else {
+                    _logger.LogWarning("无效的SDP格式: {OfferSdp}", offerSdp);
+                    return new { success = false, message = "无效的SDP格式" };
+                }
+            } catch (Exception ex) {
+                _logger.LogError(ex, "WebRTC重新协商失败: MonitorUserId {MonitorUserId}, TargetUserId {TargetUserId}", 
+                    Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier), targetUserId);
+                return new { success = false, message = $"重新协商失败: {ex.Message}" };
+            }
+        }
+
         #endregion
 
         #region DTMF功能

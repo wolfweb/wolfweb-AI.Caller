@@ -40,7 +40,8 @@ namespace AI.Caller.Phone.Services {
                     return false;
                 }
 
-                using var scope = _scopeFactory.CreateScope(); // Create scope for the session
+                //这里需要手动dispose
+                var scope = _scopeFactory.CreateScope();
                 
                 try {
                     if (sipClient.MediaSessionManager == null) {
@@ -119,8 +120,9 @@ namespace AI.Caller.Phone.Services {
                     _logger.LogInformation($"AI customer service started for user {user.Username}");
 
                     return true;
-                } catch {
-                    scope.Dispose(); // Dispose if exception
+                } catch(Exception ex) {
+                    _logger.LogError(ex, ex.Message);
+                    scope.Dispose();
                     throw;
                 }
             } catch (Exception ex) {
@@ -169,8 +171,8 @@ namespace AI.Caller.Phone.Services {
                 await session.AutoResponder.StopAsync();
                 await session.AutoResponder.DisposeAsync();
 
-                session.AudioBridge?.Stop();
-                session.AudioBridge?.Dispose();
+                session.AudioBridge.Stop();
+                session.AudioBridge.Dispose();
                 session.Scope?.Dispose(); // Dispose scope
 
                 _logger.LogInformation("AI customer service stopped for user {Username}", session.User.Username);

@@ -43,8 +43,7 @@ public partial class AICustomerServiceManager {
                     _logger.LogInformation("监听者已添加到AudioBridge: UserId {UserId}, MonitorUser {MonitorUserId}", userId, monitorUserId);
                 }
 
-                _logger.LogInformation("监听会话已开始: SessionId {SessionId}, CallId {CallId}",
-                    monitoringSession.Id, callId);
+                _logger.LogInformation("监听会话已开始: SessionId {SessionId}, CallId {CallId}", monitoringSession.Id, callId);
 
                 return monitoringSession;
             }
@@ -218,8 +217,9 @@ public partial class AICustomerServiceManager {
                 _logger.LogWarning("AI客服已在运行: User {Username}", user.Username);
                 return false;
             }
-
-            using var scope = _scopeFactory.CreateScope(); // Create scope
+            
+            //这里需要手动dispose
+            var scope = _scopeFactory.CreateScope();
             var settingProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
             var settings = await settingProvider.GetSettingsAsync();
 
@@ -376,7 +376,8 @@ public partial class AICustomerServiceManager {
                 _logger.LogInformation("场景录音AI客服已启动: User {Username}, Scenario {ScenarioName}", user.Username, scenarioRecording.Name);
 
                 return true;
-            } catch {
+            } catch(Exception ex) {
+                _logger.LogError(ex, ex.Message);
                 scope.Dispose();
                 throw;
             }

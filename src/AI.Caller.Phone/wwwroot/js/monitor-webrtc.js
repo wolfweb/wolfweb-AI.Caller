@@ -7,6 +7,7 @@ class MonitorWebRTCManager {
         this.callId = null;
         this.targetUserId = null;
         this.localStream = null;
+        this.isInterventionActive = false; // 添加介入状态跟踪
     }
 
     async initialize() {
@@ -64,7 +65,7 @@ class MonitorWebRTCManager {
             JSON.stringify(offer)
         );
 
-        if (result.success && result.answer) {            
+        if (result.success && result.answer) {
             await this.pc.setRemoteDescription({ type: 'answer', sdp: result.answer });
         } else {
             throw new Error(result.message || "Connection failed");
@@ -89,72 +90,68 @@ class MonitorWebRTCManager {
     }
 
     async startIntervention() {
-        if (!this.pc) return;
+        if (!this.pc) {
+            throw new Error("WebRTC connection not established");
+        }
+
+        if (this.isInterventionActive) {
+            console.log("Intervention already active");
+            return;
+        }
+
         try {
             console.log("Starting intervention audio...");
-            // 1. Get Microphone
-            this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            this.isInterventionActive = true;
+            
+            this.localStream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
 
-            // 2. Add Track to PC
             const audioTrack = this.localStream.getAudioTracks()[0];
             const sender = this.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
 
             if (sender) {
-                // Replace track if sender exists (e.g. dummy track)
                 await sender.replaceTrack(audioTrack);
-                // Also update transceiver direction if needed
-                // Note: replaceTrack doesn't automatically change 'recvonly' to 'sendrecv'
-                // We might need to renegotiate if direction check fails on server.
-                // But SIPSorcery usually allows receiving if notified?
-                // Actually, strict WebRTC requires renegotiation to flip direction.
-
-                // Try renegotiation
-                // We update transceiver direction
+                
                 this.pc.getTransceivers().forEach(t => {
                     if (t.sender === sender) {
                         t.direction = 'sendrecv';
                     }
                 });
 
-                // Create new offer
                 const offer = await this.pc.createOffer();
                 await this.pc.setLocalDescription(offer);
 
-                // Send re-offer? 
-                // We didn't implement 'Renegotiate' on Hub yet.
-                // Fallback: If we just replace track, some servers might accept it if we set sendrecv initially?
-                // But we set recvonly.
+                console.log("Sending WebRTC renegotiation request...");
+                const result = await this.signalRManager.invoke("RenegotiateMonitoringWebRtc",
+                    this.targetUserId,
+                    this.callId,
+                    JSON.stringify(offer)
+                );
 
-                // Since I can't easily add a new Hub method without breaking flow, 
-                // I will try to rely on JUST replaceTrack for now. 
-                // If it fails (audio not heard), we might need to recreate connection or impl renegotiation.
-                // But wait, the plan assumed simple intervention.
-
-                // Re-reading Plan: "Let's implement simple renegotiation... We need a Hub method... For MVP just rely on renegotiation".
-                // I didn't add Renegotiate method to Hub. I added ConnectMonitoringWebRtc which creates NEW session.
-
-                // Maybe just call ConnectMonitoringWebRtc again with new offer?
-                // If I call it again, it creates a NEW MonitorMediaSession in the backend, REPLACING the old one (AddMonitor overwrites in dict?).
-                // Yes, `_monitoringListeners[userId] = listener` (TryAdd/Update?).
-                // `AudioBridge.Monitoring.cs` uses `TryAdd`. It fails if exists!
-                // So I CANNOT simply reconnect without removing old one.
-
-                // Workaround: I will implement a "Update" logic or just fail-safe to SignalR intervention if WebRTC intervention is risky?
-                // NO, user said "Strictly follow document".
-                // Document says: "Renegotiation is cleaner... We need a Hub method... For MVP: let's send silence on 'sendrecv' from start".
-
-                // OK, I will change `startMonitoring` to use `sendrecv` but send nothing (or muted track).
-                // Or just `sendrecv` without track? 
-                // Browsers might require a track for sendrecv.
-
-                // Let's modify `startMonitoring` below to `sendrecv` if possible, or use a dummy track.
+                if (result.success && result.answer) {
+                    await this.pc.setRemoteDescription({ type: 'answer', sdp: result.answer });
+                    console.log("WebRTC renegotiation completed successfully");
+                } else {
+                    throw new Error(result.message || "Renegotiation failed");
+                }
 
             } else {
                 this.pc.addTrack(audioTrack, this.localStream);
+                console.log("Added new audio track to WebRTC connection");
             }
 
         } catch (e) {
             console.error("Failed to start intervention audio", e);
+            this.isInterventionActive = false;
+            if (this.localStream) {
+                this.localStream.getTracks().forEach(t => t.stop());
+                this.localStream = null;
+            }
             throw e;
         }
     }
@@ -163,13 +160,20 @@ class MonitorWebRTCManager {
         if (this.localStream) {
             this.localStream.getTracks().forEach(t => t.stop());
             this.localStream = null;
+            console.log("Stopped intervention audio stream");
 
-            // Replace sender track with null?
+            // Replace sender track with null
             if (this.pc) {
                 const sender = this.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-                if (sender) sender.replaceTrack(null);
+                if (sender) {
+                    sender.replaceTrack(null);
+                    console.log("Removed audio track from WebRTC connection");
+                }
             }
         }
+
+        this.isInterventionActive = false;
+        console.log("Intervention stopped");
     }
 
     stop() {
