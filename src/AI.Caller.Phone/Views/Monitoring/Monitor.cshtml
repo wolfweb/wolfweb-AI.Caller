@@ -49,26 +49,6 @@
                 </div>
             </div>
 
-            <!-- 播放控制 -->
-            <div class="card mt-3">
-                <div class="card-header">
-                    <h5>播放控制</h5>
-                </div>
-                <div class="card-body">
-                    <div class="btn-group" role="group">
-                        <button class="btn btn-outline-primary" onclick="pausePlayback()">
-                            <i class="bi bi-pause"></i> 暂停播放
-                        </button>
-                        <button class="btn btn-outline-success" onclick="resumePlayback()">
-                            <i class="bi bi-play"></i> 恢复播放
-                        </button>
-                    </div>
-                    <div id="playbackState" class="mt-3">
-                        <span class="badge bg-secondary">状态: 未知</span>
-                    </div>
-                </div>
-            </div>
-
             <!-- 人工接入音频控制 -->
             <div class="card mt-3" id="interventionAudioCard" style="display:none;">
                 <div class="card-header">
@@ -295,16 +275,6 @@
                 console.log("接入结束:", data);
                 updateStatus("监听中", "bg-success");
                 showToast("人工接入已结束", "info");
-            });
-
-            connection.on("playbackPaused", (data) => {
-                console.log("播放暂停:", data);
-                showToast("播放已暂停", "info");
-            });
-
-            connection.on("playbackResumed", (data) => {
-                console.log("播放恢复:", data);
-                showToast("播放已恢复", "info");
             });
 
             connection.on("callEnded", async (data) => {
