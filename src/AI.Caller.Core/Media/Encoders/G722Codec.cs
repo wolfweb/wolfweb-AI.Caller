@@ -1,6 +1,7 @@
 using AI.Caller.Core.Media.Interfaces;
 using FFmpeg.AutoGen;
 using Microsoft.Extensions.Logging;
+using System.Buffers;
 using System.Runtime.InteropServices;
 
 namespace AI.Caller.Core.Media.Encoders {
@@ -169,39 +170,47 @@ namespace AI.Caller.Core.Media.Encoders {
             }
         }
 
-        public byte[] Decode(ReadOnlySpan<byte> encoded) {
+        public int Decode(ReadOnlySpan<byte> encoded, Span<byte> decodedOutput) {
             if (_disposed) throw new ObjectDisposedException(nameof(G722Codec));
-            if (encoded.Length == 0) return [];
+            if (encoded.Length == 0) return 0;
 
             lock (_lock) {
-                // 注意：接收到的 RTP 数据已经是 MSB-first，所以需要先反向翻转再喂给 FFmpeg
-                byte[] input = new byte[encoded.Length];
-                encoded.CopyTo(input);
-                for (int i = 0; i < input.Length; i++) {
-                    input[i] = NibbleSwap(input[i]);
-                }
-
-                fixed (byte* ptr = input) {
-                    _packet->data = ptr;
-                    _packet->size = input.Length;
-
-                    CheckError(ffmpeg.avcodec_send_packet(_decoderContext, _packet), "send packet decode");
-
-                    var output = new List<byte>();
-                    while (true) {
-                        int ret = ffmpeg.avcodec_receive_frame(_decoderContext, _frame);
-                        if (ret == ffmpeg.AVERROR(ffmpeg.EAGAIN) || ret == ffmpeg.AVERROR_EOF) break;
-                        CheckError(ret, "receive frame decode");
-
-                        int dataSize = ffmpeg.av_samples_get_buffer_size(null, _frame->ch_layout.nb_channels, _frame->nb_samples, (AVSampleFormat)_frame->format, 1);
-                        if (dataSize > 0) {
-                            byte[] pcm = new byte[dataSize];
-                            Marshal.Copy((IntPtr)_frame->data[0], pcm, 0, dataSize);
-                            output.AddRange(pcm);
-                        }
+                byte[] tempInput = ArrayPool<byte>.Shared.Rent(encoded.Length);
+                try {
+                    for (int i = 0; i < encoded.Length; i++) {
+                        tempInput[i] = NibbleSwap(encoded[i]);
                     }
 
-                    return output.Count == 0 ? [] : output.ToArray();
+                    fixed (byte* ptr = tempInput) {
+                        _packet->data = ptr;
+                        _packet->size = encoded.Length;
+
+                        CheckError(ffmpeg.avcodec_send_packet(_decoderContext, _packet), "send packet decode");
+
+                        int totalBytesWritten = 0;
+
+                        while (true) {
+                            int ret = ffmpeg.avcodec_receive_frame(_decoderContext, _frame);
+                            if (ret == ffmpeg.AVERROR(ffmpeg.EAGAIN) || ret == ffmpeg.AVERROR_EOF) break;
+                            CheckError(ret, "receive frame decode");
+
+                            int dataSize = ffmpeg.av_samples_get_buffer_size(null, _frame->ch_layout.nb_channels, _frame->nb_samples, (AVSampleFormat)_frame->format, 1);
+
+                            if (dataSize > 0) {
+                                if (totalBytesWritten + dataSize > decodedOutput.Length) {
+                                    _logger.LogWarning("G722 Decode output buffer too small. Needed {Needed}, Has {Has}", totalBytesWritten + dataSize, decodedOutput.Length);
+                                    break;
+                                }
+                                var ffmpegRawData = new ReadOnlySpan<byte>(_frame->data[0], dataSize);
+                                var targetSlice = decodedOutput.Slice(totalBytesWritten, dataSize);
+                                ffmpegRawData.CopyTo(targetSlice);
+                                totalBytesWritten += dataSize;
+                            }
+                        }
+                        return totalBytesWritten;
+                    }
+                } finally {
+                    ArrayPool<byte>.Shared.Return(tempInput);
                 }
             }
         }

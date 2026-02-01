@@ -1,5 +1,7 @@
 using AI.Caller.Core.Media.Interfaces;
+using AI.Caller.Core.Models;
 using Microsoft.Extensions.Logging;
+using System.Buffers;
 using System.Collections.Concurrent;
 
 namespace AI.Caller.Core.Media {
@@ -223,19 +225,24 @@ namespace AI.Caller.Core.Media {
                 }
 
                 // Test decode
-                var decoded = codec.Decode(encoded);
-                if (decoded.Length == 0) {
-                    _logger.LogWarning("Decode test failed for {Codec}: empty output", codecType);
-                    return false;
-                }
+                byte[] decodedPcm = ArrayPool<byte>.Shared.Rent(encoded.Length * 2);
+                try {
+                    var decodedLength = codec.Decode(encoded, decodedPcm);
+                    if (decodedLength == 0) {
+                        _logger.LogWarning("Decode test failed for {Codec}: empty output", codecType);
+                        return false;
+                    }
 
-                // Check for "snow noise" or other audio artifacts
-                if (DetectAudioArtifacts(decoded, testPcm)) {
-                    _logger.LogWarning("Audio artifacts detected in {Codec} output", codecType);
-                    return false;
-                }
+                    // Check for "snow noise" or other audio artifacts
+                    if (DetectAudioArtifacts(decodedPcm.AsSpan(0, decodedLength).ToArray(), testPcm)) {
+                        _logger.LogWarning("Audio artifacts detected in {Codec} output", codecType);
+                        return false;
+                    }
 
-                return true;
+                    return true;
+                } finally {
+                    ArrayPool<byte>.Shared.Return(decodedPcm);
+                }
             } catch (Exception ex) {
                 _logger.LogWarning("Codec frame test failed for {Codec}: {Error}", codecType, ex.Message);
                 return false;

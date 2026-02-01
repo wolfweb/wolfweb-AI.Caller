@@ -25,7 +25,8 @@ namespace AI.Caller.Core.Media.Adapters {
         }
 
         public VADResult Update(byte[] pcmBytes) {
-            _vad.AcceptWaveform(_resampler.Resample(pcmBytes));
+            var resampledSegment = _resampler.Resample(pcmBytes);
+            _vad.AcceptWaveform(resampledSegment.ToArray());
             if (_vad.IsSpeechDetected()) {
                 _vad.Pop();
                 _vad.Flush();

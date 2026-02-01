@@ -6,6 +6,7 @@ using AI.Caller.Phone.Exceptions;
 using SIPSorcery.SIP;
 using Newtonsoft.Json;
 using System.Threading.Tasks;
+using AI.Caller.Core.Extensions;
 
 namespace AI.Caller.Phone.Services;
 

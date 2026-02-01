@@ -31,7 +31,7 @@ namespace AI.Caller.Core.Media.Interfaces {
         /// </summary>
         /// <param name="encoded">编码数据</param>
         /// <returns>16位PCM数据</returns>
-        byte[] Decode(ReadOnlySpan<byte> encoded);
+        int Decode(ReadOnlySpan<byte> encoded, Span<byte> decodedOutput);
         
         /// <summary>
         /// 生成指定时长的静音帧

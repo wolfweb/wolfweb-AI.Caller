@@ -85,7 +85,11 @@ namespace AI.Caller.Core {
 
             _logger.LogInformation("AIAutoResponder started. Jitter Buffer Count: {Count}", _jitterBuffer.Reader.Count);
             
-            _playoutTask = Task.Run(() => PlayoutLoop(_cts.Token));
+            _playoutTask = Task.Factory.StartNew(() => PlayoutLoop(_cts.Token), 
+                _cts.Token, 
+                TaskCreationOptions.LongRunning, // 提示调度器这是长任务
+                TaskScheduler.Default
+            ).Unwrap();
 
             return Task.CompletedTask;
         }
@@ -223,10 +227,12 @@ namespace AI.Caller.Core {
             });
             
             lock (resampler) {
-                var resampledBytes = resampler.Resample(src);
-                pcmLength = resampledBytes.Length;
+                var resampledSegment = resampler.Resample(src);
+                pcmLength = resampledSegment.Count;
                 pcmBytes = _bytePool.Rent(pcmLength);
-                Array.Copy(resampledBytes, pcmBytes, pcmLength);
+                if (resampledSegment.Array != null) {
+                    Array.Copy(resampledSegment.Array, resampledSegment.Offset, pcmBytes, 0, pcmLength);
+                }
             }
             
             try {
@@ -263,35 +269,17 @@ namespace AI.Caller.Core {
                 Buffer.BlockCopy(newPcmBytes, 0, combinedBuffer, localBufferLength, length);
 
                 int frameSizeInBytes = _profile.SamplesPerFrame * 2;
-                int frameCount = totalLength / frameSizeInBytes;                
+                int frameCount = totalLength / frameSizeInBytes; 
                 var encodedFrames = new byte[frameCount][];
 
-                if(_currentCodec is G722Codec) {
-                    for (int i = 0; i < frameCount; i++) {
-                        int offset = i * frameSizeInBytes;
-                        var pcmFrame = new ReadOnlySpan<byte>(combinedBuffer, offset, frameSizeInBytes);
-                        byte[] payload;
-                        lock (_currentCodec) {
-                            payload = _currentCodec.Encode(pcmFrame);
-                        }
-                        encodedFrames[i] = payload;
-                    }
-                } else {
-                    Parallel.For(0, frameCount, new ParallelOptions {
-                        MaxDegreeOfParallelism = Environment.ProcessorCount / 2
-                    }, i => {
-                        int offset = i * frameSizeInBytes;
-                        var pcmFrame = new ReadOnlySpan<byte>(combinedBuffer, offset, frameSizeInBytes);
-
-                        byte[] payload;
-                        lock (_currentCodec) {
-                            payload = _currentCodec.Encode(pcmFrame);
-                        }
-
-                        encodedFrames[i] = payload;
-                    });
+                for (int i = 0; i < frameCount; i++) {
+                    int offset = i * frameSizeInBytes;
+                    var pcmFrame = new ReadOnlySpan<byte>(combinedBuffer, offset, frameSizeInBytes);
+                    byte[] payload;
+                    payload = _currentCodec.Encode(pcmFrame);
+                    encodedFrames[i] = payload;
                 }
-
+                
                 for (int i = 0; i < frameCount; i++) {
                     var payload = encodedFrames[i];
                     
@@ -300,7 +288,7 @@ namespace AI.Caller.Core {
                     }
                     
                     Interlocked.Add(ref _totalBytesGenerated, payload.Length);
-                    
+
                     if (!_jitterBuffer.Writer.TryWrite(payload)) {
                         throw new InvalidOperationException($"Failed to write frame {i} to jitter buffer. Channel may be closed.");
                     }
@@ -323,7 +311,7 @@ namespace AI.Caller.Core {
 
         private async Task PlayoutLoop(CancellationToken ct) {
             _logger.LogInformation("Playout loop started. Running continuously until stopped.");
-
+            Thread.CurrentThread.Priority = ThreadPriority.Highest;
             try {
                 var stopwatch = Stopwatch.StartNew();
                 double smoothedDelayMs = _profile.PtimeMs;
@@ -363,12 +351,11 @@ namespace AI.Caller.Core {
 
             _logger.LogInformation("Stopping AIAutoResponder...");
 
-            // 停止场景播放
             lock (_contextLock) {
                 if (_executionContext != null) {
                     lock (_executionContext.StateLock) {
                         _executionContext.State = ScenarioPlaybackState.Stopped;
-                        _executionContext.PauseEvent.Set(); // 唤醒主循环以便检查停止状态
+                        _executionContext.PauseEvent.Set();
                     }
                 }
             }

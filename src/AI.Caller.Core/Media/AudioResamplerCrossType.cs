@@ -9,6 +9,7 @@ namespace AI.Caller.Core.Media {
         private readonly AVSampleFormat _inputSampleFormat;
         private readonly AVSampleFormat _outputSampleFormat;
 
+        private TOutput[] _internalBuffer = Array.Empty<TOutput>();
         private SwrContext* _swrContext;
         private bool _disposed;
 
@@ -71,12 +72,12 @@ namespace AI.Caller.Core.Media {
                 throw new InvalidOperationException($"Failed to initialize SWR context: {ret}");
         }
 
-        public TOutput[] Resample(TInput[] input) {
+        public ArraySegment<TOutput> Resample(TInput[] input) {
             if (_disposed) throw new ObjectDisposedException(nameof(AudioResamplerCrossType<TInput, TOutput>));
             
             if ((_inputSampleRate == _outputSampleRate && _inputSampleFormat == _outputSampleFormat) || _swrContext == null) {
                 if (typeof(TInput) == typeof(TOutput)) {
-                    return (TOutput[])(object)input;
+                    return new ArraySegment<TOutput>((TOutput[])(object)input);
                 }
                 return ConvertFormat(input);
             }
@@ -85,15 +86,19 @@ namespace AI.Caller.Core.Media {
                 int inputSamples = input.Length;
                 int outputSamples = (int)ffmpeg.av_rescale_rnd(inputSamples, _outputSampleRate, _inputSampleRate, AVRounding.AV_ROUND_UP);
 
-                TOutput[] output;
+                int requiredSize;
                 if (typeof(TOutput) == typeof(byte)) {
-                    output = new TOutput[outputSamples * 2]; // byte需要*2
+                    requiredSize = outputSamples * 2; // byte需要*2
                 } else {
-                    output = new TOutput[outputSamples];
+                    requiredSize = outputSamples;
+                }
+
+                if (_internalBuffer.Length < requiredSize) {
+                    _internalBuffer = new TOutput[requiredSize];
                 }
 
                 fixed (TInput* inputPtr = input)
-                fixed (TOutput* outputPtr = output) {
+                fixed (TOutput* outputPtr = _internalBuffer) {
                     byte* inputData = (byte*)inputPtr;
                     byte* outputData = (byte*)outputPtr;
                     byte** inputDataPtr = &inputData;
@@ -103,28 +108,32 @@ namespace AI.Caller.Core.Media {
                     if (converted < 0)
                         throw new InvalidOperationException($"Cross-type resampling failed: {converted}");
 
+                    int finalLength;
                     if (typeof(TOutput) == typeof(byte)) {
-                        if (converted * 2 != output.Length) {
-                            Array.Resize(ref output, converted * 2);
-                        }
+                        finalLength = converted * 2;
                     } else {
-                        if (converted != output.Length) {
-                            Array.Resize(ref output, converted);
-                        }
+                        finalLength = converted;
                     }
+                    
+                    return new ArraySegment<TOutput>(_internalBuffer, 0, finalLength);
                 }
 
-                return output;
             } catch (Exception ex) {
                 _logger.LogError(ex, "FFmpeg cross-type resampling failed, falling back to format conversion");
                 return ConvertFormat(input);
             }
         }
 
-        private TOutput[] ConvertFormat(TInput[] input) {
+        private ArraySegment<TOutput> ConvertFormat(TInput[] input) {
             if (typeof(TInput) == typeof(float) && typeof(TOutput) == typeof(byte)) {
                 var floatInput = (float[])(object)input;
-                var byteOutput = new byte[floatInput.Length * 2];
+                int requiredSize = floatInput.Length * 2;
+                
+                if (_internalBuffer.Length < requiredSize) {
+                    _internalBuffer = new TOutput[requiredSize];
+                }
+
+                var byteOutput = (byte[])(object)_internalBuffer; // Safe cast if TOutput is byte
                 
                 for (int i = 0; i < floatInput.Length; i++) {
                     float sample = Math.Clamp(floatInput[i], -1f, 1f);
@@ -135,7 +144,7 @@ namespace AI.Caller.Core.Media {
                     byteOutput[byteIndex + 1] = (byte)((shortSample >> 8) & 0xFF);
                 }
                 
-                return (TOutput[])(object)byteOutput;
+                return new ArraySegment<TOutput>(_internalBuffer, 0, requiredSize);
             }
             
             throw new InvalidOperationException($"Unsupported format conversion: {typeof(TInput)} -> {typeof(TOutput)}");

@@ -8,6 +8,7 @@ namespace AI.Caller.Core.Media {
         private readonly int _outputSampleRate;
         private readonly AVSampleFormat _sampleFormat;
 
+        private T[] _internalBuffer = Array.Empty<T>();
         private SwrContext* _swrContext;
         private bool _disposed;
 
@@ -63,11 +64,12 @@ namespace AI.Caller.Core.Media {
                 throw new InvalidOperationException($"Failed to initialize SWR context: {ret}");
         }
 
-        public T[] Resample(T[] input) {
+
+        public ArraySegment<T> Resample(T[] input) {
             if (_disposed) throw new ObjectDisposedException(nameof(AudioResampler<T>));
             
             if (_inputSampleRate == _outputSampleRate || _swrContext == null) {
-                return input;
+                return new ArraySegment<T>(input);
             }
 
             try {
@@ -82,15 +84,19 @@ namespace AI.Caller.Core.Media {
                     outputSamples = (int)ffmpeg.av_rescale_rnd(inputSamples, _outputSampleRate, _inputSampleRate, AVRounding.AV_ROUND_UP);
                 }
 
-                T[] output;
+                int requiredSize;
                 if (typeof(T) == typeof(byte)) {
-                    output = new T[outputSamples * 2];
+                    requiredSize = outputSamples * 2;
                 } else {
-                    output = new T[outputSamples];
+                    requiredSize = outputSamples;
+                }
+
+                if (_internalBuffer.Length < requiredSize) {
+                    _internalBuffer = new T[requiredSize]; // Initial or Resize alloc
                 }
 
                 fixed (T* inputPtr = input)
-                fixed (T* outputPtr = output) {
+                fixed (T* outputPtr = _internalBuffer) {
                     byte* inputData = (byte*)inputPtr;
                     byte* outputData = (byte*)outputPtr;
                     byte** inputDataPtr = &inputData;
@@ -100,21 +106,19 @@ namespace AI.Caller.Core.Media {
                     if (converted < 0)
                         throw new InvalidOperationException($"Resampling failed: {converted}");
 
+                    int finalLength;
                     if (typeof(T) == typeof(byte)) {
-                        if (converted * 2 != output.Length) {
-                            Array.Resize(ref output, converted * 2);
-                        }
+                        finalLength = converted * 2;
                     } else {
-                        if (converted != output.Length) {
-                            Array.Resize(ref output, converted);
-                        }
+                        finalLength = converted;
                     }
+                    
+                    return new ArraySegment<T>(_internalBuffer, 0, finalLength);
                 }
 
-                return output;
             } catch (Exception ex) {
                 _logger.LogError(ex, "FFmpeg resampling failed, returning original audio");
-                return input;
+                return new ArraySegment<T>(input);
             }
         }
 

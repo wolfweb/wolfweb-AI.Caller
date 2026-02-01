@@ -1,11 +1,13 @@
+using AI.Caller.Core.Media;
+using AI.Caller.Core.Network;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorcery.SIP.App;
 using SIPSorceryMedia.Abstractions;
+using System.Buffers;
 using System.Net;
-using AI.Caller.Core.Media;
-using AI.Caller.Core.Network;
+using static System.Net.WebRequestMethods;
 
 namespace AI.Caller.Core {
     public class MediaSessionManager : IDisposable {
@@ -197,14 +199,13 @@ namespace AI.Caller.Core {
                     _logger.LogWarning("Cannot add ICE candidate: RTCPeerConnection is null");
                     return;
                 }
-
-                try {
-                    _peerConnection.addIceCandidate(candidate);
-                    _logger.LogDebug($"Added ICE candidate: {candidate.candidate}");
-                } catch (Exception ex) {
-                    _logger.LogError(ex, "Failed to add ICE candidate");
-                    throw;
-                }
+            }
+            try {
+                _peerConnection.addIceCandidate(candidate);
+                _logger.LogDebug($"Added ICE candidate: {candidate.candidate}");
+            } catch (Exception ex) {
+                _logger.LogError(ex, "Failed to add ICE candidate");
+                throw;
             }
         }
 
@@ -394,7 +395,6 @@ namespace AI.Caller.Core {
                 if (shouldSwitchCodec) {
                     await SwitchCodec(targetCodec, $"Network quality changed to {quality}");
                 }
-
             } catch (Exception ex) {
                 _logger.LogError(ex, "❌ Error handling network quality change: {Error}", ex.Message);
             }
@@ -409,16 +409,14 @@ namespace AI.Caller.Core {
                 return false;
             }
 
-            lock (_codecLock) {
-                if (DateTime.UtcNow - _lastCodecSwitch < _codecSwitchCooldown) {
-                    _logger.LogWarning("⏳ Codec switch blocked: cooldown period active (last switch: {LastSwitch})", _lastCodecSwitch);
-                    return false;
-                }
+            if (DateTime.UtcNow - _lastCodecSwitch < _codecSwitchCooldown) {
+                _logger.LogWarning("⏳ Codec switch blocked: cooldown period active (last switch: {LastSwitch})", _lastCodecSwitch);
+                return false;
+            }
 
-                if (SelectedCodec == newCodec) {
-                    _logger.LogDebug("ℹ️ Already using codec {Codec}, no switch needed", newCodec);
-                    return true;
-                }
+            if (SelectedCodec == newCodec) {
+                _logger.LogDebug("ℹ️ Already using codec {Codec}, no switch needed", newCodec);
+                return true;
             }
 
             try {
@@ -878,15 +876,20 @@ namespace AI.Caller.Core {
                         _logger.LogWarning("Codec test failed: encode returned empty data");
                         return false;
                     }
-                    
+
                     // Test decode
-                    var decoded = testCodec.Decode(encoded);
-                    if (decoded.Length == 0) {
-                        _logger.LogWarning("Codec test failed: decode returned empty data");
-                        return false;
-                    }
+                    byte[] pcm = ArrayPool<byte>.Shared.Rent(encoded.Length * 2);
+                    try { 
+                        var decodedLength = testCodec.Decode(encoded, pcm);
+                        if (decodedLength == 0) {
+                            _logger.LogWarning("Codec test failed: decode returned empty data");
+                            return false;
+                        }
                     
-                    return true;
+                        return true;                    
+                    } finally {
+                        ArrayPool<byte>.Shared.Return(pcm);
+                    }
                 });
             } catch (Exception ex) {
                 _logger.LogWarning("Codec test failed for {Codec}: {Error}", codecType, ex.Message);
@@ -916,55 +919,6 @@ namespace AI.Caller.Core {
                 AudioCodec.G722 => 16000,
                 _ => 8000 // Default to 8kHz
             };
-        }
-
-        /// <summary>
-        /// Check if we support a given payload type and codec name combination
-        /// This handles both static and dynamic payload types
-        /// </summary>
-        private bool IsSupportedCodec(int payloadType, string codecName, int clockRate) {
-            // Normalize codec name for comparison
-            var normalizedCodecName = codecName?.ToUpperInvariant().Trim();
-            
-            // Static payload types (RFC 3551)
-            switch (payloadType) {
-                case 0: // PCMU
-                    return normalizedCodecName == "PCMU" && clockRate == 8000;
-                case 8: // PCMA  
-                    return normalizedCodecName == "PCMA" && clockRate == 8000;
-                case 9: // G722
-                    // G.722 standard clock rate is 8000 (even though internal sampling is 16kHz)
-                    // But some implementations might incorrectly use 16000
-                    if (normalizedCodecName == "G722") {
-                        if (clockRate == 8000) {
-                            return true; // Standard compliant
-                        } else if (clockRate == 16000) {
-                            _logger.LogWarning("Non-standard G.722 clock rate {ClockRate} detected (should be 8000), but accepting", clockRate);
-                            return true; // Accept but warn
-                        }
-                    }
-                    return false;
-            }
-            
-            // Dynamic payload types (96-127)
-            if (payloadType >= 96 && payloadType <= 127) {
-                switch (normalizedCodecName) {
-                    case "PCMU":
-                        return clockRate == 8000;
-                    case "PCMA":
-                        return clockRate == 8000;
-                    case "G722":
-                        if (clockRate == 8000) {
-                            return true;
-                        } else if (clockRate == 16000) {
-                            _logger.LogWarning("Non-standard G.722 clock rate {ClockRate} detected for dynamic PT {PayloadType}, but accepting", clockRate, payloadType);
-                            return true;
-                        }
-                        return false;
-                }
-            }
-            
-            return false;
         }
 
         /// <summary>

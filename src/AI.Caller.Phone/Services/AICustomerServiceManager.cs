@@ -1,4 +1,5 @@
 using AI.Caller.Core;
+using AI.Caller.Core.Extensions;
 using AI.Caller.Core.Interfaces;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;

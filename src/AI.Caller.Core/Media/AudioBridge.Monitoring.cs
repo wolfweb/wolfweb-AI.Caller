@@ -8,6 +8,7 @@ namespace AI.Caller.Core;
 /// AudioBridge - 监听功能扩展
 /// </summary>
 public sealed partial class AudioBridge {
+    private volatile int _activeMonitorCount = 0;
     private readonly ConcurrentDictionary<int, MonitoringListener> _monitoringListeners = new();
 
     /// <summary>
@@ -46,6 +47,7 @@ public sealed partial class AudioBridge {
         };
 
         if (_monitoringListeners.TryAdd(userId, listener)) {
+            Interlocked.Increment(ref _activeMonitorCount);
             _logger.LogInformation("监听者已添加: UserId {UserId}, UserName {UserName}", userId, userName);
             session.OnInterventionAudioReceived += (pcm) => {
                 ProcessInterventionAudio(pcm);
@@ -61,6 +63,7 @@ public sealed partial class AudioBridge {
     /// <param name="userId">监听用户ID</param>
     public void RemoveMonitor(int userId) {
         if (_monitoringListeners.TryRemove(userId, out var listener)) {
+            Interlocked.Decrement(ref _activeMonitorCount);
             listener.IsActive = false;
             listener.EndTime = DateTime.UtcNow;
             _logger.LogInformation("监听者已移除: UserId {UserId}, 监听时长: {Duration}秒", userId, (listener.EndTime.Value - listener.StartTime).TotalSeconds);
@@ -80,7 +83,7 @@ public sealed partial class AudioBridge {
     /// 检查是否有活跃的监听者
     /// </summary>
     public bool HasActiveMonitors() {
-        return _monitoringListeners.Any(kvp => kvp.Value.IsActive);
+        return _activeMonitorCount > 0;
     }
 
     /// <summary>
@@ -103,17 +106,17 @@ public sealed partial class AudioBridge {
     /// 处理对方说话的音频（用于监听）
     /// 这个方法会在 ProcessIncomingAudio 中被调用
     /// </summary>
-    private void BroadcastIncomingAudioToMonitors(byte[] audioFrame) {
+    private void BroadcastIncomingAudioToMonitors(byte[] pcmFrame) {
         if (!HasActiveMonitors())
             return;
 
         try {
             // 发送给所有活跃的监听者（客户音频 - Incoming）
             foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
-                IncomingAudioReady?.Invoke(listener.UserId, audioFrame);
-                listener.Session?.SendAudio(audioFrame, false);
+                IncomingAudioReady?.Invoke(listener.UserId, pcmFrame);
+                listener.Session?.SendAudio(pcmFrame, false);
 #if DEBUG
-                _logger.LogTrace("推送客户音频到监听者: UserId {UserId}, 帧大小 {Size} 字节", listener.UserId, audioFrame.Length);
+                _logger.LogTrace("推送客户音频到监听者: UserId {UserId}, 帧大小 {Size} 字节", listener.UserId, pcmFrame.Length);
 #endif
             }
         } catch (Exception ex) {

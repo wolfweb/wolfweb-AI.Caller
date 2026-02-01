@@ -1,3 +1,4 @@
+using AI.Caller.Core.AI;
 using AI.Caller.Core.CallAutomation;
 using AI.Caller.Core.Interfaces;
 using AI.Caller.Core.Media;
@@ -6,13 +7,12 @@ using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using AI.Caller.Core.AI;
 
 namespace AI.Caller.Core.Extensions {
     public static class ServiceCollectionExtensions {
         public static IServiceCollection AddAIAutoResponder(this IServiceCollection services) {            
-            services.TryAddSingleton<G711Codec>();
-            services.TryAddSingleton<G722Codec>();
+            services.TryAddTransient<G711Codec>();
+            services.TryAddTransient<G722Codec>();
             services.TryAddSingleton<AudioCodecFactory>();
             services.TryAddSingleton<CodecHealthMonitor>();
             services.TryAddSingleton<ITTSEngine, TTSEngineAdapter>();

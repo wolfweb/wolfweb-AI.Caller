@@ -24,7 +24,8 @@ namespace AI.Caller.Core.Media.Adapters {
 
         public string RecognizeStream(byte[] pcmBytes) {
             try {
-                var resampled = _resampler.Resample(pcmBytes);
+                var resampledSegment = _resampler.Resample(pcmBytes);
+                var resampled = resampledSegment.ToArray();
                 lock (_lock) {
                     var stream = _recognizer.CreateStream();
                     stream.AcceptWaveform(_modelSampleRate, resampled);
