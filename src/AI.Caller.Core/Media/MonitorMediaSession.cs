@@ -8,7 +8,13 @@ using System.Net;
 using System.Runtime.InteropServices;
 
 namespace AI.Caller.Core.Media {
-    public class AudioRingBuffer {
+    public interface IAudioBuffer {
+        void Write(ReadOnlySpan<short> data);
+        bool TryReadFrame(Span<short> destination);
+        void Clear();
+    }
+
+    public class AudioRingBuffer : IAudioBuffer {
         private readonly short[] _buffer;
         private int _writePos;
         private int _readPos;
@@ -73,20 +79,52 @@ namespace AI.Caller.Core.Media {
         }
     }
 
+    /// <summary>
+    /// 弹性音频缓冲区 - 支持无限写入（突发缓冲），按需读取（平滑播放）
+    /// 用于解决 AIAutoResponder 生成速度远快于播放速度导致的缓冲区溢出问题
+    /// </summary>
+    public class ElasticAudioBuffer : IAudioBuffer {
+        private readonly Queue<short> _buffer = new Queue<short>();
+        private readonly object _lock = new();
+
+        public void Write(ReadOnlySpan<short> data) {
+            lock (_lock) {
+                for (int i = 0; i < data.Length; i++) {
+                    _buffer.Enqueue(data[i]);
+                }
+            }
+        }
+
+        public bool TryReadFrame(Span<short> destination) {
+            lock (_lock) {
+                if (_buffer.Count < destination.Length) {
+                    return false;
+                }
+
+                for (int i = 0; i < destination.Length; i++) {
+                    destination[i] = _buffer.Dequeue();
+                }
+                return true;
+            }
+        }
+
+        public void Clear() {
+            lock (_lock) {
+                _buffer.Clear();
+            }
+        }
+    }
+
     public class MonitorMediaSession : IDisposable {
         private readonly ILogger _logger;
         private readonly short[] _mixBuffer;
         private readonly RTCPeerConnection _pc;
-        private readonly AudioRingBuffer _aiBuffer;
+        private readonly ElasticAudioBuffer _aiBuffer;
         private readonly MixerAudioSource _audioSource;
         private readonly AudioRingBuffer _customerBuffer;
-        private readonly AudioRingBuffer _interventionBuffer;
         private readonly AudioCodecFactory _audioCodecFactory;
         private readonly CancellationTokenSource _mixingCts = new();
 
-        private bool _aiBuffering = true;
-        private bool _custBuffering = true;
-        private bool _intBuffering = true;
         private Task? _mixingTask;
         private IAudioCodec? _codec;
         private int? _currentPayloadType = null;
@@ -101,12 +139,12 @@ namespace AI.Caller.Core.Media {
 
         public MonitorMediaSession(ILogger logger, AudioCodecFactory codecFactory, WebRTCSettings settings) {
             _logger = logger;
-
-            _aiBuffer = new AudioRingBuffer(BUFFER_SIZE);
+            
+            // 🔧 FIX: 使用弹性缓冲区来处理突发的 AI 音频，防止溢出丢包
+            _aiBuffer = new ElasticAudioBuffer();
             _mixBuffer = new short[SAMPLES_PER_FRAME];
             _customerBuffer = new AudioRingBuffer(BUFFER_SIZE);
             _audioCodecFactory = codecFactory;
-            _interventionBuffer = new AudioRingBuffer(BUFFER_SIZE);
 
             var config = new RTCConfiguration {
                 iceServers = settings.GetRTCIceServers()
@@ -177,8 +215,14 @@ namespace AI.Caller.Core.Media {
         }
 
         public void SendAudio(byte[] pcmData, bool isAiAudio) {
-            var targetBuffer = isAiAudio ? _aiBuffer : _customerBuffer;
+            IAudioBuffer targetBuffer = isAiAudio ? _aiBuffer : _customerBuffer;
             ReadOnlySpan<short> samples = MemoryMarshal.Cast<byte, short>(pcmData);
+            targetBuffer.Write(samples);
+        }
+
+        public void SendAudio(byte[] pcmData, int offset, int length, bool isAiAudio) {
+            IAudioBuffer targetBuffer = isAiAudio ? _aiBuffer : _customerBuffer;
+            ReadOnlySpan<short> samples = MemoryMarshal.Cast<byte, short>(pcmData.AsSpan(offset, length));
             targetBuffer.Write(samples);
         }
 
@@ -192,6 +236,10 @@ namespace AI.Caller.Core.Media {
             }
 
             _codec?.Dispose();
+
+            // 清空缓冲区
+            _aiBuffer.Clear();
+            _customerBuffer.Clear();
 
             _pc.Close("session closed");
             _pc.Dispose();
@@ -225,13 +273,11 @@ namespace AI.Caller.Core.Media {
 
             Span<short> aiFrame = stackalloc short[SAMPLES_PER_FRAME];
             Span<short> custFrame = stackalloc short[SAMPLES_PER_FRAME];
-            Span<short> intFrame = stackalloc short[SAMPLES_PER_FRAME];
 
             bool hasAi = _aiBuffer.TryReadFrame(aiFrame);
             bool hasCust = _customerBuffer.TryReadFrame(custFrame);
-            bool hasInt = _interventionBuffer.TryReadFrame(intFrame);
 
-            if (!hasAi && !hasCust && !hasInt) {
+            if (!hasAi && !hasCust) {
                 mixSpan.Clear();
                 _audioSource.SendAudio(_mixBuffer, SAMPLE_RATE);
                 return;
@@ -241,7 +287,6 @@ namespace AI.Caller.Core.Media {
                 int sample = 0;
                 if (hasAi) sample += aiFrame[i];
                 if (hasCust) sample += custFrame[i];
-                if (hasInt) sample += intFrame[i];
 
                 if (sample > short.MaxValue) sample = short.MaxValue;
                 else if (sample < short.MinValue) sample = short.MinValue;
@@ -264,11 +309,12 @@ namespace AI.Caller.Core.Media {
                 var pcmLength = _codec.Decode(rtp.Payload, pcm);
 
                 if (pcmLength > 0) {
-                    byte[] validPcm = new byte[pcmLength];
-                    Array.Copy(pcm, validPcm, pcmLength);
-                    OnInterventionAudioReceived?.Invoke(validPcm);
-                    ReadOnlySpan<short> samples = MemoryMarshal.Cast<byte, short>(pcm.AsSpan(0, pcmLength));
-                    _interventionBuffer.Write(samples);
+                    // 只触发事件，不写入 buffer（客服的音频不应该被混入）
+                    if (OnInterventionAudioReceived != null) {
+                        byte[] validPcm = new byte[pcmLength];
+                        Array.Copy(pcm, validPcm, pcmLength);
+                        OnInterventionAudioReceived.Invoke(validPcm);
+                    }
                 }
             } finally {
                 ArrayPool<byte>.Shared.Return(pcm);

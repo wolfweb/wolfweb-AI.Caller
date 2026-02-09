@@ -72,23 +72,29 @@ namespace AI.Caller.Phone.Services {
                     autoResponder.OnDtmfInputCollected += dtmfHandler;
                     
                     Action<byte[]> audioGeneratedHandler = (audioFrame) => {
-                        sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
-                        if (audioBridge is AudioBridge ab) {
-                            ab.ProcessOutgoingAudio(audioFrame);
+                        if (audioBridge is AudioBridge ab && ab.IsInterventionActive) {
+                            return;
                         }
+                        sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
                     };
                     autoResponder.OutgoingAudioGenerated += audioGeneratedHandler;
-
-                    audioBridge.IncomingAudioReceived += (audioFrame) => {
-                        try {
-                            autoResponder.OnUplinkPcmFrame(audioFrame);
-                        } catch (Exception ex) {
-                            _logger.LogError(ex, "Error processing incoming audio in AutoResponder");
-                        }
-                    };
-
+                    
+                    Action<byte[]>? pcmAudioGeneratedHandler = null;
+                    Action<byte[]>? interventionAudioSendHandler = null;
+                    Action<byte[]>? incomingAudioReceivedHandler = null;
+                    
+                    // Subscribe to PCM event for monitoring (avoids redundant decode in AudioBridge)
                     if (audioBridge is AudioBridge ab) {
-                        ab.InterventionAudioSend += (audioFrame) => {
+                        pcmAudioGeneratedHandler = (pcmFrame) => {
+                            try {
+                                ab.ProcessOutgoingPcm(pcmFrame);
+                            } catch (Exception ex) {
+                                _logger.LogError(ex, "Error processing PCM audio for monitoring");
+                            }
+                        };
+                        autoResponder.OnPcmAudioGenerated += pcmAudioGeneratedHandler;
+                        
+                        interventionAudioSendHandler = (audioFrame) => {
                             try {
                                 sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
                                 _logger.LogTrace("人工接入音频已发送到SIP通话: {Size} 字节", audioFrame.Length);
@@ -96,7 +102,17 @@ namespace AI.Caller.Phone.Services {
                                 _logger.LogError(ex, "发送人工接入音频失败");
                             }
                         };
+                        ab.InterventionAudioSend += interventionAudioSendHandler;
                     }
+
+                    incomingAudioReceivedHandler = (audioFrame) => {
+                        try {
+                            autoResponder.OnUplinkPcmFrame(audioFrame);
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "Error processing incoming audio in AutoResponder");
+                        }
+                    };
+                    audioBridge.IncomingAudioReceived += incomingAudioReceivedHandler;
 
                     sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
 
@@ -108,8 +124,12 @@ namespace AI.Caller.Phone.Services {
                         StartTime = DateTime.UtcNow,
                         AudioGeneratedHandler = audioGeneratedHandler,
                         DtmfInputHandler = dtmfHandler,
-                        CallId = callId, // 设置CallId
-                        Scope = scope // Store scope
+                        CallId = callId,
+                        Scope = scope,
+                        InterventionAudioSendHandler = interventionAudioSendHandler,
+                        IncomingAudioReceivedHandler = incomingAudioReceivedHandler,
+                        OnPcmAudioGeneratedHandler = pcmAudioGeneratedHandler,
+                        SipClient = sipClient
                     };
 
                     await autoResponder.StartAsync();
@@ -151,6 +171,22 @@ namespace AI.Caller.Phone.Services {
                     session.AutoResponder.OnScenarioProgress -= OnScenarioProgressHandler;
                 }
 
+                if (session.OnPcmAudioGeneratedHandler != null) {
+                    session.AutoResponder.OnPcmAudioGenerated -= session.OnPcmAudioGeneratedHandler;
+                }
+
+                if (session.IncomingAudioReceivedHandler != null) {
+                    session.AudioBridge.IncomingAudioReceived -= session.IncomingAudioReceivedHandler;
+                }
+
+                if (session.InterventionAudioSendHandler != null && session.AudioBridge is AudioBridge ab) {
+                    ab.InterventionAudioSend -= session.InterventionAudioSendHandler;
+                }
+
+                if (session.SipClient?.MediaSessionManager != null) {
+                    session.SipClient.MediaSessionManager.SetAudioBridge(null!);
+                }
+
                 if (session.PlaybackTask != null && !session.PlaybackTask.IsCompleted) {
                     try {
                         await session.PlaybackTask.WaitAsync(TimeSpan.FromSeconds(2));
@@ -174,7 +210,7 @@ namespace AI.Caller.Phone.Services {
 
                 session.AudioBridge.Stop();
                 session.AudioBridge.Dispose();
-                session.Scope?.Dispose(); // Dispose scope
+                session.Scope?.Dispose();
 
                 _logger.LogInformation("AI customer service stopped for user {Username}", session.User.Username);
                 return true;
@@ -320,5 +356,10 @@ namespace AI.Caller.Phone.Services {
         public ScenarioRecording? ScenarioRecording { get; set; }
         public IServiceScope? Scope { get; set; }
         public Task? PlaybackTask { get; set; }
+        
+        public Action<byte[]>? InterventionAudioSendHandler { get; set; }
+        public Action<byte[]>? IncomingAudioReceivedHandler { get; set; }
+        public Action<byte[]>? OnPcmAudioGeneratedHandler { get; set; }
+        public SIPClient? SipClient { get; set; }
     }
 }

@@ -15,6 +15,7 @@ public class AudioFilePlayer : IDisposable {
     
     private MediaSessionManager? _mediaSessionManager;
     private AudioCodec _fallbackCodec = AudioCodec.PCMA;
+    private AudioCodec? _preferredCodec;
 
     private const int FrameSizeMs = 20;   // 20ms per frame
 
@@ -23,6 +24,13 @@ public class AudioFilePlayer : IDisposable {
         _codecFactory = codecFactory ?? throw new ArgumentNullException(nameof(codecFactory));
         
         _logger.LogDebug("AudioFilePlayer initialized with dynamic codec support");
+    }
+
+    /// <summary>
+    /// 设置首选编码器（覆盖MediaSessionManager和默认值）
+    /// </summary>
+    public void SetPreferredCodec(AudioCodec codec) {
+        _preferredCodec = codec;
     }
 
     /// <summary>
@@ -297,6 +305,10 @@ public class AudioFilePlayer : IDisposable {
     /// 获取当前协商的编码器类型
     /// </summary>
     private AudioCodec GetCurrentCodec() {
+        if (_preferredCodec.HasValue) {
+            return _preferredCodec.Value;
+        }
+
         var currentCodec = _mediaSessionManager?.SelectedCodec ?? _fallbackCodec;
         _logger.LogTrace("获取当前编码器: {Codec}", currentCodec);
         return currentCodec;

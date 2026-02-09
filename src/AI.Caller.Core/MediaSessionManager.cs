@@ -609,6 +609,8 @@ namespace AI.Caller.Core {
                         }
                     }
 
+                    _audioBridge = null;
+
                     _logger.LogDebug("MediaSessionManager disposed successfully");
                 } catch (Exception ex) {
                     _logger.LogError(ex, "Error during MediaSessionManager disposal");

@@ -9,15 +9,30 @@ using System.Collections.Concurrent;
 namespace AI.Caller.Core {
     public class SIPClientHandle : IDisposable {
         private readonly SIPClientPoolManager _manager;
+        private SIPClient? _client;
+        private int _disposed = 0;
+
         internal SIPClientHandle(SIPClientPoolManager manager, SIPClient sipClient) {
-            _manager = manager;
-            Client   = sipClient;
+            _manager = manager ?? throw new ArgumentNullException(nameof(manager));
+            _client = sipClient ?? throw new ArgumentNullException(nameof(sipClient));
         }
 
-        public SIPClient Client { get; private set; }
+        public SIPClient? Client => _client;
 
         public void Dispose() {
-            _manager.Return(Client);
+            if (Interlocked.Exchange(ref _disposed, 1) == 0) {
+                var clientToReturn = _client;
+                _client = null;
+                
+                if (clientToReturn != null) {
+                    try {
+                        _manager.Return(clientToReturn);
+                    } catch (Exception ex) {
+                        System.Diagnostics.Debug.WriteLine($"Error returning SIPClient to pool: {ex.Message}");
+                    }
+                }                
+                GC.SuppressFinalize(this);
+            }
         }
     }
 

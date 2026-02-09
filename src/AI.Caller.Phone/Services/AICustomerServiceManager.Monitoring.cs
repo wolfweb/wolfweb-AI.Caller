@@ -103,14 +103,17 @@ public partial class AICustomerServiceManager {
                 var monitoringService = scope.ServiceProvider.GetRequiredService<IMonitoringService>();
                 var playbackControlService = scope.ServiceProvider.GetRequiredService<IPlaybackControlService>();
 
-                // 记录人工接入
                 await monitoringService.InterventionAsync(sessionId, reason);
 
-                // 暂停AI播放
                 await session.AutoResponder.PauseAsync();
                 _logger.LogInformation("AI播放已暂停: UserId {UserId}", userId);
 
                 await playbackControlService.RecordInterventionAsync(callId, session.AutoResponder.IsPaused ? 0 : -1); // 记录当前片段
+
+                if (session.AudioBridge is AudioBridge audioBridge) {
+                    audioBridge.SetInterventionActive(true);
+                    _logger.LogInformation("人工接入状态已激活: UserId {UserId}, MonitorUser {MonitorUserId}", userId, monitorUserId);
+                }
 
                 _logger.LogInformation("人工接入成功: UserId {UserId}, MonitorUser {MonitorUserId}, Reason: {Reason}", userId, monitorUserId, reason);
             }
@@ -136,12 +139,16 @@ public partial class AICustomerServiceManager {
                 return;
             }
 
+            if (session.AudioBridge is AudioBridge audioBridge) {
+                audioBridge.SetInterventionActive(false);
+                _logger.LogInformation("人工接入状态已停用: UserId {UserId}", userId);
+            }
+
             using (var scope = _scopeFactory.CreateScope()) {
                 var playbackControlService = scope.ServiceProvider.GetRequiredService<IPlaybackControlService>();
                 var settingProvider = scope.ServiceProvider.GetRequiredService<IAICustomerServiceSettingsProvider>();
                 var settings = await settingProvider.GetSettingsAsync();
 
-                // 恢复AI播放
                 if (resumePlayback) {
                     if (playSegmentIds != null && playSegmentIds.Count > 0) {
                         var firstSegmentId = playSegmentIds.First();
@@ -264,23 +271,40 @@ public partial class AICustomerServiceManager {
                 autoResponder.OnScenarioProgress += OnScenarioProgressHandler;
 
                 Action<byte[]> audioGeneratedHandler = (audioFrame) => {
-                    sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
-                    if (audioBridge is AudioBridge ab) {
-                        ab.ProcessOutgoingAudio(audioFrame);
+                    if (audioBridge is AudioBridge ab && ab.IsInterventionActive) {
+                        return;
                     }
+                    sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
                 };
                 autoResponder.OutgoingAudioGenerated += audioGeneratedHandler;
+                
+                Action<byte[]>? pcmAudioGeneratedHandler = null;
+                Action<byte[]>? interventionAudioSendHandler = null;
+                Action<byte[]>? incomingAudioReceivedHandler = null;
+                
+                // Subscribe to PCM event for monitoring (avoids redundant decode in AudioBridge)
+                if (audioBridge is AudioBridge ab) {
+                    pcmAudioGeneratedHandler = (pcmFrame) => {
+                        try {
+                            ab.ProcessOutgoingPcm(pcmFrame);
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "Error processing PCM audio for monitoring");
+                        }
+                    };
+                    autoResponder.OnPcmAudioGenerated += pcmAudioGeneratedHandler;
+                }
 
-                audioBridge.IncomingAudioReceived += (audioFrame) => {
+                incomingAudioReceivedHandler = (audioFrame) => {
                     try {
                         autoResponder.OnUplinkPcmFrame(audioFrame);
                     } catch (Exception ex) {
                         _logger.LogError(ex, "处理来电音频失败");
                     }
                 };
+                audioBridge.IncomingAudioReceived += incomingAudioReceivedHandler;
 
                 if (audioBridge is AudioBridge ab2) {
-                    ab2.InterventionAudioSend += (audioFrame) => {
+                    interventionAudioSendHandler = (audioFrame) => {
                         try {
                             sipClient.MediaSessionManager?.SendAudioFrame(audioFrame);
                             _logger.LogTrace("人工接入音频已发送到SIP通话: {Size} 字节", audioFrame.Length);
@@ -288,6 +312,7 @@ public partial class AICustomerServiceManager {
                             _logger.LogError(ex, "发送人工接入音频失败");
                         }
                     };
+                    ab2.InterventionAudioSend += interventionAudioSendHandler;
                 }
 
                 sipClient.MediaSessionManager.SetAudioBridge(audioBridge);
@@ -300,10 +325,14 @@ public partial class AICustomerServiceManager {
                     StartTime = DateTime.UtcNow,
                     AudioGeneratedHandler = audioGeneratedHandler,
                     DtmfInputHandler = dtmfHandler,
+                    OnPcmAudioGeneratedHandler = pcmAudioGeneratedHandler,
+                    IncomingAudioReceivedHandler = incomingAudioReceivedHandler,
+                    InterventionAudioSendHandler = interventionAudioSendHandler,
                     CallId = callId,  // 保存CallId
                     ScenarioRecordingId = scenarioRecording.Id,  // 保存场景ID
                     ScenarioRecording = scenarioRecording,  // 保存场景对象
-                    Scope = scope // Store scope
+                    Scope = scope, // Store scope
+                    SipClient = sipClient  // 保存 SIP 客户端引用
                 };
 
                 await autoResponder.StartAsync();

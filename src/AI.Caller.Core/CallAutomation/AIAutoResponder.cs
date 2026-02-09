@@ -47,7 +47,8 @@ namespace AI.Caller.Core {
         private const int JitterBufferWaterline = 200;
 
         public event Action<byte[]>? OutgoingAudioGenerated;
-
+        public event Action<byte[]>? OnPcmAudioGenerated;
+        
         private volatile bool _shouldSendAudio = true;
         private volatile bool _isTtsStreamFinished;
         private volatile bool _shouldStopPlayout = false;
@@ -275,6 +276,13 @@ namespace AI.Caller.Core {
                 for (int i = 0; i < frameCount; i++) {
                     int offset = i * frameSizeInBytes;
                     var pcmFrame = new ReadOnlySpan<byte>(combinedBuffer, offset, frameSizeInBytes);
+                    
+                    if (OnPcmAudioGenerated != null) {
+                        byte[] pcmCopy = new byte[frameSizeInBytes];
+                        pcmFrame.CopyTo(pcmCopy);
+                        OnPcmAudioGenerated.Invoke(pcmCopy);
+                    }
+                    
                     byte[] payload;
                     payload = _currentCodec.Encode(pcmFrame);
                     encodedFrames[i] = payload;

@@ -15,18 +15,19 @@ namespace AI.Caller.Core {
         private readonly object _dtmfLock = new();
         private readonly AudioCodecFactory _codecFactory;
         private readonly Dictionary<int, IAudioCodec> _codecCache = new();
-        private readonly Channel<byte[]> _monitoringQueue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(100) {
+        private readonly Channel<(byte[], int)> _dtmfQueueWithLength = Channel.CreateUnbounded<(byte[], int)>();
+        private readonly Channel<(byte[], int)> _monitoringFrameQueue = Channel.CreateBounded<(byte[], int)>(new BoundedChannelOptions(100) {
             FullMode = BoundedChannelFullMode.DropOldest,
             SingleReader = true,
             SingleWriter = true
         });
-        private readonly Channel<byte[]> _incomingMonitoringQueue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(100) {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true,
-            SingleWriter = true
-        });
-        private readonly Channel<byte[]> _dtmfQueue = Channel.CreateUnbounded<byte[]>();
+        private readonly Channel<byte[]> _monitoringPcmQueue = Channel.CreateUnbounded<byte[]>();
         private bool _enableAsyncMonitoring = true;
+
+        private Task? _dtmfProcessorTask;
+        private Task? _monitoringFrameProcessorTask;
+        private Task? _monitoringPcmProcessorTask;
+        private readonly CancellationTokenSource _processorCts = new();
 
         private bool _isStarted;
         private int _currentBlockSize;
@@ -85,6 +86,15 @@ namespace AI.Caller.Core {
             }
         }
 
+        /// <summary>
+        /// Process raw PCM audio from AIAutoResponder for monitoring (skips decode step)
+        /// </summary>
+        public void ProcessOutgoingPcm(byte[] pcmData) {
+            if (_activeMonitorCount == 0) return;
+            
+            _monitoringPcmQueue.Writer.TryWrite(pcmData);
+        }
+
         public void Stop() {
             lock (_lock) {
                 if (!_isStarted) return;
@@ -120,39 +130,51 @@ namespace AI.Caller.Core {
 
                 var decodedLength = codec.Decode(audioData, decodedPcm);
                 _logger.LogTrace("🎵 Decoded PCM: {DecodedSize} bytes", decodedLength);
-                byte[] validPcmData = new byte[decodedLength];
-                Array.Copy(decodedPcm, validPcmData, decodedLength);
-
-                int expectedSampleRate = GetDecodedSampleRate(payloadType);
-                ArraySegment<byte> outputPcm;
-                if (expectedSampleRate != currentProfile.SampleRate) {
-                    outputPcm = GetOrCreateOutputResampler(expectedSampleRate, currentProfile.SampleRate).Resample(validPcmData);
-                } else {
-                    outputPcm = new ArraySegment<byte>(validPcmData);
-                }
-
-                ArraySegment<byte> dtmfPcm;
-                if (expectedSampleRate != 8000) {
-                    dtmfPcm = GetOrCreateDtmfResampler(expectedSampleRate).Resample(validPcmData);
-                } else {
-                    dtmfPcm = new ArraySegment<byte>(validPcmData);
-                }
                 
-                if (dtmfPcm.Array != null) {                    
-                    byte[] dtmfCopy = new byte[dtmfPcm.Count];
-                    Array.Copy(dtmfPcm.Array, dtmfPcm.Offset, dtmfCopy, 0, dtmfPcm.Count);
-                    _dtmfQueue.Writer.TryWrite(dtmfCopy);
-                }
+                // 创建精确大小的临时数组用于重采样
+                byte[] validPcmData = ArrayPool<byte>.Shared.Rent(decodedLength);
+                try {
+                    Array.Copy(decodedPcm, 0, validPcmData, 0, decodedLength);
 
-                ProcessAudioFrames(outputPcm, currentProfile, frame => {
-                    IncomingAudioReceived?.Invoke(frame);
-                    
-                    if (_enableAsyncMonitoring) {                         
-                         _incomingMonitoringQueue.Writer.TryWrite(frame);
+                    int expectedSampleRate = GetDecodedSampleRate(payloadType);
+                    ArraySegment<byte> outputPcm;
+                    if (expectedSampleRate != currentProfile.SampleRate) {
+                        outputPcm = GetOrCreateOutputResampler(expectedSampleRate, currentProfile.SampleRate).Resample(validPcmData);
                     } else {
-                         BroadcastIncomingAudioToMonitors(frame);
+                        outputPcm = new ArraySegment<byte>(validPcmData, 0, decodedLength);
                     }
-                });
+
+                    ArraySegment<byte> dtmfPcm;
+                    if (expectedSampleRate != 8000) {
+                        dtmfPcm = GetOrCreateDtmfResampler(expectedSampleRate).Resample(validPcmData);
+                    } else {
+                        dtmfPcm = new ArraySegment<byte>(validPcmData, 0, decodedLength);
+                    }
+                    
+                    if (dtmfPcm.Array != null && dtmfPcm.Count > 0) {
+                        byte[] dtmfCopy = ArrayPool<byte>.Shared.Rent(dtmfPcm.Count);
+                        Array.Copy(dtmfPcm.Array, dtmfPcm.Offset, dtmfCopy, 0, dtmfPcm.Count);
+                        if (!_dtmfQueueWithLength.Writer.TryWrite((dtmfCopy, dtmfPcm.Count))) {
+                            ArrayPool<byte>.Shared.Return(dtmfCopy);
+                        }
+                    }
+
+                    ProcessAudioFrames(outputPcm, currentProfile, frame => {
+                        IncomingAudioReceived?.Invoke(frame);
+                        
+                        if (_enableAsyncMonitoring) {
+                            byte[] frameCopy = ArrayPool<byte>.Shared.Rent(frame.Length);
+                            Array.Copy(frame, 0, frameCopy, 0, frame.Length);
+                            if (!_monitoringFrameQueue.Writer.TryWrite((frameCopy, frame.Length))) {
+                                ArrayPool<byte>.Shared.Return(frameCopy);
+                            }
+                        } else {
+                             BroadcastIncomingAudioToMonitors(frame);
+                        }
+                    });
+                } finally {
+                    ArrayPool<byte>.Shared.Return(validPcmData);
+                }
             } catch (Exception ex) {
                 _logger.LogError(ex, "Error processing incoming audio");
             } finally {
@@ -160,8 +182,27 @@ namespace AI.Caller.Core {
             }             
         }
 
+        private bool _disposed = false;
+
         public void Dispose() {
+            if (_disposed) return;
+            _disposed = true;
+            
             Stop();
+            
+            if (!_processorCts.IsCancellationRequested) {
+                _processorCts.Cancel();
+            }
+            
+            try {
+                Task.WaitAll(new[] { _dtmfProcessorTask, _monitoringFrameProcessorTask, _monitoringPcmProcessorTask }
+                    .Where(t => t != null).ToArray()!, TimeSpan.FromSeconds(5));
+            } catch (AggregateException ex) {
+                _logger.LogWarning(ex, "等待处理器任务完成时发生异常");
+            }
+            
+            CleanupChannelArrays();
+            
             lock (_lock) {
                 _outputResampler?.Dispose();
                 _dtmfResampler?.Dispose();                
@@ -171,18 +212,47 @@ namespace AI.Caller.Core {
                 _codecCache.Clear();
             }
 
-            _monitoringQueue.Writer.Complete();
-            _dtmfQueue.Writer.Complete();
+            _monitoringFrameQueue.Writer.Complete();
+            _monitoringPcmQueue.Writer.Complete();
+            _dtmfQueueWithLength.Writer.Complete();
 
             lock (_dtmfLock){
                 _dtmfAnalyzer = null;
                 _streamingAudioSamples = null;
             }
+            
+            try {
+                _processorCts.Dispose();
+            } catch (ObjectDisposedException) {
+            }
+            
             IncomingAudioReceived = null;
+            OnDtmfToneReceived = null;
+            IncomingAudioReady = null;
+            OutgoingAudioReady = null;
+            OutgoingAudioGenerated = null;
+            InterventionAudioSend = null;
+            
+            _mediaSessionManager = null;
         }
 
-        private void DtmfDetect(byte[] decodedPcm) {
-            int sampleCount = decodedPcm.Length / 2;
+        /// <summary>
+        /// 清理 Channel 中未消费的 ArrayPool 数组，防止内存泄漏
+        /// </summary>
+        private void CleanupChannelArrays() {
+            while (_dtmfQueueWithLength.Reader.TryRead(out var dtmfItem)) {
+                ArrayPool<byte>.Shared.Return(dtmfItem.Item1);
+            }
+            
+            while (_monitoringFrameQueue.Reader.TryRead(out var frameItem)) {
+                ArrayPool<byte>.Shared.Return(frameItem.Item1);
+            }
+            
+            _logger.LogDebug("已清理 Channel 中未消费的 ArrayPool 数组");
+        }
+
+        private void DtmfDetect(byte[] decodedPcm, int length) {
+            int sampleCount = length / 2;
             float[] samples = ArrayPool<float>.Shared.Rent(sampleCount);
 
             try {
@@ -324,79 +394,29 @@ namespace AI.Caller.Core {
         }
         
         private void ProcessAudioFrames(ArraySegment<byte> audioData, MediaProfile profile, Action<byte[]> frameProcessor) {
-            // Need overloads updates.
             if (profile == null || audioData.Array == null) return;
 
             int frameBytes = profile.SamplesPerFrame * 2;
             int offset = 0;
             int dataLength = audioData.Count;
 
-            while (offset < dataLength) {
-                int remainingBytes = dataLength - offset;
-                int currentFrameBytes = Math.Min(frameBytes, remainingBytes);
-
-                var frame = new byte[frameBytes];
-                Array.Copy(audioData.Array, audioData.Offset + offset, frame, 0, currentFrameBytes);
-
-                if (currentFrameBytes < frameBytes) {
-                    for (int i = currentFrameBytes; i < frameBytes; i++) {
-                        frame[i] = 0;
-                    }
-                }
-
-                frameProcessor(frame);
-                offset += currentFrameBytes;
-            }
-        }
-
-        private void ProcessOutgoingAudioInternal(byte[] audioFrame) {
-            var currentCodec = GetCurrentNegotiatedCodec();
-            var codec = GetCodecForPayloadType((int)currentCodec);
-
-            if (codec == null) {
-                _logger.LogWarning("Unsupported payload type: {PayloadType}", currentCodec);
-                return;
-            }
-            byte[] pcmBuffer = ArrayPool<byte>.Shared.Rent(audioFrame.Length * 2);
-
+            byte[] frame = ArrayPool<byte>.Shared.Rent(frameBytes);
             try {
-                OutgoingAudioGenerated?.Invoke(audioFrame);
+                while (offset < dataLength) {
+                    int remainingBytes = dataLength - offset;
+                    int currentFrameBytes = Math.Min(frameBytes, remainingBytes);
 
-                var decodedLen = codec.Decode(audioFrame, pcmBuffer);
-                byte[] pcmData = ArrayPool<byte>.Shared.Rent(decodedLen);
-                try {
-                    Array.Copy(pcmBuffer, pcmData, decodedLen);
-                    
-                    ArraySegment<byte> finalPcm;
-                    
-                    if (codec.SampleRate != _profile?.SampleRate) {
-                        var resampled = GetOrCreateDtmfResampler(codec.SampleRate).Resample(pcmData);
-                        
-                        byte[] exactPcm = new byte[decodedLen];                        
-                        byte[] preciseInput = new byte[decodedLen];
-                        Array.Copy(pcmData, preciseInput, decodedLen);
-                        
-                        finalPcm = GetOrCreateDtmfResampler(codec.SampleRate).Resample(preciseInput);
-                    } else {
-                        finalPcm = new ArraySegment<byte>(pcmData, 0, decodedLen);
+                    Array.Copy(audioData.Array, audioData.Offset + offset, frame, 0, currentFrameBytes);
+
+                    if (currentFrameBytes < frameBytes) {
+                        Array.Clear(frame, currentFrameBytes, frameBytes - currentFrameBytes);
                     }
-                    
-                    if (finalPcm.Array != null) {
-                         byte[] sendBuffer = new byte[finalPcm.Count];
-                         Array.Copy(finalPcm.Array, finalPcm.Offset, sendBuffer, 0, finalPcm.Count);
-                        
-                         foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
-                            OutgoingAudioReady?.Invoke(listener.UserId, sendBuffer);
-                            listener.Session?.SendAudio(sendBuffer, true);
-                         }
-                    }
-                } finally {
-                    ArrayPool<byte>.Shared.Return(pcmData);
+
+                    frameProcessor(frame);
+                    offset += currentFrameBytes;
                 }
-            } catch (Exception ex) {
-                _logger.LogError(ex, "处理系统播放音频失败");
-            } finally{
-                ArrayPool<byte>.Shared.Return(pcmBuffer);
+            } finally {
+                ArrayPool<byte>.Shared.Return(frame);
             }
         }
 
@@ -411,39 +431,45 @@ namespace AI.Caller.Core {
         }
 
         private void StartTaskProcessor() {
-            _ = Task.Run(async () => {
-                Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
-                await foreach (var audioFrame in _monitoringQueue.Reader.ReadAllAsync()) {
+
+            var cancellationToken = _processorCts.Token;
+
+            _dtmfProcessorTask = Task.Run(async () => {
+                await foreach (var (item, length) in _dtmfQueueWithLength.Reader.ReadAllAsync(cancellationToken)) {
                     try {
-                        ProcessOutgoingAudioInternal(audioFrame);
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, "监听音频后台处理异常");
-                    } 
-                }
-            });
-
-
-
-            _ = Task.Run(async () => {
-                await foreach (var item in _dtmfQueue.Reader.ReadAllAsync()) {
-                    try {
-                        DtmfDetect(item);
+                        DtmfDetect(item, length);
                     } catch (Exception ex) {
                         _logger.LogError(ex, "DTMF检测异常");
+                    } finally {
+                        ArrayPool<byte>.Shared.Return(item);
                     }
                 }
-            });
+            }, cancellationToken);
 
-            _ = Task.Run(async () => {
-                 Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
-                 await foreach (var frame in _incomingMonitoringQueue.Reader.ReadAllAsync()) {
+            _monitoringFrameProcessorTask = Task.Run(async () => {
+                 await foreach (var (frame, length) in _monitoringFrameQueue.Reader.ReadAllAsync(cancellationToken)) {
                      try {
-                         BroadcastIncomingAudioToMonitors(frame);
+                         byte[] frameData = new byte[length];
+                         Array.Copy(frame, 0, frameData, 0, length);
+                         BroadcastIncomingAudioToMonitors(frameData);
                      } catch (Exception ex) {
                          _logger.LogError(ex, "Incoming monitoring async processing error");
+                     } finally {
+                         ArrayPool<byte>.Shared.Return(frame);
                      }
                  }
-            });
+            }, cancellationToken);
+
+            _monitoringPcmProcessorTask = Task.Run(async () => {
+                Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+                await foreach (var pcmFrame in _monitoringPcmQueue.Reader.ReadAllAsync(cancellationToken)) {
+                    try {
+                        BroadcastOutgoingPcmToMonitors(pcmFrame);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "PCM monitoring async processing error");
+                    }
+                }
+            }, cancellationToken);
         }        
     }
 }

@@ -78,20 +78,20 @@ namespace AI.Caller.Phone.Services {
                 throw new Exception($"无效的呼叫标识:{callId}");
             }
             if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.User.Id == userId) {
-                if (ctx.Caller.Client == null) throw new Exception($"呼叫上下文呼叫未初始化:{callId}");
+                if (ctx.Caller.Client == null || ctx.Caller.Client.Client == null) throw new Exception($"呼叫上下文呼叫未初始化:{callId}");
                 ctx.Caller.Client.Client.AddIceCandidate(candidate);
             }
 
             if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.User.Id == userId) {
-                if (ctx.Callee.Client == null) throw new Exception($"呼叫上下文被叫未初始化:{callId}");
+                if (ctx.Callee.Client == null || ctx.Callee.Client.Client == null) throw new Exception($"呼叫上下文被叫未初始化:{callId}");
                 ctx.Callee.Client.Client.AddIceCandidate(candidate);
             }
         }
 
         public IEnumerable<User> GetActiviteUsers() {
             foreach (var it in _contexts.Values) {
-                if (it.Caller != null && it.Caller.User != null && it.Caller.Client != null && it.Caller.Client.Client.IsCallActive) yield return it.Caller.User;
-                if (it.Callee != null && it.Callee.User != null && it.Callee.Client != null && it.Callee.Client.Client.IsCallActive) yield return it.Callee.User;
+                if (it.Caller != null && it.Caller.User != null && it.Caller.Client != null && it.Caller.Client.Client?.IsCallActive == true) yield return it.Caller.User;
+                if (it.Callee != null && it.Callee.User != null && it.Callee.Client != null && it.Callee.Client.Client?.IsCallActive == true) yield return it.Callee.User;
             }
         }
 
@@ -103,7 +103,7 @@ namespace AI.Caller.Phone.Services {
             CleanRingback(ctx);
 
             if (ctx.Callee == null) throw new Exception($"呼叫上下文被叫不能是空:{callId}");
-            if (ctx.Callee.Client == null) throw new Exception($"呼叫上下文被叫未初始化:{callId}");
+            if (ctx.Callee.Client == null || ctx.Callee.Client.Client == null) throw new Exception($"呼叫上下文被叫未初始化:{callId}");
             if (answer != null) {
                 ctx.Callee.Client.Client.SetRemoteDescription(answer);
 
@@ -131,12 +131,12 @@ namespace AI.Caller.Phone.Services {
                 throw new Exception($"无效的呼叫标识:{callId}");
             }
             if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.User.Id == userId) {
-                if (ctx.Caller.Client == null) throw new Exception($"呼叫上下文呼叫未初始化:{callId}");
+                if (ctx.Caller.Client == null || ctx.Caller.Client.Client == null) throw new Exception($"呼叫上下文呼叫未初始化:{callId}");
                 return ctx.Caller.Client.Client.IsSecureContextReady();
             }
 
             if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.User.Id == userId) {
-                if (ctx.Callee.Client == null) throw new Exception($"呼叫上下文呼叫未初始化:{callId}");
+                if (ctx.Callee.Client == null || ctx.Callee.Client.Client == null) throw new Exception($"呼叫上下文呼叫未初始化:{callId}");
                 return ctx.Callee.Client.Client.IsSecureContextReady();
             }
 
@@ -215,7 +215,7 @@ namespace AI.Caller.Phone.Services {
                 _ = CreateInboundCallLogAsync(ctx, routingResult);
             }
 
-            if (result && ctx.Callee != null) {
+            if (result && ctx.Callee != null && ctx.Callee.Client!=null && ctx.Callee.Client.Client !=null) {
                 ctx.Callee.Client!.Client.CallEnded += (client, status) => {
                     _logger.LogInformation("被叫方CallEnded事件触发: {CallId}, Status: {Status}", ctx.CallId, status);
                     _ = HandleCallEndedAsync(ctx.CallId, ctx.Callee.User?.Id ?? 0, status);
@@ -309,9 +309,9 @@ namespace AI.Caller.Phone.Services {
             if (!_contexts.TryGetValue(callId, out var ctx)) {
                 throw new Exception($"无效的呼叫标识:{callId}");
             }
-            if (ctx.Caller != null && ctx.Caller.Client != null && ctx.Caller.User != null && ctx.Caller.User.Id == sendUser) {
+            if (ctx.Caller != null && ctx.Caller.Client != null && ctx.Caller.Client.Client!=null && ctx.Caller.User != null && ctx.Caller.User.Id == sendUser) {
                 await ctx.Caller.Client!.Client.SendDTMFAsync(tone);
-            } else if (ctx.Callee != null && ctx.Callee.Client != null && ctx.Callee.User != null && ctx.Callee.User.Id == sendUser) {
+            } else if (ctx.Callee != null && ctx.Callee.Client != null && ctx.Callee.Client.Client!=null && ctx.Callee.User != null && ctx.Callee.User.Id == sendUser) {
                 await ctx.Callee.Client!.Client.SendDTMFAsync(tone);
             }
         }
@@ -321,8 +321,10 @@ namespace AI.Caller.Phone.Services {
                 throw new Exception($"无效的呼叫标识:{callId}");
             }
 
+            if (ctx.Caller == null || ctx.Caller.Client == null || ctx.Caller.Client.Client == null) throw new Exception($"{callId} 的被叫资源为空");
+
             // 订阅DTMF接收事件
-            ctx.Caller!.Client!.Client.DtmfToneReceived += (client, tone) => {
+            ctx.Caller.Client.Client.DtmfToneReceived += (client, tone) => {
                 _logger.LogDebug("主叫方DTMF按键接收: {CallId}, 按键: {Tone}", ctx.CallId, tone);
                 _dtmfService.OnDtmfToneReceived(ctx.CallId, tone);
             };
@@ -387,7 +389,7 @@ namespace AI.Caller.Phone.Services {
             _ = _dtmfService.StopCollectionAsync(ctx.CallId);
 
             if (ctx.Caller != null && ctx.Caller.User != null) {
-                if (ctx.Caller.Client != null) {
+                if (ctx.Caller.Client != null && ctx.Caller.Client.Client != null) {
                     _recordingManager.OnSipHanguped(ctx.Caller.User.Id, ctx.Caller.Client.Client);
                 }
                 _logger.LogInformation("Hangup detected. Stopping AI service for Caller User ID: {UserId}", ctx.Caller.User.Id);
@@ -395,7 +397,7 @@ namespace AI.Caller.Phone.Services {
             }
 
             if (ctx.Callee != null && ctx.Callee.User != null) {
-                if (ctx.Callee.Client != null) {
+                if (ctx.Callee.Client != null && ctx.Callee.Client.Client != null) {
                     _recordingManager.OnSipHanguped(ctx.Callee.User.Id, ctx.Callee.Client.Client);
                 }
                 _logger.LogInformation("Hangup detected. Stopping AI service for Callee User ID: {UserId}", ctx.Callee.User.Id);
@@ -407,12 +409,12 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void OnMakeCalled(CallContext ctx) {
-            if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.Client != null && !ctx.Caller.IsRecording) {
+            if (ctx.Caller != null && ctx.Caller.User != null && ctx.Caller.Client != null && ctx.Caller.Client.Client != null && !ctx.Caller.IsRecording) {
                 ctx.Caller.IsRecording = true;
                 _recordingManager.OnSipCalled(ctx.Caller.User.Id, ctx.Caller.Client.Client);
             }
 
-            if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.Client != null && !ctx.Callee.IsRecording) {
+            if (ctx.Callee != null && ctx.Callee.User != null && ctx.Callee.Client != null && ctx.Callee.Client.Client != null && !ctx.Callee.IsRecording) {
                 ctx.Callee.IsRecording = true;
                 _recordingManager.OnSipCalled(ctx.Callee.User.Id, ctx.Callee.Client.Client);
             }
@@ -424,16 +426,16 @@ namespace AI.Caller.Phone.Services {
                 ctx.Callee != null &&
                 ctx.Caller.Client != null &&
                 ctx.Callee.Client != null &&
-                !ctx.Caller.Client.Client.IsCallActive &&
-                !ctx.Callee.Client.Client.IsCallActive &&
+                ctx.Caller.Client.Client?.IsCallActive == false &&
+                ctx.Callee.Client.Client?.IsCallActive == false &&
                 ctx.Duration > TimeSpan.FromSeconds(30)).ToList();
 
             foreach (var ctx in inactiveContexts) {
                 try {
                     if (_contexts.TryRemove(ctx.CallId, out var item)) {
-                        if (item.Caller!.Client!.Client.IsCallActive) {
+                        if (item.Caller?.Client?.Client?.IsCallActive == true) {
                             item.Caller.Client.Dispose();
-                        } else if (item!.Callee!.Client!.Client.IsCallActive) {
+                        } else if (item?.Callee?.Client?.Client?.IsCallActive == true) {
                             item.Callee.Client.Dispose();
                         }
                         _logger.LogWarning($"已清理会话:{ctx.CallId}");
@@ -444,7 +446,7 @@ namespace AI.Caller.Phone.Services {
             }
 
             inactiveContexts = _contexts.Values.Where(ctx =>
-               ctx.Caller !=null && ctx.Caller.Client!=null && !ctx.Caller.Client.Client.IsCallActive && (ctx.Callee == null || ctx.Callee.Client == null) && ctx.Duration > TimeSpan.FromSeconds(30)
+               ctx.Caller !=null && ctx.Caller.Client!=null && ctx.Caller.Client.Client?.IsCallActive ==false && (ctx.Callee == null || ctx.Callee.Client == null) && ctx.Duration > TimeSpan.FromSeconds(30)
             ).ToList();
 
             foreach (var ctx in inactiveContexts) {
@@ -661,7 +663,7 @@ namespace AI.Caller.Phone.Services {
             if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
             if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
             var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             handle.Client.Accept(sipRequest);
 
@@ -714,7 +716,7 @@ namespace AI.Caller.Phone.Services {
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             callContext.Type = CallScenario.WebToWeb;
             callContext.Caller!.Client = handle;
@@ -787,7 +789,7 @@ namespace AI.Caller.Phone.Services {
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             callContext.Type = CallScenario.WebToMobile;
             callContext.Caller!.Client = handle;
@@ -860,7 +862,7 @@ namespace AI.Caller.Phone.Services {
             var user = routingResult.TargetUser!;
 
             var handle = await _poolManager.AcquireClientAsync(user.SipAccount!.SipServer, true, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             callContext.Type = CallScenario.MobileToWeb;
 
@@ -941,7 +943,7 @@ namespace AI.Caller.Phone.Services {
             if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
             if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
             var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, true, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             handle.Client.Accept(sipRequest);
 
@@ -982,7 +984,7 @@ namespace AI.Caller.Phone.Services {
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             callContext.Type = CallScenario.ServerToWeb;
             callContext.Caller!.Client = handle;
@@ -1021,7 +1023,7 @@ namespace AI.Caller.Phone.Services {
             if (routingResult.TargetUser == null) throw new Exception($"被叫坐席用户不能为空");
             if (routingResult.TargetUser.SipAccount == null) throw new Exception($"被叫用户不是有效坐席：{routingResult.TargetUser.Id}");
             var handle = await _poolManager.AcquireClientAsync(routingResult.TargetUser.SipAccount.SipServer, false, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             handle.Client.Accept(sipRequest);
 
@@ -1046,7 +1048,7 @@ namespace AI.Caller.Phone.Services {
             if (sdpOffer == null) throw new ArgumentNullException(nameof(sdpOffer));
 
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, true, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             callContext.Type = CallScenario.WebToServer;
             callContext.Caller!.Client = handle;
@@ -1089,9 +1091,9 @@ namespace AI.Caller.Phone.Services {
 
         public override async Task<bool> HandleOutboundCallAsync(string destination, User callerUser, RTCSessionDescriptionInit? sdpOffer, CallContext callContext) {
             if (callerUser.SipAccount == null) throw new Exception($"用户{callerUser.Username}:{callerUser.Id}不是有效的SIP客服");
-            
+
             var handle = await _poolManager.AcquireClientAsync(callerUser.SipAccount.SipServer, false, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             callContext.Type = CallScenario.ServerToMobile;
             callContext.Caller!.Client = handle;
@@ -1124,7 +1126,7 @@ namespace AI.Caller.Phone.Services {
             var user = routingResult.TargetUser!;
 
             var handle = await _poolManager.AcquireClientAsync(user.SipAccount!.SipServer, false, callContext.RoutingInfo);
-            if (handle == null) return false;
+            if (handle == null || handle.Client == null) return false;
 
             callContext.Type = CallScenario.MobileToServer;
 

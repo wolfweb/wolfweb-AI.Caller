@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Buffers;
 using AI.Caller.Core.Media;
 
 namespace AI.Caller.Core;
@@ -9,7 +10,13 @@ namespace AI.Caller.Core;
 /// </summary>
 public sealed partial class AudioBridge {
     private volatile int _activeMonitorCount = 0;
+    private volatile bool _isInterventionActive = false;
     private readonly ConcurrentDictionary<int, MonitoringListener> _monitoringListeners = new();
+
+    /// <summary>
+    /// 公开人工介入状态，供外部读取
+    /// </summary>
+    public bool IsInterventionActive => _isInterventionActive;
 
     /// <summary>
     /// 客户音频准备就绪事件（Incoming - 客户说话）
@@ -32,6 +39,15 @@ public sealed partial class AudioBridge {
     public event Action<byte[]>? InterventionAudioSend;
 
     /// <summary>
+    /// 设置人工接入状态
+    /// </summary>
+    /// <param name="active">是否激活人工接入</param>
+    public void SetInterventionActive(bool active) {
+        _isInterventionActive = active;
+        _logger.LogInformation("人工接入状态已更新: {Active}", active);
+    }
+
+    /// <summary>
     /// 添加监听者
     /// </summary>
     /// <param name="userId">监听用户ID</param>
@@ -43,15 +59,14 @@ public sealed partial class AudioBridge {
             UserName = userName,
             StartTime = DateTime.UtcNow,
             IsActive = true,
-            Session = session
+            Session = session,
+            InterventionAudioHandler = (pcm) => ProcessInterventionAudio(pcm)
         };
 
         if (_monitoringListeners.TryAdd(userId, listener)) {
             Interlocked.Increment(ref _activeMonitorCount);
             _logger.LogInformation("监听者已添加: UserId {UserId}, UserName {UserName}", userId, userName);
-            session.OnInterventionAudioReceived += (pcm) => {
-                ProcessInterventionAudio(pcm);
-            };
+            session.OnInterventionAudioReceived += listener.InterventionAudioHandler;
         } else {
             _logger.LogWarning("监听者已存在: UserId {UserId}", userId);
         }
@@ -66,6 +81,16 @@ public sealed partial class AudioBridge {
             Interlocked.Decrement(ref _activeMonitorCount);
             listener.IsActive = false;
             listener.EndTime = DateTime.UtcNow;
+            
+            if (listener.Session != null && listener.InterventionAudioHandler != null) {
+                listener.Session.OnInterventionAudioReceived -= listener.InterventionAudioHandler;
+            }
+            
+            if (_activeMonitorCount == 0) {
+                _isInterventionActive = false;
+                _logger.LogInformation("所有监听者已移除，人工接入状态已重置");
+            }
+            
             _logger.LogInformation("监听者已移除: UserId {UserId}, 监听时长: {Duration}秒", userId, (listener.EndTime.Value - listener.StartTime).TotalSeconds);
         } else {
             _logger.LogWarning("监听者不存在: UserId {UserId}", userId);
@@ -84,22 +109,6 @@ public sealed partial class AudioBridge {
     /// </summary>
     public bool HasActiveMonitors() {
         return _activeMonitorCount > 0;
-    }
-
-    /// <summary>
-    /// 处理系统播放的音频（用于监听）
-    /// 这个方法会在AIAutoResponder的OutgoingAudioGenerated事件中被调用
-    /// </summary>
-    /// <param name="audioFrame">音频帧（G.711编码）</param>
-    public void ProcessOutgoingAudio(byte[] audioFrame) {
-        if (!_isStarted || !HasActiveMonitors())
-            return;
-
-        try {
-            _monitoringQueue.Writer.TryWrite(audioFrame);
-        } catch (Exception ex) {
-            _logger.LogError(ex, "处理系统播放音频失败");
-        }
     }
 
     /// <summary>
@@ -125,6 +134,46 @@ public sealed partial class AudioBridge {
     }
 
     /// <summary>
+    /// 广播AI播放的PCM音频给所有监听者
+    /// 此方法接收原始PCM，如果采样率不是8000Hz则进行重采样
+    /// </summary>
+    /// <param name="pcmFrame">原始PCM音频帧</param>
+    private void BroadcastOutgoingPcmToMonitors(byte[] pcmFrame) {
+        if (!HasActiveMonitors())
+            return;
+
+        try {
+            byte[] finalPcm = pcmFrame;
+            int actualLength = pcmFrame.Length;
+            bool needsReturn = false;
+            
+            try {
+                if (_profile != null && _profile.SampleRate != 8000) {
+                    var resampled = GetOrCreateDtmfResampler(_profile.SampleRate).Resample(pcmFrame);
+                    if (resampled.Array != null && resampled.Count > 0) {
+                        actualLength = resampled.Count;
+                        finalPcm = ArrayPool<byte>.Shared.Rent(actualLength);
+                        needsReturn = true;
+                        Array.Copy(resampled.Array, resampled.Offset, finalPcm, 0, actualLength);
+                    }
+                }
+
+                foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
+                    var segment = new ArraySegment<byte>(finalPcm, 0, actualLength);
+                    OutgoingAudioReady?.Invoke(listener.UserId, segment.Array!);
+                    listener.Session?.SendAudio(segment.Array!, segment.Offset, actualLength, true);
+                }
+            } finally {
+                if (needsReturn) {
+                    ArrayPool<byte>.Shared.Return(finalPcm);
+                }
+            }
+        } catch (Exception ex) {
+            _logger.LogError(ex, "广播AI PCM音频到监听者失败");
+        }
+    }
+
+    /// <summary>
     /// 处理人工接入音频（监听者说话的音频）
     /// 这个方法会将监听者的音频发送给客户
     /// </summary>
@@ -132,6 +181,11 @@ public sealed partial class AudioBridge {
     public void ProcessInterventionAudio(byte[] audioData) {
         if (!_isStarted) {
             _logger.LogWarning("AudioBridge未启动，无法处理人工接入音频");
+            return;
+        }
+
+        if (!_isInterventionActive) {
+            _logger.LogTrace("人工接入未激活，忽略音频数据");
             return;
         }
 
@@ -228,4 +282,5 @@ public class MonitoringListener {
     public DateTime? EndTime { get; set; }
     public bool IsActive { get; set; }
     public MonitorMediaSession? Session { get; set; }
+    public Action<byte[]>? InterventionAudioHandler { get; set; }
 }

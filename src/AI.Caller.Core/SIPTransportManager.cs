@@ -11,7 +11,6 @@ namespace AI.Caller.Core {
         private static int SIP_DEFAULT_PORT = 7060;
 
         private static string? HOMER_SERVER_ADDRESS = null;
-        private static int HOMER_SERVER_PORT = 9060;
 
         private bool _isInitialised = false;
 

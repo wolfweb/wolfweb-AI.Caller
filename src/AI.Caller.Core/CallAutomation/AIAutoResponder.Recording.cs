@@ -38,12 +38,10 @@ public sealed partial class AIAutoResponder {
         try {
             _logger.LogInformation("开始播放录音文件: {FilePath}", filePath);
 
-            // 创建AudioFilePlayer实例来加载音频文件
             using var audioFilePlayer = new AudioFilePlayer(_loggerFactory, _codecFactory);
             
-            // 如果有MediaSessionManager，设置引用以获取当前协商的编码器
-            // 注意：这里可能需要从SIPClient或其他地方获取MediaSessionManager引用
-            // audioFilePlayer.SetMediaSessionManager(mediaSessionManager);
+            // 🔧 FIX: 强制使用当前协商的编码器，解决G722等非PCMA编码下的静音/噪音问题
+            audioFilePlayer.SetPreferredCodec(_profile.Codec);
             
             var frames = await audioFilePlayer.LoadAsync(filePath);
 
@@ -55,12 +53,28 @@ public sealed partial class AIAutoResponder {
 
             _logger.LogInformation("录音文件已加载: {FrameCount} 帧", frames.Count);
 
-            // 将所有帧写入jitter buffer
             int frameIndex = 0;
+            var codec = _codecFactory.GetCodec(_profile.Codec);
+            
             foreach (var frame in frames) {
                 if (token.IsCancellationRequested) {
                     _logger.LogInformation("录音播放被取消");
                     break;
+                }
+
+                if (OnPcmAudioGenerated != null && codec != null) {
+                    try {
+                        byte[] pcmBuffer = new byte[frame.Length * 2];
+                        int decodedLength = codec.Decode(frame, pcmBuffer);
+                        
+                        if (decodedLength > 0) {
+                            byte[] pcmData = new byte[decodedLength];
+                            Array.Copy(pcmBuffer, 0, pcmData, 0, decodedLength);
+                            OnPcmAudioGenerated.Invoke(pcmData);
+                        }
+                    } catch (Exception ex) {
+                        _logger.LogWarning(ex, "解码录音帧失败，帧索引: {FrameIndex}", frameIndex);
+                    }
                 }
 
                 if (!_jitterBuffer.Writer.TryWrite(frame)) {

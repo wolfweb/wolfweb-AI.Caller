@@ -150,7 +150,6 @@ public class CallProcessor : ICallProcessor {
                     _logger.LogError(ex, "Error starting AI Customer Service after call answered for CallLogId {CallLogId}.", callLogId);
                     tcs.TrySetResult(new CallResult { Status = CallOutcome.Failed, FailureReason = ex.Message });
                 }
-                await callManager.HangupCallAsync(callContext.CallId, callContext.Caller!.User!.Id);
             };
             callEndedHandler = (sc, status) => {
                 sc.CallAnswered -= callAnsweredHandler;

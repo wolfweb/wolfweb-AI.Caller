@@ -35,7 +35,7 @@ public class CallFlowOrchestrator : ICallFlowOrchestrator {
             return;
         }
 
-        if (callContext.Callee == null || callContext.Callee.User == null || callContext.Callee.Client == null) throw new Exception($"呼叫上下文被叫未初始化");
+        if (callContext.Callee == null || callContext.Callee.User == null || callContext.Callee.Client == null || callContext.Callee.Client.Client == null) throw new Exception($"呼叫上下文被叫未初始化");
 
         _logger.LogInformation("Found TTS template '{TemplateName}' for call {CallId}", template.Name, callContext.CallId);
         
