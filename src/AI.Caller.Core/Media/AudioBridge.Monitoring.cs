@@ -44,6 +44,24 @@ public sealed partial class AudioBridge {
     /// <param name="active">是否激活人工接入</param>
     public void SetInterventionActive(bool active) {
         _isInterventionActive = active;
+        
+        if (active) {
+            // 清空监听PCM队列中的AI音频
+            int clearedCount = 0;
+            while (_monitoringPcmQueue.Reader.TryRead(out _)) {
+                clearedCount++;
+            }
+            if (clearedCount > 0) {
+                _logger.LogInformation("已清空监听PCM队列: {Count} 帧", clearedCount);
+            }
+            
+            // 清空所有监听会话的AI缓冲区
+            foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
+                listener.Session?.ClearAiBuffer();
+            }
+            _logger.LogInformation("已清空所有监听会话的AI缓冲区");
+        }
+        
         _logger.LogInformation("人工接入状态已更新: {Active}", active);
     }
 
@@ -119,8 +137,7 @@ public sealed partial class AudioBridge {
         if (!HasActiveMonitors())
             return;
 
-        try {
-            // 发送给所有活跃的监听者（客户音频 - Incoming）
+        try {            
             foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
                 IncomingAudioReady?.Invoke(listener.UserId, pcmFrame);
                 listener.Session?.SendAudio(pcmFrame, false);
@@ -149,7 +166,7 @@ public sealed partial class AudioBridge {
             
             try {
                 if (_profile != null && _profile.SampleRate != 8000) {
-                    var resampled = GetOrCreateDtmfResampler(_profile.SampleRate).Resample(pcmFrame);
+                    var resampled = GetOrCreateMonitoringOutResampler(_profile.SampleRate).Resample(pcmFrame);
                     if (resampled.Array != null && resampled.Count > 0) {
                         actualLength = resampled.Count;
                         finalPcm = ArrayPool<byte>.Shared.Rent(actualLength);

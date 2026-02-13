@@ -21,7 +21,12 @@ namespace AI.Caller.Core {
             SingleReader = true,
             SingleWriter = true
         });
-        private readonly Channel<byte[]> _monitoringPcmQueue = Channel.CreateUnbounded<byte[]>();
+        // 1500 frames ≈ 30 seconds of audio at 20ms/frame, DropOldest ensures bounded memory
+        private readonly Channel<byte[]> _monitoringPcmQueue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(1500) {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = true
+        });
         private bool _enableAsyncMonitoring = true;
 
         private Task? _dtmfProcessorTask;
@@ -48,6 +53,10 @@ namespace AI.Caller.Core {
 
         private int _dtmfResamplerInRate;
         private AudioResampler<byte>? _dtmfResampler;
+
+        // 监听输出专用重采样器（与 _dtmfResampler 隔离，避免线程竞争）
+        private int _monitoringOutResamplerInRate;
+        private AudioResampler<byte>? _monitoringOutResampler;
         private MediaSessionManager? _mediaSessionManager; // 添加MediaSessionManager引用
 
         public event Action<byte[]>? IncomingAudioReceived;
@@ -90,8 +99,7 @@ namespace AI.Caller.Core {
         /// Process raw PCM audio from AIAutoResponder for monitoring (skips decode step)
         /// </summary>
         public void ProcessOutgoingPcm(byte[] pcmData) {
-            if (_activeMonitorCount == 0) return;
-            
+            // Unconditionally buffer audio to ensure playhead continuity for late joiners
             _monitoringPcmQueue.Writer.TryWrite(pcmData);
         }
 
@@ -205,7 +213,8 @@ namespace AI.Caller.Core {
             
             lock (_lock) {
                 _outputResampler?.Dispose();
-                _dtmfResampler?.Dispose();                
+                _dtmfResampler?.Dispose();
+                _monitoringOutResampler?.Dispose();                
                 foreach(var codec in _codecCache.Values) {
                     codec.Dispose();
                 }
@@ -369,6 +378,22 @@ namespace AI.Caller.Core {
             return _dtmfResampler;
         }
 
+        /// <summary>
+        /// 监听输出专用重采样器（线程隔离，仅由 _monitoringPcmProcessorTask 调用）
+        /// </summary>
+        private AudioResampler<byte> GetOrCreateMonitoringOutResampler(int inRate) {
+            if (_monitoringOutResampler != null && _monitoringOutResamplerInRate != inRate) {
+                _monitoringOutResampler.Dispose();
+                _monitoringOutResampler = null;
+            }
+
+            if (_monitoringOutResampler == null) {
+                _monitoringOutResamplerInRate = inRate;
+                _monitoringOutResampler = new AudioResampler<byte>(inRate, 8000, _logger);
+            }
+            return _monitoringOutResampler;
+        }
+
         private IAudioCodec? GetCodecForPayloadType(int payloadType) {
             if (_codecCache.TryGetValue(payloadType, out var codec)) {
                 return codec;
@@ -461,13 +486,63 @@ namespace AI.Caller.Core {
             }, cancellationToken);
 
             _monitoringPcmProcessorTask = Task.Run(async () => {
-                Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
-                await foreach (var pcmFrame in _monitoringPcmQueue.Reader.ReadAllAsync(cancellationToken)) {
-                    try {
-                        BroadcastOutgoingPcmToMonitors(pcmFrame);
-                    } catch (Exception ex) {
-                        _logger.LogError(ex, "PCM monitoring async processing error");
+                Thread.CurrentThread.Priority = ThreadPriority.Normal;
+                
+                using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(20));
+                
+                byte[]? currentStashedFrame = null;
+                int currentStashedOffset = 0;
+
+                int sampleRate = _profile?.SampleRate ?? 8000;
+                int bytesPerFrame = (sampleRate * 2 * 20) / 1000;
+                byte[] buffer = new byte[bytesPerFrame];
+
+                try {
+                    while (await timer.WaitForNextTickAsync(cancellationToken)) {
+                        try {
+                            int currentSampleRate = _profile?.SampleRate ?? 8000;
+                            if (currentSampleRate != sampleRate) {
+                                sampleRate = currentSampleRate;
+                                bytesPerFrame = (sampleRate * 2 * 20) / 1000;
+                                buffer = new byte[bytesPerFrame];
+                            }
+                            
+                            Array.Clear(buffer, 0, bytesPerFrame);
+                            int bytesWritten = 0;
+                            
+                            while (bytesWritten < bytesPerFrame) {
+                                if (currentStashedFrame == null) {
+                                    if (_monitoringPcmQueue.Reader.TryRead(out var newFrame)) {
+                                        currentStashedFrame = newFrame;
+                                        currentStashedOffset = 0;
+                                    } else {
+                                        break; 
+                                    }
+                                }
+                                
+                                int bytesNeeded = bytesPerFrame - bytesWritten;
+                                int bytesAvailable = currentStashedFrame.Length - currentStashedOffset;
+                                int bytesToCopy = Math.Min(bytesNeeded, bytesAvailable);
+                                
+                                Array.Copy(currentStashedFrame, currentStashedOffset, buffer, bytesWritten, bytesToCopy);
+                                
+                                bytesWritten += bytesToCopy;
+                                currentStashedOffset += bytesToCopy;
+                                
+                                if (currentStashedOffset >= currentStashedFrame.Length) {
+                                    currentStashedFrame = null;
+                                    currentStashedOffset = 0;
+                                }
+                            }
+                            
+                            BroadcastOutgoingPcmToMonitors(buffer);
+                            
+                        } catch (Exception ex) {
+                            _logger.LogError(ex, "PCM monitoring pacing loop error");
+                        }
                     }
+                } catch (OperationCanceledException) {
+                    // Normal cancellation
                 }
             }, cancellationToken);
         }        

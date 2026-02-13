@@ -226,6 +226,14 @@ namespace AI.Caller.Core.Media {
             targetBuffer.Write(samples);
         }
 
+        /// <summary>
+        /// 清空AI音频缓冲区
+        /// 用于人工介入时清除已缓存的AI音频
+        /// </summary>
+        public void ClearAiBuffer() {
+            _aiBuffer.Clear();
+        }
+
         public void Dispose() {
             StopMixing();
             _mixingCts.Dispose();
@@ -283,15 +291,21 @@ namespace AI.Caller.Core.Media {
                 return;
             }
 
+            if (!hasAi || !hasCust) {
+                if (hasAi) {
+                    aiFrame.CopyTo(mixSpan);
+                } else {
+                    custFrame.CopyTo(mixSpan);
+                }
+                _audioSource.SendAudio(_mixBuffer, SAMPLE_RATE);
+                return;
+            }
+
             for (int i = 0; i < SAMPLES_PER_FRAME; i++) {
-                int sample = 0;
-                if (hasAi) sample += aiFrame[i];
-                if (hasCust) sample += custFrame[i];
-
-                if (sample > short.MaxValue) sample = short.MaxValue;
-                else if (sample < short.MinValue) sample = short.MinValue;
-
-                mixSpan[i] = (short)sample;
+                int mixed = aiFrame[i] + custFrame[i];
+                if (mixed > short.MaxValue) mixed = short.MaxValue;
+                else if (mixed < short.MinValue) mixed = short.MinValue;
+                mixSpan[i] = (short)mixed;
             }
 
             _audioSource.SendAudio(_mixBuffer, SAMPLE_RATE);
@@ -309,7 +323,6 @@ namespace AI.Caller.Core.Media {
                 var pcmLength = _codec.Decode(rtp.Payload, pcm);
 
                 if (pcmLength > 0) {
-                    // 只触发事件，不写入 buffer（客服的音频不应该被混入）
                     if (OnInterventionAudioReceived != null) {
                         byte[] validPcm = new byte[pcmLength];
                         Array.Copy(pcm, validPcm, pcmLength);
