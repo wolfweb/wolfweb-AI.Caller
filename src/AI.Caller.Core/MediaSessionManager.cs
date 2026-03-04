@@ -42,9 +42,14 @@ namespace AI.Caller.Core {
         public event Action<AudioCodec, AudioCodec, string>? CodecSwitched;
         public event Action<AudioCodec, string>? CodecSwitchFailed;
         public event Action<RTCPeerConnectionState>? ConnectionStateChanged;
+        /// <summary>
+        /// AudioBridge附加事件，当SetAudioBridge被调用时触发
+        /// </summary>
+        public event Action<IAudioBridge>? AudioBridgeAttached;
 
         public IMediaSession? MediaSession => _voipSession;
         public RTCPeerConnection? PeerConnection => _peerConnection;
+        public IAudioBridge? AudioBridge => _audioBridge;
 
         public int SelectedSampleRate { get; private set; } = 8000;
         public int SelectedPayloadType { get; private set; } = 8;
@@ -68,6 +73,7 @@ namespace AI.Caller.Core {
             _audioBridge = audioBridge;
             audioBridge.SetMediaSessionManager(this);            
             _logger.LogDebug("Audio bridge attached to MediaSessionManager");
+            AudioBridgeAttached?.Invoke(audioBridge);
         }
 
         public void SendAudioFrame(byte[] audioFrame) {

@@ -5,8 +5,6 @@ using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Exceptions;
 using SIPSorcery.SIP;
 using Newtonsoft.Json;
-using System.Threading.Tasks;
-using AI.Caller.Core.Extensions;
 
 namespace AI.Caller.Phone.Services;
 
@@ -105,15 +103,22 @@ public partial class AICustomerServiceManager {
 
                 await monitoringService.InterventionAsync(sessionId, reason);
 
+                // 步骤1: 暂停AI播放（停止音频输出）
                 await session.AutoResponder.PauseAsync();
                 _logger.LogInformation("AI播放已暂停: UserId {UserId}", userId);
 
-                await playbackControlService.RecordInterventionAsync(callId, session.AutoResponder.IsPaused ? 0 : -1); // 记录当前片段
-
+                // 步骤2: 设置人工介入状态（阻止AudioBridge转发新的DTMF事件）
                 if (session.AudioBridge is AudioBridge audioBridge) {
                     audioBridge.SetInterventionActive(true);
                     _logger.LogInformation("人工接入状态已激活: UserId {UserId}, MonitorUser {MonitorUserId}", userId, monitorUserId);
                 }
+
+                // 步骤3: 停止DTMF收集器（取消正在进行的收集，触发OperationCanceledException）
+                // 注意：DtmfService是单例，但通过callId隔离，只影响当前通话
+                await _dtmfService.StopCollectionAsync(callId);
+                _logger.LogInformation("DTMF收集已停止: CallId {CallId}", callId);
+
+                await playbackControlService.RecordInterventionAsync(callId, session.AutoResponder.IsPaused ? 0 : -1); // 记录当前片段
 
                 _logger.LogInformation("人工接入成功: UserId {UserId}, MonitorUser {MonitorUserId}, Reason: {Reason}", userId, monitorUserId, reason);
             }

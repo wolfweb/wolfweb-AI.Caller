@@ -1,6 +1,7 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Extensions;
 using AI.Caller.Core.Interfaces;
+using AI.Caller.Core.Services;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Hubs;
 using System.Collections.Concurrent;
@@ -13,16 +14,19 @@ namespace AI.Caller.Phone.Services {
         private readonly ILogger _logger;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IAIAutoResponderFactory _autoResponderFactory;
+        private readonly IDtmfService _dtmfService;
         private readonly ConcurrentDictionary<int, AIAutoResponderSession> _activeSessions = new();
 
         public AICustomerServiceManager(
             ILogger<AICustomerServiceManager> logger,
             IServiceScopeFactory scopeFactory,
-            IAIAutoResponderFactory autoResponderFactory
+            IAIAutoResponderFactory autoResponderFactory,
+            IDtmfService dtmfService
             ) {
             _logger = logger;
             _scopeFactory = scopeFactory;
             _autoResponderFactory = autoResponderFactory;
+            _dtmfService = dtmfService;
         }
 
         /// <summary>

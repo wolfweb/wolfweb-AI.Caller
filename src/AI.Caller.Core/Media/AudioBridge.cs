@@ -323,7 +323,12 @@ namespace AI.Caller.Core {
                             _logger.LogInformation("DTMF Confirmed: {Key} (Count: {Count}, IsRepeat: {IsRepeat})",
                                 _currentTrackingKey, _sameKeyContinuousCount, _hasReportedCurrentKey);
 
-                            OnDtmfToneReceived?.Invoke(tone);
+                            // 检查是否处于人工介入状态
+                            if (!_isInterventionActive) {
+                                OnDtmfToneReceived?.Invoke(tone);
+                            } else {
+                                _logger.LogDebug("人工介入期间忽略DTMF按键: {Key}", _currentTrackingKey);
+                            }
 
                             _lastReportedTime = now;
                             _hasReportedCurrentKey = true;

@@ -486,6 +486,22 @@ public sealed partial class AIAutoResponder {
                 }
 
                 return;
+                
+            } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
+                // 人工介入导致的取消（不是外部CancellationToken触发）
+                _logger.LogInformation("DTMF收集因人工介入被取消，等待人工介入结束");
+                
+                // 保存中断记录
+                var interruptDuration = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
+                await SaveDtmfInputToDatabase(segment, config, "", false, "人工介入中断", retryCount, interruptDuration);
+                
+                // 等待人工介入结束（暂停状态解除）
+                await WaitIfPausedAsync(ct);
+                
+                // 人工介入结束后，DTMF片段终止，继续执行下一片段
+                _logger.LogInformation("人工介入结束，DTMF片段已终止，继续执行后续片段");
+                return;
+                
             } catch (TimeoutException) {
                 _logger.LogWarning("DTMF输入超时，重试次数: {RetryCount}/{MaxRetries}",
                     retryCount + 1, config.MaxRetries);
