@@ -311,11 +311,6 @@ namespace AI.Caller.Phone.Services {
                 _sipClient.MediaSessionManager.AudioDataReceived += OnAudioPacketReceived; // 对方的声音（SIP → WebRTC）
                 _sipClient.MediaSessionManager.AudioDataSent += OnAudioPacketSent;         // 本地用户的声音（WebRTC → SIP）
                 _sipClient.MediaSessionManager.AudioBridgeAttached += OnAudioBridgeAttached; // AudioBridge附加事件
-                
-                // 如果AudioBridge已经存在，立即订阅人工介入音频事件
-                if (_sipClient.MediaSessionManager.AudioBridge is AudioBridge audioBridge) {
-                    SubscribeToInterventionAudio(audioBridge);
-                }
             }
 
             _sipClient.CallEnding += OnCallEnded;
@@ -326,11 +321,6 @@ namespace AI.Caller.Phone.Services {
                 _sipClient.MediaSessionManager.AudioDataReceived -= OnAudioPacketReceived;
                 _sipClient.MediaSessionManager.AudioDataSent -= OnAudioPacketSent;
                 _sipClient.MediaSessionManager.AudioBridgeAttached -= OnAudioBridgeAttached;
-                
-                // 取消订阅人工介入音频事件
-                if (_sipClient.MediaSessionManager.AudioBridge is AudioBridge audioBridge) {
-                    audioBridge.InterventionAudioSend -= OnInterventionAudioSend;
-                }
             }
             _sipClient.CallEnding -= OnCallEnded;
         }
@@ -370,30 +360,9 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void OnAudioBridgeAttached(IAudioBridge audioBridge) {
-            if (audioBridge is AudioBridge ab) {
-                SubscribeToInterventionAudio(ab);
-            }
+            // No action needed for recording since we rely on SIP AudioDataSent natively.
         }
 
-        private void SubscribeToInterventionAudio(AudioBridge audioBridge) {
-            audioBridge.InterventionAudioSend += OnInterventionAudioSend;
-            _logger.LogInformation("已订阅人工介入音频事件，RecordingId: {RecordingId}", Recording.Id);
-        }
-
-        private void OnInterventionAudioSend(byte[] audioData) {
-            try {
-                if (_isPaused || _audioRecorder.IsDisposed) return;
-
-                if (audioData != null && audioData.Length > 0) {
-                    var payloadType = _sipClient.MediaSessionManager?.SelectedPayloadType ?? 0;
-                    // 写入右声道（Sent方向），与AI音频共用同一声道
-                    _ = _audioRecorder.WriteAudioDataAsync(audioData, AudioDirection.Sent, 0, payloadType);
-                    _logger.LogTrace("人工介入音频已写入录音，大小: {Size} 字节", audioData.Length);
-                }
-            } catch (Exception ex) {
-                _logger.LogError(ex, "录音写入人工介入音频数据失败");
-            }
-        }
 
         public async Task StopAsync() {
             if (_disposed) return;

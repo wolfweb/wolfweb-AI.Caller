@@ -294,6 +294,15 @@ public sealed partial class AIAutoResponder {
     }
 
     /// <summary>
+    /// 检查是否正在准备跳转
+    /// </summary>
+    private bool IsJumpingPending() {
+        lock (_contextLock) {
+            return _executionContext?.State == ScenarioPlaybackState.Jumping;
+        }
+    }
+
+    /// <summary>
     /// 检查执行是否已停止
     /// </summary>
     private bool IsExecutionStopped() {

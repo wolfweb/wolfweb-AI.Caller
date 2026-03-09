@@ -498,9 +498,17 @@ public sealed partial class AIAutoResponder {
                 // 等待人工介入结束（暂停状态解除）
                 await WaitIfPausedAsync(ct);
                 
-                // 人工介入结束后，DTMF片段终止，继续执行下一片段
-                _logger.LogInformation("人工介入结束，DTMF片段已终止，继续执行后续片段");
-                return;
+                if (IsJumpingPending()) {
+                    // 如果介入者选择了具体的片段，外层引擎状态已经是 Jumping。
+                    // 返回外层以执行 HandleJumpInstruction()，退出当前 DTMF 片段。
+                    _logger.LogInformation("人工介入结束，由于存在跳转指令，中止当前DTMF片段");
+                    return;
+                } else {
+                    // 如果介入者未选择片段，意味着应当继续原先的 DTMF 采集。
+                    // 继续当前 while 重试循环，重新播放提示音并采集用户的按键。
+                    _logger.LogInformation("人工介入结束，未选择跳转，默认重新开始采集当前DTMF片段");
+                    continue;
+                }
                 
             } catch (TimeoutException) {
                 _logger.LogWarning("DTMF输入超时，重试次数: {RetryCount}/{MaxRetries}",
