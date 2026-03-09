@@ -11,11 +11,13 @@
 **AI.Caller** 是一个基于 .NET 8 的企业级智能 SIP 电话系统，将 AI 技术深度集成到电话通信流程，实现自动化外呼和智能应答。
 
 ### 核心特性
-- 🤖 **AI 智能应答**：内置 Sherpa-ONNX TTS/VAD，实时语音检测和智能播报
+- 🤖 **AI 智能应答**：内置 Sherpa-ONNX TTS/VAD，支持 LLM 意图分类和流式回复（Ollama 集成）
 - 📞 **多场景通话**：支持 7 种通话模式（Web↔Web、Web↔Mobile、Server↔AI 等）
+- 🎬 **场景执行引擎**：多类型片段播放（录音/TTS/DTMF/条件/静音），支持条件分支和人工干预
 - 📊 **批量任务管理**：高性能异步队列，支持大规模外呼任务调度
 - 🌐 **SIP 线路管理**：多线路配置，智能路由选择
-- 🎛️ **实时监控**：SignalR 双向通信，实时通话状态推送
+- 🎛️ **实时监控**：通话监听、人工接入、挂断监控、网络状态监控
+- 🔧 **健康监控**：编解码器健康检测、资源泄漏检测、网络质量监控
 
 ### 架构设计
 采用双层模块化架构：
@@ -54,6 +56,7 @@
 
 ### AI 与音频处理
 - **Sherpa-ONNX** - 语音活动检测 (VAD) 和离线 TTS 引擎
+- **OllamaSharp** - LLM 集成（意图分类、流式回复）
 - **FFmpeg** - 音频重采样和格式转换
 - **内置 TTS 引擎** - 基于 Sherpa-ONNX 的流式文本转语音合成
 - **自适应 VAD 算法** - 双阈值 + 噪声底线自适应 + 去抖动
@@ -120,11 +123,46 @@
 
 #### 来电路由系统（CallRoutingService）
 - 基于被叫号码的智能路由
-- 支持路由策略：
-  - 路由到 Web 用户
-  - 路由到 AI 客服（自动应答）
-  - 外部转接
+- 支持路由策略：路由到 Web 用户、AI 客服、外部转接
 - 配置化路由规则
+
+#### LLM 集成（Ollama）
+系统支持通过 Ollama 集成 LLM 能力：
+- **意图分类**：分析用户输入，识别意图类型（退款、订单状态、转人工等）
+- **流式回复生成**：支持流式输出，低延迟响应
+- **配置灵活**：可配置模型、温度等参数
+
+```json
+{
+  "OllamaSettings": {
+    "BaseUrl": "http://localhost:11434",
+    "Model": "qwen2.5"
+  }
+}
+```
+
+#### 场景执行引擎
+支持复杂的多步骤交互流程，通过场景片段组合实现：
+
+| 片段类型 | 说明 |
+|----------|------|
+| Recording | 播放预录制的音频文件 |
+| TTS | 文本转语音播放，支持变量替换 `{VariableName}` |
+| DtmfInput | DTMF 按键输入收集与验证 |
+| Condition | 条件判断，支持条件分支跳转 |
+| Silence | 静音片段，用于延时控制 |
+
+**DTMF 输入验证器**：
+- 数字验证器
+- 电话号码验证器（11 位手机号）
+- 身份证验证器（18 位）
+- 日期验证器
+- 菜单选项验证器
+
+**人工干预支持**：
+- 监听者可实时查看通话进度
+- 支持跳过指定片段
+- 支持人工接入记录
 
 ### 3. AI 外呼任务管理
 
@@ -230,35 +268,49 @@ RTP 发送
 AI.Caller/
 ├── src/
 │   ├── AI.Caller.Core/              # 核心 SIP 和音频处理库
+│   │   ├── AI/                      # LLM 服务（Ollama 集成）
+│   │   │   ├── ILlmService.cs       # LLM 抽象接口
+│   │   │   └── OllamaLlmService.cs  # Ollama 实现
 │   │   ├── CallAutomation/          # AI 自动应答核心逻辑
-│   │   │   └── AIAutoResponder.cs   # AI 自动应答器（TTS 播放、VAD 检测）
+│   │   │   ├── AIAutoResponder.cs   # AI 自动应答器
+│   │   │   ├── ScenarioSegment.cs   # 场景片段定义
+│   │   │   └── DtmfCollector.cs     # DTMF 收集器
+│   │   ├── DtmfDetection/           # DTMF 检测算法
 │   │   ├── Media/                   # 音频处理模块
 │   │   │   ├── AudioBridge.cs       # 音频桥接（SIP ↔ AI）
 │   │   │   ├── AudioResampler.cs    # 音频重采样
+│   │   │   ├── CodecHealthMonitor.cs # 编解码健康监控
 │   │   │   ├── Encoders/            # G.711 编解码器
 │   │   │   ├── Vad/                 # 语音活动检测
-│   │   │   └── Asr/                 # 语音识别（预留）
+│   │   │   └── Interfaces/          # 音频接口定义
 │   │   ├── Network/                 # 网络监控服务
 │   │   ├── SIPClient.cs             # SIP 客户端封装
 │   │   ├── SIPClientPoolManager.cs  # SIP 客户端池管理
-│   │   ├── MediaSessionManager.cs   # 媒体会话管理（RTP/WebRTC）
+│   │   ├── MediaSessionManager.cs   # 媒体会话管理
 │   │   └── SIPTransportManager.cs   # SIP 传输层管理
 │   │
 │   └── AI.Caller.Phone/             # Web 应用程序
 │       ├── Controllers/             # MVC 控制器
-│       │   └── Api/                 # API 控制器
-│       │       └── SipLineController.cs  # SIP线路管理API
+│       │   ├── MonitoringController.cs    # 通话监控
+│       │   ├── DtmfTemplateController.cs  # DTMF 模板
+│       │   └── Api/SipLineController.cs   # SIP 线路 API
 │       ├── Services/                # 业务服务层
-│       │   ├── ICallManager.cs      # 通话管理服务（含实现）
+│       │   ├── ICallManager.cs      # 通话管理服务
 │       │   ├── AICustomerServiceManager.cs  # AI 客服管理
 │       │   ├── CallProcessor.cs     # 外呼任务处理器
-│       │   ├── BackgroundTaskQueue.cs       # 后台任务队列
-│       │   ├── ISipLineSelector.cs   # SIP线路选择器
-│       │   └── SipLineSelector.cs    # SIP线路选择器实现
+│       │   ├── MonitoringService.cs # 监听服务
+│       │   ├── HangupMonitoringService.cs  # 挂断监控
+│       │   ├── DtmfInputService.cs  # DTMF 输入服务
+│       │   ├── PlaybackControlService.cs   # 播放控制
+│       │   └── SipLineSelector.cs   # SIP 线路选择器
 │       ├── CallRouting/             # 来电路由服务
 │       ├── BackgroundTask/          # 后台服务
 │       ├── Hubs/                    # SignalR 实时通信
 │       ├── Entities/                # 数据模型
+│       │   ├── MonitoringSession.cs # 监听会话
+│       │   ├── DtmfInputTemplate.cs # DTMF 模板
+│       │   ├── ScenarioRecording.cs # 场景录音
+│       │   └── PlaybackControl.cs   # 播放控制
 │       └── Views/                   # MVC 视图
 │
 ├── tests/                           # 单元测试项目
@@ -308,16 +360,21 @@ AI.Caller/
 
 #### 🎯 **主要服务组件**
 - **CallManager**：通话生命周期管理，协调 7 种通话场景
-- **AICustomerServiceManager**：AI 自动应答实例管理
+- **AICustomerServiceManager**：AI 自动应答实例管理，支持监听和人工接入
 - **SipLineSelector**：智能 SIP 线路选择和路由
 - **CallProcessor**：批量任务调度和执行
 - **BackgroundTaskQueue**：基于 Channel 的高性能异步队列
+- **MonitoringService**：通话监听和人工干预管理
+- **DtmfInputService**：DTMF 输入模板管理和验证
 
 #### 🔧 **基础设施组件**
 - **SIPClientPoolManager**：连接池管理，优化资源使用
 - **MediaSessionManager**：RTP/WebRTC 媒体会话处理
 - **AudioBridge**：SIP ↔ AI 音频流双向桥接
 - **TTSEngineAdapter**：Sherpa-ONNX TTS 引擎适配
+- **CodecHealthMonitor**：编解码器健康检测（PCMA/PCMU/G722）
+- **NetworkMonitoringService**：网络状态和质量监控
+- **HangupMonitoringService**：挂断操作监控和资源泄漏检测
 
 ### 核心数据流
 
@@ -398,14 +455,22 @@ TTS引擎 → 音频重采样 → G.711编码 → JitterBuffer → RTP发送
 
 ## 未来演进方向
 
-### 短期目标（已预留接口）
+### 已实现功能
 - [x] 单向 AI 语音播放
 - [x] VAD 智能检测
+- [x] LLM 意图分类（Ollama 集成）
+- [x] 场景执行引擎（多片段播放）
+- [x] DTMF 输入收集与验证
+- [x] 通话监听与人工接入
+- [x] 编解码器健康监控
+- [x] 网络状态监控
+
+### 短期目标
 - [ ] **语音识别 (ASR)**：集成 Sherpa-ONNX ASR 模型
 - [ ] **语音转文本**：实时转录用户语音
 
 ### 中期目标
-- [ ] **自然语言理解 (NLU)**：理解用户意图
+- [ ] **自然语言理解 (NLU)**：增强意图识别
 - [ ] **对话管理 (Dialogue Manager)**：多轮对话状态机
 - [ ] **知识库集成**：FAQ 问答系统
 
@@ -417,10 +482,11 @@ TTS引擎 → 音频重采样 → G.711编码 → JitterBuffer → RTP发送
 
 ## 已知限制
 
-1. **单向对话**：当前仅支持 AI 单向播报 + VAD 检测，不支持语音识别
+1. **单向对话**：当前仅支持 AI 单向播报 + VAD 检测，语音识别（ASR）尚未集成
 2. **TTS 模型**：需要下载 Sherpa-ONNX TTS 模型文件（系统已内置引擎实现）
-3. **并发限制**：受 SIP 客户端池大小限制
-4. **网络依赖**：需要稳定的网络环境保证音频质量
+3. **LLM 依赖**：意图分类功能需要运行 Ollama 服务
+4. **并发限制**：受 SIP 客户端池大小限制
+5. **网络依赖**：需要稳定的网络环境保证音频质量
 
 ## 快速开始
 
@@ -649,6 +715,15 @@ PUT    /api/CallTask/{id}/resume      # 恢复任务
 DELETE /api/CallTask/{id}             # 删除任务
 ```
 
+#### 监控管理
+```http
+GET    /Monitoring/ActiveCalls        # 获取活跃通话列表
+GET    /Monitoring/GetActiveCalls     # API: 获取活跃通话
+GET    /Monitoring/Monitor            # 进入监听页面
+GET    /Monitoring/GetScenarioSegments # 获取场景片段列表
+POST   /Monitoring/MonitorStop/{id}   # 停止监听
+```
+
 #### 数据示例
 ```json
 // 创建 SIP 线路
@@ -693,6 +768,19 @@ A: 系统已内置 Sherpa-ONNX TTS 引擎，需要：
 
 如需自定义 TTS 实现，可实现 `ITTSEngine` 接口并注册到 DI 容器。
 
+### Q: 如何配置 LLM 意图分类？
+A: 需要运行 Ollama 服务并在配置中指定模型：
+
+```json
+{
+  "OllamaSettings": {
+    "BaseUrl": "http://localhost:11434",
+    "Model": "qwen2.5",
+    "IntentTemplate": "自定义意图分类提示词模板"
+  }
+}
+```
+
 ### Q: 如何调整并发通话数？
 A: 修改 SIP 客户端池大小和任务队列容量：
 ```csharp
@@ -716,6 +804,12 @@ vad.Configure(
 
 ### Q: 如何启用通话录音？
 A: 在通话管理页面配置录音设置，系统会自动录制通话并保存到 `recordings/` 目录。
+
+### Q: 如何使用通话监听功能？
+A: 进入 **监控管理 → 活跃通话** 页面，选择要监听的通话，点击"监听"即可进入监听模式。监听者可以：
+- 实时查看场景执行进度
+- 跳过指定片段
+- 记录人工干预
 
 ### Q: 支持哪些 SIP 服务器？
 A: 理论上支持所有标准 SIP 服务器（如 Asterisk、FreeSWITCH、Kamailio 等）。
