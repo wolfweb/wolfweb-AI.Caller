@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Buffers;
 using AI.Caller.Core.Media;
+using System.Runtime.InteropServices;
 
 namespace AI.Caller.Core;
 
@@ -12,6 +13,12 @@ public sealed partial class AudioBridge {
     private volatile int _activeMonitorCount = 0;
     private volatile bool _isInterventionActive = false;
     private readonly ConcurrentDictionary<int, MonitoringListener> _monitoringListeners = new();
+
+    // Jitter Buffer & Pacer State
+    private readonly AudioRingBuffer _interventionBuffer = new AudioRingBuffer(8000); 
+    private Task? _interventionPacerTask;
+    private CancellationTokenSource? _interventionCts;
+    private readonly object _pacerLock = new object();
 
     /// <summary>
     /// 公开人工介入状态，供外部读取
@@ -60,9 +67,39 @@ public sealed partial class AudioBridge {
                 listener.Session?.ClearAiBuffer();
             }
             _logger.LogInformation("已清空所有监听会话的AI缓冲区");
+
+            lock (_pacerLock) {
+                RestartInterventionPacerUnsafe();
+            }
+        } else {
+            lock (_pacerLock) {
+                StopInterventionPacerUnsafe();
+            }
         }
         
         _logger.LogInformation("人工接入状态已更新: {Active}", active);
+    }
+
+    private void RestartInterventionPacerUnsafe() {
+        StopInterventionPacerUnsafe(); 
+        
+        _interventionBuffer.Clear(); 
+        _interventionCts = new CancellationTokenSource();
+        _interventionPacerTask = Task.Factory.StartNew(
+            InterventionPacerLoop, 
+            _interventionCts.Token, 
+            TaskCreationOptions.LongRunning, 
+            TaskScheduler.Default
+        ).Unwrap();
+    }
+
+    private void StopInterventionPacerUnsafe() {
+        if (_interventionCts != null) {
+            _interventionCts.Cancel();
+            _interventionCts.Dispose();
+            _interventionCts = null;
+        }
+        _interventionPacerTask = null;
     }
 
     /// <summary>
@@ -196,30 +233,51 @@ public sealed partial class AudioBridge {
     /// </summary>
     /// <param name="audioData">音频数据（PCM格式）</param>
     public void ProcessInterventionAudio(byte[] audioData) {
-        if (!_isStarted) {
-            _logger.LogWarning("AudioBridge未启动，无法处理人工接入音频");
-            return;
-        }
-
-        if (!_isInterventionActive) {
-            _logger.LogTrace("人工接入未激活，忽略音频数据");
-            return;
-        }
+        if (!_isStarted || !_isInterventionActive) return;
 
         try {
-            _logger.LogTrace("处理人工接入音频: 大小 {Size} 字节 (PCM格式)", audioData.Length);
-            
-            byte[] encodedAudioData = ConvertPcmToCurrentCodec(audioData);
-            
-            if (encodedAudioData != null && encodedAudioData.Length > 0) {
-                InterventionAudioSend?.Invoke(encodedAudioData);
-                _logger.LogDebug("人工接入音频已转发到SIP通话: 编码后大小 {Size} 字节", encodedAudioData.Length);
-            } else {
-                _logger.LogWarning("PCM到当前编码格式转换失败，无法发送人工接入音频");
-            }
-            
+            ReadOnlySpan<short> samples = MemoryMarshal.Cast<byte, short>(audioData);
+            _interventionBuffer.Write(samples);
         } catch (Exception ex) {
-            _logger.LogError(ex, "处理人工接入音频失败");
+            _logger.LogError(ex, "写入介入音频缓冲水池失败");
+        }
+    }
+
+    private async Task InterventionPacerLoop() {
+        var interval = TimeSpan.FromMilliseconds(20);
+        using var timer = new PeriodicTimer(interval);
+        short[] frameSamples = new short[160];
+        
+        try {
+            for(int i = 0; i < 3; i++) {
+                if (!await timer.WaitForNextTickAsync(_interventionCts!.Token)) return;
+                
+                Array.Clear(frameSamples, 0, frameSamples.Length);
+                SendEncodedFrame(frameSamples);
+            }
+
+            while (await timer.WaitForNextTickAsync(_interventionCts!.Token)) {
+                if (!_isInterventionActive || !_isStarted) continue;
+                
+                bool hasData = _interventionBuffer.TryReadFrame(frameSamples);
+                if (!hasData) {
+                    Array.Clear(frameSamples, 0, frameSamples.Length); 
+                }
+                
+                SendEncodedFrame(frameSamples);
+            }
+        } catch (OperationCanceledException) { } 
+          catch (Exception ex) {
+            _logger.LogError(ex, "介入音频定时泵异常");
+        }
+    }
+
+    private void SendEncodedFrame(Span<short> pcmSpan) {
+        byte[] pcmData = MemoryMarshal.Cast<short, byte>(pcmSpan).ToArray();
+        byte[] encodedAudioData = ConvertPcmToCurrentCodec(pcmData);
+        
+        if (encodedAudioData != null && encodedAudioData.Length > 0) {
+            InterventionAudioSend?.Invoke(encodedAudioData);
         }
     }
 
