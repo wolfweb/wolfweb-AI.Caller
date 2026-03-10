@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 using SherpaOnnx;
 
 namespace AI.Caller.Core.Media.Adapters {
-    public sealed class DefaultVadEngineAdapter : IVoiceActivityDetector, IDisposable {
+    public sealed class DefaultVadEngineAdapter : IVoiceActivityDetector {
         private readonly VoiceActivityDetector _vad;
         private readonly AudioResamplerCrossType<byte, float> _resampler;
         public DefaultVadEngineAdapter(IOptions<VadSettings> vadOption, ILogger<IVoiceActivityDetector> logger) {

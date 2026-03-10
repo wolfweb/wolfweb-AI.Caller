@@ -1,11 +1,13 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Media;
+using AI.Caller.Core.Media.Adapters;
+using AI.Caller.Core.Media.Vad;
 using AI.Caller.Core.CallAutomation;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Exceptions;
+using Microsoft.Extensions.Options;
 using SIPSorcery.SIP;
 using Newtonsoft.Json;
-
 namespace AI.Caller.Phone.Services;
 
 /// <summary>
@@ -299,9 +301,47 @@ public partial class AICustomerServiceManager {
                     autoResponder.OnPcmAudioGenerated += pcmAudioGeneratedHandler;
                 }
 
+                // 为当前通话创建独立的VAD实例
+                var callVad = scope.ServiceProvider.GetRequiredService<IVoiceActivityDetector>();
+                var vadInterrupted = false;
+                int? vadInterruptedSegmentId = null;
+                var vadLock = new object();
+
                 incomingAudioReceivedHandler = (audioFrame) => {
                     try {
                         autoResponder.OnUplinkPcmFrame(audioFrame);
+                        if (audioBridge is AudioBridge ab3 && ab3.IsInterventionActive) return;
+
+                        var vadResult = callVad.Update(audioFrame);
+                        lock (vadLock) {
+                            if (vadResult.State == VADState.Speaking && !vadInterrupted) {
+                                var currentSeg = autoResponder.GetCurrentPlayingSegment();
+                                if (currentSeg?.Type == ScenarioSegmentType.DtmfInput ||
+                                    currentSeg?.Type == ScenarioSegmentType.Silence ||
+                                    currentSeg?.Type == ScenarioSegmentType.Condition) return;
+
+                                vadInterrupted = true;
+                                vadInterruptedSegmentId = currentSeg?.Id; // 立刻保存被打断片段ID
+                                _ = autoResponder.PauseAsync();
+                                _logger.LogInformation("VAD: 客户说话，暂停片段 {SegmentId}", currentSeg?.Id);
+
+                            } else if (vadResult.State == VADState.Silence && vadInterrupted) {
+                                vadInterrupted = false;
+                                if (vadInterruptedSegmentId.HasValue) {
+                                    _ = autoResponder.ResumeScenarioFromSegmentAsync(
+                                        callId, vadInterruptedSegmentId.Value,
+                                        new Dictionary<string, string>(),
+                                        CancellationToken.None,
+                                        settings.DefaultSpeakerId);
+                                    _logger.LogInformation("VAD: 客户停止说话，重播片段 {SegmentId}",
+                                        vadInterruptedSegmentId.Value);
+                                } else {
+                                    _ = autoResponder.ResumeAsync();
+                                    _logger.LogInformation("VAD: 客户停止说话，恢复播放");
+                                }
+                                vadInterruptedSegmentId = null;
+                            }
+                        }
                     } catch (Exception ex) {
                         _logger.LogError(ex, "处理来电音频失败");
                     }
@@ -337,7 +377,8 @@ public partial class AICustomerServiceManager {
                     ScenarioRecordingId = scenarioRecording.Id,  // 保存场景ID
                     ScenarioRecording = scenarioRecording,  // 保存场景对象
                     Scope = scope, // Store scope
-                    SipClient = sipClient  // 保存 SIP 客户端引用
+                    SipClient = sipClient,  // 保存 SIP 客户端引用
+                    CallVad = callVad
                 };
 
                 await autoResponder.StartAsync();

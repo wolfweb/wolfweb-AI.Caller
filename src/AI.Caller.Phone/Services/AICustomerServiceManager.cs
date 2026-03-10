@@ -211,6 +211,7 @@ namespace AI.Caller.Phone.Services {
 
                 await session.AutoResponder.StopAsync();
                 await session.AutoResponder.DisposeAsync();
+                session.CallVad?.Dispose();
 
                 session.AudioBridge.Stop();
                 session.AudioBridge.Dispose();
@@ -365,5 +366,6 @@ namespace AI.Caller.Phone.Services {
         public Action<byte[]>? IncomingAudioReceivedHandler { get; set; }
         public Action<byte[]>? OnPcmAudioGeneratedHandler { get; set; }
         public SIPClient? SipClient { get; set; }
+        public IDisposable? CallVad { get; set; }
     }
 }

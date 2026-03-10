@@ -98,6 +98,9 @@ public sealed partial class AIAutoResponder {
             }
         }
         
+        // 清空 jitter buffer，防止旧片段音频在跳转后被发送
+        while (_jitterBuffer.Reader.TryRead(out _)) { }
+        
         // 恢复音频发送
         _isPaused = false;
         _shouldSendAudio = true;
@@ -111,6 +114,13 @@ public sealed partial class AIAutoResponder {
     /// 检查是否暂停
     /// </summary>
     public bool IsPaused => _isPaused;
+
+    /// <summary>
+    /// 获取当前正在播放的片段（供 VAD 打断重放使用）
+    /// </summary>
+    public ScenarioSegment? GetCurrentPlayingSegment() {
+        return GetCurrentSegment();
+    }
 
     /// <summary>
     /// 初始化执行上下文

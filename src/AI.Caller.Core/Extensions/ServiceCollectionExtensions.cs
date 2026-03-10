@@ -13,18 +13,17 @@ namespace AI.Caller.Core.Extensions {
         public static IServiceCollection AddAIAutoResponder(this IServiceCollection services) {            
             services.TryAddTransient<G711Codec>();
             services.TryAddTransient<G722Codec>();
+            services.TryAddTransient<IAudioBridge, AudioBridge>();
+            services.TryAddTransient<IVoiceActivityDetector, DefaultVadEngineAdapter>();
+
             services.TryAddSingleton<AudioCodecFactory>();
             services.TryAddSingleton<CodecHealthMonitor>();
             services.TryAddSingleton<ITTSEngine, TTSEngineAdapter>();
             services.TryAddSingleton<IDtmfService, DtmfService>();
             services.TryAddSingleton<IAIAutoResponderFactory, AIAutoResponderFactory>();
-            services.TryAddSingleton<IVoiceActivityDetector, DefaultVadEngineAdapter>();
-            services.TryAddScoped<AudioFilePlayer>();
+            
             services.TryAddScoped<DtmfCollector>();
-
-            services.TryAddTransient<IAudioBridge, AudioBridge>();
-
-            // Register local LLM PoC
+            services.TryAddScoped<AudioFilePlayer>();
             services.TryAddScoped<ILlmService, OllamaLlmService>();
 
             return services;
