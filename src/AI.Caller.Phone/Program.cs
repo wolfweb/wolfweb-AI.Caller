@@ -45,6 +45,7 @@ namespace AI.Caller.Phone {
 
             builder.Services.Configure<WebRTCSettings>(builder.Configuration.GetSection("WebRTCSettings"));
             builder.Services.Configure<TTSSettings>(builder.Configuration.GetSection("TTSSettings"));
+            builder.Services.Configure<VadSettings>(builder.Configuration.GetSection("VadSettings"));
             builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlite("Data Source=app.db"));
 
             builder.Services.AddScoped<IAICustomerServiceSettingsProvider, AICustomerServiceSettingsProvider>();

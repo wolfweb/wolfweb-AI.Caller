@@ -22,6 +22,8 @@ namespace AI.Caller.Core.Media {
                 _inputSampleFormat = AVSampleFormat.AV_SAMPLE_FMT_FLT;
             else if (typeof(TInput) == typeof(short))
                 _inputSampleFormat = AVSampleFormat.AV_SAMPLE_FMT_S16;
+            else if (typeof(TInput) == typeof(byte))
+                _inputSampleFormat = AVSampleFormat.AV_SAMPLE_FMT_S16;
             else
                 throw new InvalidOperationException($"Unsupported input type: {typeof(TInput)}");
 
@@ -83,7 +85,12 @@ namespace AI.Caller.Core.Media {
             }
 
             try {
-                int inputSamples = input.Length;
+                int inputSamples;
+                if (typeof(TInput) == typeof(byte)) {
+                    inputSamples = input.Length / 2; // byte数组中，2个byte代表1个S16采样
+                } else {
+                    inputSamples = input.Length;
+                }
                 int outputSamples = (int)ffmpeg.av_rescale_rnd(inputSamples, _outputSampleRate, _inputSampleRate, AVRounding.AV_ROUND_UP);
 
                 int requiredSize;
@@ -146,7 +153,42 @@ namespace AI.Caller.Core.Media {
                 
                 return new ArraySegment<TOutput>(_internalBuffer, 0, requiredSize);
             }
-            
+
+            if (typeof(TInput) == typeof(byte) && typeof(TOutput) == typeof(float)) {
+                var byteInput = (byte[])(object)input;
+                int requiredSize = byteInput.Length / 2;
+
+                if (_internalBuffer.Length < requiredSize) {
+                    _internalBuffer = new TOutput[requiredSize];
+                }
+
+                var floatOutput = (float[])(object)_internalBuffer;
+
+                for (int i = 0; i < requiredSize; i++) {
+                    short shortSample = (short)(byteInput[i * 2] | (byteInput[i * 2 + 1] << 8));
+                    floatOutput[i] = shortSample / 32768f;
+                }
+
+                return new ArraySegment<TOutput>(_internalBuffer, 0, requiredSize);
+            }
+
+            if (typeof(TInput) == typeof(byte) && typeof(TOutput) == typeof(short)) {
+                var byteInput = (byte[])(object)input;
+                int requiredSize = byteInput.Length / 2;
+
+                if (_internalBuffer.Length < requiredSize) {
+                    _internalBuffer = new TOutput[requiredSize];
+                }
+
+                var shortOutput = (short[])(object)_internalBuffer;
+
+                for (int i = 0; i < requiredSize; i++) {
+                    shortOutput[i] = (short)(byteInput[i * 2] | (byteInput[i * 2 + 1] << 8));
+                }
+
+                return new ArraySegment<TOutput>(_internalBuffer, 0, requiredSize);
+            }
+
             throw new InvalidOperationException($"Unsupported format conversion: {typeof(TInput)} -> {typeof(TOutput)}");
         }
 
