@@ -18,7 +18,7 @@ namespace AI.Caller.Core.Media.Adapters {
             vadModelConfig.TenVad.MaxSpeechDuration  = vadOption.Value.MaxSpeechDuration;
 
             _vad = new VoiceActivityDetector(vadModelConfig, 60);
-            _resampler = new AudioResamplerCrossType<byte, float>(8000, 8000, logger);
+            _resampler = new AudioResamplerCrossType<byte, float>(8000, 16000, logger);
         }
         public void Configure(float energyThreshold, int enterSpeakingMs, int resumeSilenceMs, int sampleRate, int frameMs) {
             
@@ -28,14 +28,15 @@ namespace AI.Caller.Core.Media.Adapters {
             var resampledSegment = _resampler.Resample(pcmBytes);
             _vad.AcceptWaveform(resampledSegment.ToArray());
             if (_vad.IsSpeechDetected()) {
-                _vad.Pop();
-                _vad.Flush();
+                while (!_vad.IsEmpty()) {
+                    _vad.Pop();
+                }
                 return new VADResult(VADState.Speaking, 0);
             }
-            _vad.Flush();
             return new VADResult(VADState.Silence, 0);
         }
         public void Dispose() {
+            _vad.Flush();
             _vad.Dispose();
         }
     }

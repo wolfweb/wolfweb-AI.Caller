@@ -75,6 +75,7 @@ class MonitorWebRTCManager {
         if (result.success && result.answer) {
             await this.pc.setRemoteDescription({ type: 'answer', sdp: result.answer });
         } else {
+            this.stop();
             throw new Error(result.message || "Connection failed");
         }
 

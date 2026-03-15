@@ -176,10 +176,17 @@ namespace AI.Caller.Phone.Hubs {
         /// 建立WebRTC监听连接
         /// </summary>
         public async Task<object> ConnectMonitoringWebRtc(int targetUserId, string callId, string offerSdp) {
-             if (RTCSessionDescriptionInit.TryParse(offerSdp, out var offer)) {
+            var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
+
+            if (!Context.User!.HasClaim("isAdmin", "True")) {
+                _logger.LogWarning("普通用户 {UserId} 尝试监听通话，权限不足 (TargetUser: {TargetUserId}, CallId: {CallId})", userId, targetUserId, callId);
+                return new { success = false, message = "权限不足：只有管理员可以监听通话" };
+            }
+
+            if (RTCSessionDescriptionInit.TryParse(offerSdp, out var offer)) {
                 return await StartMonitoringInternal(targetUserId, callId, offer);
-             }
-             return new { success = false, message = "Invalid SDP" };
+            }
+            return new { success = false, message = "Invalid SDP" };
         }
 
         /// <summary>

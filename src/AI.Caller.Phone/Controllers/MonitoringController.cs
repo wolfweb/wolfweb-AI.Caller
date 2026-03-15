@@ -69,6 +69,13 @@ public class MonitoringController : Controller {
 
     // GET: Monitoring/Monitor/5
     public async Task<IActionResult> Monitor(int userId, string callId) {
+        var currentUserId = User.FindFirst<int>(ClaimTypes.NameIdentifier);
+
+        if (!User.HasClaim("isAdmin", "True")) {
+            _logger.LogWarning("普通用户 {UserId} 尝试访问监听页面，权限不足 (TargetUser: {TargetUserId}, CallId: {CallId})", currentUserId, userId, callId);
+            return Forbid("权限不足：只有管理员可以监听通话");
+        }
+
         ViewBag.TargetUserId = userId;
         ViewBag.CallId = callId;
 
@@ -144,6 +151,11 @@ public class MonitoringController : Controller {
     [HttpGet]
     public IActionResult GetScenarioSegments(string callId) {
         try {
+            if (!User.HasClaim("isAdmin", "True")) {
+                _logger.LogWarning("普通用户尝试获取场景片段，权限不足 (CallId: {CallId})", callId);
+                return Json(new { success = false, message = "权限不足：只有管理员可以访问场景信息" });
+            }
+
             // 根据callId从活跃会话中获取场景信息
             var session = _aiServiceManager.GetSessionByCallId(callId);
             
