@@ -188,7 +188,7 @@ namespace AI.Caller.Phone.Services {
                 }
 
                 if (session.SipClient?.MediaSessionManager != null) {
-                    session.SipClient.MediaSessionManager.SetAudioBridge(null!);
+                    session.SipClient.MediaSessionManager?.SetAudioBridge(null!);
                 }
 
                 if (session.PlaybackTask != null && !session.PlaybackTask.IsCompleted) {

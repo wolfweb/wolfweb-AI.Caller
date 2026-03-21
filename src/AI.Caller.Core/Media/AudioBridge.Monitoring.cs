@@ -248,19 +248,30 @@ public sealed partial class AudioBridge {
         using var timer = new PeriodicTimer(interval);
         short[] frameSamples = new short[160];
         
-        try {
-            for(int i = 0; i < 3; i++) {
-                if (!await timer.WaitForNextTickAsync(_interventionCts!.Token)) return;
-                
-                Array.Clear(frameSamples, 0, frameSamples.Length);
-                SendEncodedFrame(frameSamples);
-            }
+        bool isBuffering = true;
+        int prebufferFrames = 3; // 缓冲3帧 (60ms) 抵抗网络抖动
+        int requiredSamples = prebufferFrames * frameSamples.Length;
 
+        try {
             while (await timer.WaitForNextTickAsync(_interventionCts!.Token)) {
                 if (!_isInterventionActive || !_isStarted) continue;
                 
+                if (isBuffering) {
+                    if (_interventionBuffer.Count >= requiredSamples) {
+                        isBuffering = false;
+                        _logger.LogInformation("介入音频缓冲完成，开始发送");
+                    } else {
+                        // 还在缓冲中，发送静音包维持SIP传输通道，避免杂音
+                        Array.Clear(frameSamples, 0, frameSamples.Length); 
+                        SendEncodedFrame(frameSamples);
+                        continue;
+                    }
+                }
+
                 bool hasData = _interventionBuffer.TryReadFrame(frameSamples);
                 if (!hasData) {
+                    _logger.LogWarning("介入音频缓冲欠载(Under-run)，重新进入缓冲状态");
+                    isBuffering = true;
                     Array.Clear(frameSamples, 0, frameSamples.Length); 
                 }
                 

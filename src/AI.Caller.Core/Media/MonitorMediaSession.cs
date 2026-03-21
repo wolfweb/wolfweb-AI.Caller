@@ -1,4 +1,4 @@
-﻿using AI.Caller.Core.Media.Interfaces;
+using AI.Caller.Core.Media.Interfaces;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Media;
 using SIPSorcery.Net;
@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 
 namespace AI.Caller.Core.Media {
     public interface IAudioBuffer {
+        int Count { get; }
         void Write(ReadOnlySpan<short> data);
         bool TryReadFrame(Span<short> destination);
         void Clear();
@@ -21,6 +22,14 @@ namespace AI.Caller.Core.Media {
         private int _count;
         private readonly object _lock = new();
         private readonly int _capacity;
+
+        public int Count {
+            get {
+                lock (_lock) {
+                    return _count;
+                }
+            }
+        }
 
         private const int MAX_LATENCY_SAMPLES = 1600;
 
@@ -86,6 +95,14 @@ namespace AI.Caller.Core.Media {
     public class ElasticAudioBuffer : IAudioBuffer {
         private readonly Queue<short> _buffer = new Queue<short>();
         private readonly object _lock = new();
+
+        public int Count {
+            get {
+                lock (_lock) {
+                    return _buffer.Count;
+                }
+            }
+        }
 
         public void Write(ReadOnlySpan<short> data) {
             lock (_lock) {

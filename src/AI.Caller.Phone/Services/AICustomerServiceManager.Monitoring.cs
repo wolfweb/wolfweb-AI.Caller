@@ -1,11 +1,9 @@
 using AI.Caller.Core;
 using AI.Caller.Core.Media;
-using AI.Caller.Core.Media.Adapters;
 using AI.Caller.Core.Media.Vad;
 using AI.Caller.Core.CallAutomation;
 using AI.Caller.Phone.Entities;
 using AI.Caller.Phone.Exceptions;
-using Microsoft.Extensions.Options;
 using SIPSorcery.SIP;
 using Newtonsoft.Json;
 namespace AI.Caller.Phone.Services;
@@ -14,6 +12,8 @@ namespace AI.Caller.Phone.Services;
 /// AI客服管理器 - 监听与接入功能扩展
 /// </summary>
 public partial class AICustomerServiceManager {
+    private CancellationTokenSource? _vadDelayCts;
+    private Task? _vadDelayTask;
 
     /// <summary>
     /// 开始监听通话
@@ -322,19 +322,34 @@ public partial class AICustomerServiceManager {
 
                                 vadInterrupted = true;
                                 vadInterruptedSegmentId = currentSeg?.Id; // 立刻保存被打断片段ID
+                                _vadDelayCts?.Cancel();
                                 _ = autoResponder.PauseAsync();
                                 _logger.LogInformation("VAD: 客户说话，暂停片段 {SegmentId}", currentSeg?.Id);
 
                             } else if (vadResult.State == VADState.Silence && vadInterrupted) {
                                 vadInterrupted = false;
+                                _vadDelayCts?.Cancel();
+
                                 if (vadInterruptedSegmentId.HasValue) {
-                                    _ = autoResponder.ResumeScenarioFromSegmentAsync(
-                                        callId, vadInterruptedSegmentId.Value,
-                                        new Dictionary<string, string>(),
-                                        CancellationToken.None,
-                                        settings.DefaultSpeakerId);
-                                    _logger.LogInformation("VAD: 客户停止说话，重播片段 {SegmentId}",
-                                        vadInterruptedSegmentId.Value);
+                                    _vadDelayCts = new CancellationTokenSource();
+                                    var token = _vadDelayCts.Token;
+                                    var segmentIdToResume = vadInterruptedSegmentId.Value;
+
+                                    _vadDelayTask = Task.Run(async () => {
+                                        try {
+                                            await Task.Delay(2500, token);
+                                        } catch (OperationCanceledException) {
+                                            _logger.LogDebug("VAD: 客户在防抖期内再次说话，取消恢复播放");
+                                            return;
+                                        }
+
+                                        await autoResponder.ResumeScenarioFromSegmentAsync(
+                                            callId, vadInterruptedSegmentId.Value,
+                                            new Dictionary<string, string>(),
+                                            CancellationToken.None,
+                                            settings.DefaultSpeakerId);
+                                        _logger.LogInformation("VAD: 客户停止说话，重播片段 {SegmentId}", vadInterruptedSegmentId.Value);
+                                    }, token);
                                 } else {
                                     _ = autoResponder.ResumeAsync();
                                     _logger.LogInformation("VAD: 客户停止说话，恢复播放");

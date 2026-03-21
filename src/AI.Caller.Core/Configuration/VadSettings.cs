@@ -6,7 +6,7 @@ namespace AI.Caller.Core {
         public float  MinSilenceDuration { get; set; } = 0.5F;
         public float  MinSpeechDuration  { get; set; } = 0.25F;
         public float  MaxSpeechDuration  { get; set; } = 5.0F;
-        public int    WindowSize         { get; set; } = 512;
+        public int    WindowSize         { get; set; } = 256;
         public int    Debug              { get; set; } = 0;
     }
 }

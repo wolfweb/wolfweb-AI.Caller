@@ -511,8 +511,7 @@ public sealed partial class AIAutoResponder {
                 }
                 
             } catch (TimeoutException) {
-                _logger.LogWarning("DTMF输入超时，重试次数: {RetryCount}/{MaxRetries}",
-                    retryCount + 1, config.MaxRetries);
+                _logger.LogWarning("DTMF输入超时，重试次数: {RetryCount}/{MaxRetries}", retryCount + 1, config.MaxRetries);
 
                 var timeoutDuration = (int)(DateTime.UtcNow - startTime).TotalMilliseconds;
                 await SaveDtmfInputToDatabase(segment, config, "", false, "输入超时", retryCount, timeoutDuration);

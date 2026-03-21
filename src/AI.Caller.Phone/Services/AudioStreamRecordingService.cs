@@ -285,6 +285,7 @@ namespace AI.Caller.Phone.Services {
 
         private bool _disposed = false;
         private bool _isPaused = false;
+        private AudioBridge? _audioBridge;
 
         public RecordingSession(ILogger logger, Recording recording, SIPClient sipClient, IServiceScopeFactory serviceScopeFactory) {
             _logger = logger;
@@ -348,6 +349,10 @@ namespace AI.Caller.Phone.Services {
         private void OnAudioPacketSent(IPEndPoint remote, SDPMediaTypesEnum mediaType, RTPPacket rtpPacket) {
             try {
                 if (_isPaused || _audioRecorder.IsDisposed) return;
+                
+                // 如果当前正在人工介入，则忽略 SIP 的 AudioDataSent，因为我们会直接通过 InterventionAudioSend 来录音
+                // 这能避免人工介入期间录音出现乱序交杂的问题
+                if (_audioBridge != null && _audioBridge.IsInterventionActive) return;
 
                 if (mediaType == SDPMediaTypesEnum.audio && rtpPacket?.Payload != null && rtpPacket.Payload.Length > 0) {
                     _ = _audioRecorder.WriteAudioDataAsync(rtpPacket.Payload, AudioDirection.Sent, rtpPacket.Header.Timestamp, rtpPacket.Header.PayloadType);
@@ -369,6 +374,7 @@ namespace AI.Caller.Phone.Services {
 
         private void OnAudioBridgeAttached(IAudioBridge audioBridge) {
             if (audioBridge is AudioBridge ab) {
+                _audioBridge = ab;
                 SubscribeToInterventionAudio(ab);
             }
         }
