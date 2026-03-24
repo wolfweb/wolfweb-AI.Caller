@@ -231,11 +231,16 @@ public sealed partial class AIAutoResponder {
     /// </summary>
     private ScenarioSegment? GetCurrentSegment() {
         lock (_contextLock) {
-            if (_executionContext == null || 
-                _executionContext.CurrentSegmentIndex >= _executionContext.Segments.Count) {
-                return null;
+            if (_executionContext == null) return null;
+
+            var idx = _executionContext.CurrentSegmentIndex;
+            var segments = _executionContext.Segments;
+
+            if (idx >= segments.Count) {
+                idx = segments.Count - 1;
             }
-            return _executionContext.Segments[_executionContext.CurrentSegmentIndex];
+
+            return idx >= 0 ? segments[idx] : null;
         }
     }
     

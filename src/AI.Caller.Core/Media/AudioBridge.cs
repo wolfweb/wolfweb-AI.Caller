@@ -241,6 +241,7 @@ namespace AI.Caller.Core {
             OutgoingAudioReady = null;
             OutgoingAudioGenerated = null;
             InterventionAudioSend = null;
+            InterventionAudioRawReceived = null;
             
             _mediaSessionManager = null;
         }

@@ -328,7 +328,7 @@ namespace AI.Caller.Phone.Services {
                 _sipClient.MediaSessionManager.AudioBridgeAttached -= OnAudioBridgeAttached;
 
                 if (_sipClient.MediaSessionManager.AudioBridge is AudioBridge audioBridge) {
-                    audioBridge.InterventionAudioSend -= OnInterventionAudioSend;
+                    audioBridge.InterventionAudioRawReceived -= OnInterventionAudioRawReceived;
                 }
             }
             _sipClient.CallEnding -= OnCallEnded;
@@ -380,22 +380,21 @@ namespace AI.Caller.Phone.Services {
         }
 
         private void SubscribeToInterventionAudio(AudioBridge audioBridge) {
-            audioBridge.InterventionAudioSend += OnInterventionAudioSend;
-            _logger.LogInformation("已订阅人工介入音频事件，RecordingId: {RecordingId}", Recording.Id);
+            audioBridge.InterventionAudioRawReceived += OnInterventionAudioRawReceived;
+            _logger.LogInformation("已订阅人工介入原始PCM音频事件，RecordingId: {RecordingId}", Recording.Id);
         }
 
-        private void OnInterventionAudioSend(byte[] audioData) {
+        private void OnInterventionAudioRawReceived(byte[] pcmData) {
             try {
                 if (_isPaused || _audioRecorder.IsDisposed) return;
 
-                if (audioData != null && audioData.Length > 0) {
-                    var payloadType = _sipClient.MediaSessionManager?.SelectedPayloadType ?? 0;
-                    // 写入右声道（Sent方向），与AI音频共用同一声道
-                    _ = _audioRecorder.WriteAudioDataAsync(audioData, AudioDirection.Sent, 0, payloadType);
-                    _logger.LogTrace("人工介入音频已写入录音，大小: {Size} 字节", audioData.Length);
+                if (pcmData != null && pcmData.Length > 0) {
+                    // 原始PCM直接写入录音（绕过InterventionPacer缓冲，消除延迟）
+                    _audioRecorder.WriteRawPcmToSentBuffer(pcmData);
+                    _logger.LogTrace("人工介入原始PCM已写入录音，大小: {Size} 字节", pcmData.Length);
                 }
             } catch (Exception ex) {
-                _logger.LogError(ex, "录音写入人工介入音频数据失败");
+                _logger.LogError(ex, "录音写入人工介入原始PCM失败");
             }
         }
 
@@ -784,6 +783,27 @@ namespace AI.Caller.Phone.Services {
             } catch (Exception ex) {
                 _logger.LogError(ex, "WriteAudioDataAsync failed");
             }
+        }
+
+        /// <summary>
+        /// 将8kHz原始PCM直接写入Sent缓冲区（绕过FFmpeg解码管道）
+        /// 用于人工介入录音，避免InterventionPacer缓冲延迟
+        /// </summary>
+        public void WriteRawPcmToSentBuffer(byte[] pcm8kHz) {
+            if (_disposed || pcm8kHz == null || pcm8kHz.Length == 0) return;
+
+            // 8kHz → 16kHz 整数倍上采样（每样本复制一次）
+            int sampleCount = pcm8kHz.Length / 2; // 16-bit mono
+            byte[] pcm16kHz = new byte[pcm8kHz.Length * 2];
+            for (int i = 0; i < sampleCount; i++) {
+                int srcOff = i * 2;
+                int dstOff = i * 4;
+                pcm16kHz[dstOff]     = pcm8kHz[srcOff];
+                pcm16kHz[dstOff + 1] = pcm8kHz[srcOff + 1];
+                pcm16kHz[dstOff + 2] = pcm8kHz[srcOff];
+                pcm16kHz[dstOff + 3] = pcm8kHz[srcOff + 1];
+            }
+            _sentBuffer.Enqueue(pcm16kHz);
         }
 
         private async Task ProcessInputPacketsAsync() {

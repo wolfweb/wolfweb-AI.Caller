@@ -46,6 +46,11 @@ public sealed partial class AudioBridge {
     public event Action<byte[]>? InterventionAudioSend;
 
     /// <summary>
+    /// 人工接入原始PCM音频事件（未经缓冲，用于录音，避免Pacer延迟）
+    /// </summary>
+    public event Action<byte[]>? InterventionAudioRawReceived;
+
+    /// <summary>
     /// 设置人工接入状态
     /// </summary>
     /// <param name="active">是否激活人工接入</param>
@@ -236,6 +241,9 @@ public sealed partial class AudioBridge {
         if (!_isStarted || !_isInterventionActive) return;
 
         try {
+            // 原始PCM直接发给录音（无缓冲延迟）
+            InterventionAudioRawReceived?.Invoke(audioData);
+
             ReadOnlySpan<short> samples = MemoryMarshal.Cast<byte, short>(audioData);
             _interventionBuffer.Write(samples);
         } catch (Exception ex) {
