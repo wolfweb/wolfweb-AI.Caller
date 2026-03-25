@@ -23,6 +23,9 @@ namespace AI.Caller.Phone.Hubs {
         private readonly AICustomerServiceManager _aiServiceManager;
         private readonly IPlaybackControlService _playbackControlService;
 
+        // Tracks monitoring sessions per active SignalR connection to clean up on drops.
+        private static readonly ConcurrentDictionary<string, List<(int TargetUserId, int SessionId, string CallId)>> _userMonitorings = new();
+
         private readonly AudioCodecFactory _codecFactory;
         private readonly WebRTCSettings _webRtcSettings;
 
@@ -165,10 +168,26 @@ namespace AI.Caller.Phone.Hubs {
             return base.OnConnectedAsync();
         }
 
-        public override Task OnDisconnectedAsync(Exception? exception) {
+        public override async Task OnDisconnectedAsync(Exception? exception) {
             var userId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
             _applicationContext.RemoveActiviteUserId(userId);
-            return base.OnDisconnectedAsync(exception);
+
+            if (_userMonitorings.TryRemove(Context.ConnectionId, out var monitorings)) {
+                List<(int TargetUserId, int SessionId, string CallId)> sessionsToStop;
+                lock (monitorings) {
+                    sessionsToStop = monitorings.ToList();
+                }
+                foreach (var m in sessionsToStop) {
+                    try {
+                        _logger.LogInformation("用户 {MonitorUserId} 意外断线，正主动清理其监听的会话 {CallId}", userId, m.CallId);
+                        await _aiServiceManager.StopMonitoringAsync(m.TargetUserId, userId, m.SessionId);
+                    } catch (Exception ex) {
+                        _logger.LogError(ex, "意外断线自动清理监听会话失败: SessionId {SessionId}", m.SessionId);
+                    }
+                }
+            }
+
+            await base.OnDisconnectedAsync(exception);
         }
 
         #region 监听与接入功能
@@ -225,6 +244,12 @@ namespace AI.Caller.Phone.Hubs {
                 // 离开监听组
                 await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"monitoring_{callId}");
 
+                if (_userMonitorings.TryGetValue(Context.ConnectionId, out var list)) {
+                    lock (list) {
+                        list.RemoveAll(x => x.SessionId == sessionId);
+                    }
+                }
+
                 _logger.LogInformation("用户 {MonitorUserId} 停止监听通话 {CallId}", monitorUserId, callId);
 
                 return new { success = true, message = "监听已停止" };
@@ -270,7 +295,7 @@ namespace AI.Caller.Phone.Hubs {
             try {
                 var monitorUserId = Context.User!.FindFirst<int>(ClaimTypes.NameIdentifier);
 
-                _ = _aiServiceManager.ExitInterventionAsync(targetUserId, callId, playSegmentIds, resumePlayback);
+                await _aiServiceManager.ExitInterventionAsync(targetUserId, monitorUserId, callId, playSegmentIds, resumePlayback);
 
                 // 通知监听组
                 await Clients.Group($"monitoring_{callId}").SendAsync("interventionEnded", new {
@@ -580,6 +605,11 @@ namespace AI.Caller.Phone.Hubs {
                     monitorUserName,
                     callId,
                     mediaSession); // 传入 Session
+
+                var list = _userMonitorings.GetOrAdd(Context.ConnectionId, _ => new List<(int, int, string)>());
+                lock (list) {
+                    list.Add((targetUserId, session.Id, callId));
+                }
 
                 await Groups.AddToGroupAsync(Context.ConnectionId, $"monitoring_{callId}");
 

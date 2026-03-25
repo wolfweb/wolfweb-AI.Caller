@@ -95,6 +95,15 @@ namespace AI.Caller.Core.Media {
     public class ElasticAudioBuffer : IAudioBuffer {
         private readonly Queue<short> _buffer = new Queue<short>();
         private readonly object _lock = new();
+        private readonly int _maxSamples;
+
+        /// <summary>
+        /// 创建带有容量上限的弹性缓冲
+        /// </summary>
+        /// <param name="maxSamples">默认上限80000采样点(8kHz约10秒)</param>
+        public ElasticAudioBuffer(int maxSamples = 80000) {
+            _maxSamples = maxSamples;
+        }
 
         public int Count {
             get {
@@ -108,6 +117,11 @@ namespace AI.Caller.Core.Media {
             lock (_lock) {
                 for (int i = 0; i < data.Length; i++) {
                     _buffer.Enqueue(data[i]);
+                }
+                
+                // 防止无限扩张导致内存泄漏 (Drop oldest)
+                while (_buffer.Count > _maxSamples) {
+                    _buffer.Dequeue();
                 }
             }
         }

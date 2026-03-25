@@ -1,4 +1,4 @@
-﻿using AI.Caller.Core.CallAutomation;
+using AI.Caller.Core.CallAutomation;
 using AI.Caller.Core.Media;
 using AI.Caller.Core.Media.Encoders;
 using AI.Caller.Core.Media.Interfaces;
@@ -48,6 +48,10 @@ namespace AI.Caller.Core {
 
         public event Action<byte[]>? OutgoingAudioGenerated;
         public event Action<byte[]>? OnPcmAudioGenerated;
+        
+        private byte _lastDtmfTone = 255;
+        private DateTime _lastDtmfTime = DateTime.MinValue;
+        private readonly object _dtmfDedupLock = new object();
         
         private volatile bool _shouldSendAudio = true;
         private volatile bool _isTtsStreamFinished;
@@ -490,6 +494,18 @@ namespace AI.Caller.Core {
         /// 处理DTMF按键（由SIPClient调用）
         /// </summary>
         public void OnDtmfToneReceived(byte tone) {
+            var now = DateTime.UtcNow;
+            
+            // 防抖与去重：过滤同一按键在 250ms 内的重复触发（解决RFC2833与Inband双重事件）
+            lock (_dtmfDedupLock) {
+                if (tone == _lastDtmfTone && (now - _lastDtmfTime).TotalMilliseconds < 250) {
+                    _logger.LogDebug("过滤重复或过快的DTMF按键: {Tone}", tone);
+                    return;
+                }
+                _lastDtmfTone = tone;
+                _lastDtmfTime = now;
+            }
+
             if (_dtmfService != null && !string.IsNullOrEmpty(_currentCallId)) {
                 _dtmfService.OnDtmfToneReceived(_currentCallId, tone);
             } else {

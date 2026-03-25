@@ -12,9 +12,6 @@ namespace AI.Caller.Phone.Services;
 /// AI客服管理器 - 监听与接入功能扩展
 /// </summary>
 public partial class AICustomerServiceManager {
-    private CancellationTokenSource? _vadDelayCts;
-    private Task? _vadDelayTask;
-
     /// <summary>
     /// 开始监听通话
     /// </summary>
@@ -111,7 +108,7 @@ public partial class AICustomerServiceManager {
 
                 // 步骤2: 设置人工介入状态（阻止AudioBridge转发新的DTMF事件）
                 if (session.AudioBridge is AudioBridge audioBridge) {
-                    audioBridge.SetInterventionActive(true);
+                    audioBridge.SetInterventionActive(monitorUserId, true);
                     _logger.LogInformation("人工接入状态已激活: UserId {UserId}, MonitorUser {MonitorUserId}", userId, monitorUserId);
                 }
 
@@ -138,7 +135,7 @@ public partial class AICustomerServiceManager {
     /// <param name="callId">通话ID</param>
     /// <param name="playSegmentIds">要播放的片段ID列表（为空则从当前位置继续）</param>
     /// <param name="resumePlayback">是否恢复播放</param>
-    public async Task ExitInterventionAsync(int userId, string callId, List<int>? playSegmentIds = null, bool resumePlayback = true) {
+    public async Task ExitInterventionAsync(int userId, int monitorUserId, string callId, List<int>? playSegmentIds = null, bool resumePlayback = true) {
         try {
             var session = GetActiveSession(userId);
             if (session == null) {
@@ -147,7 +144,7 @@ public partial class AICustomerServiceManager {
             }
 
             if (session.AudioBridge is AudioBridge audioBridge) {
-                audioBridge.SetInterventionActive(false);
+                audioBridge.SetInterventionActive(monitorUserId, false);
                 _logger.LogInformation("人工接入状态已停用: UserId {UserId}", userId);
             }
 
@@ -301,11 +298,13 @@ public partial class AICustomerServiceManager {
                     autoResponder.OnPcmAudioGenerated += pcmAudioGeneratedHandler;
                 }
 
-                // 为当前通话创建独立的VAD实例
                 var callVad = scope.ServiceProvider.GetRequiredService<IVoiceActivityDetector>();
                 var vadInterrupted = false;
                 int? vadInterruptedSegmentId = null;
                 var vadLock = new object();
+                
+                CancellationTokenSource? vadDelayCts = null;
+                Task? vadDelayTask = null;
 
                 incomingAudioReceivedHandler = (audioFrame) => {
                     try {
@@ -322,20 +321,25 @@ public partial class AICustomerServiceManager {
 
                                 vadInterrupted = true;
                                 vadInterruptedSegmentId = currentSeg?.Id; // 立刻保存被打断片段ID
-                                _vadDelayCts?.Cancel();
+                                vadDelayCts?.Cancel();
                                 _ = autoResponder.PauseAsync();
+                                
+                                if (audioBridge is AudioBridge ab4) {
+                                    ab4.ClearMonitoringBuffer();
+                                }
+                                
                                 _logger.LogInformation("VAD: 客户说话，暂停片段 {SegmentId}", currentSeg?.Id);
 
                             } else if (vadResult.State == VADState.Silence && vadInterrupted) {
                                 vadInterrupted = false;
-                                _vadDelayCts?.Cancel();
+                                vadDelayCts?.Cancel();
 
                                 if (vadInterruptedSegmentId.HasValue) {
-                                    _vadDelayCts = new CancellationTokenSource();
-                                    var token = _vadDelayCts.Token;
+                                    vadDelayCts = new CancellationTokenSource();
+                                    var token = vadDelayCts.Token;
                                     var segmentIdToResume = vadInterruptedSegmentId.Value;
 
-                                    _vadDelayTask = Task.Run(async () => {
+                                    vadDelayTask = Task.Run(async () => {
                                         try {
                                             await Task.Delay(2500, token);
                                         } catch (OperationCanceledException) {

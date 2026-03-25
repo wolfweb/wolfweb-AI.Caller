@@ -21,10 +21,9 @@ namespace AI.Caller.Core {
             SingleReader = true,
             SingleWriter = true
         });
-        // 1500 frames ≈ 30 seconds of audio at 20ms/frame, DropOldest ensures bounded memory
         private readonly Channel<byte[]> _monitoringPcmQueue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(1500) {
             FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true,
+            SingleReader = false,
             SingleWriter = true
         });
         private bool _enableAsyncMonitoring = true;
@@ -101,6 +100,19 @@ namespace AI.Caller.Core {
         public void ProcessOutgoingPcm(byte[] pcmData) {
             // Unconditionally buffer audio to ensure playhead continuity for late joiners
             _monitoringPcmQueue.Writer.TryWrite(pcmData);
+        }
+
+        /// <summary>
+        /// 清空监听音频队列（用于VAD打断时立刻消除残余的AI播放录音）
+        /// </summary>
+        public void ClearMonitoringBuffer() {
+            int dropped = 0;
+            while (_monitoringPcmQueue.Reader.TryRead(out _)) {
+                dropped++;
+            }
+            if (dropped > 0) {
+                _logger.LogInformation("已清空监听音频队列，丢弃 {Dropped} 帧", dropped);
+            }
         }
 
         public void Stop() {

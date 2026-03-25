@@ -53,36 +53,48 @@ public sealed partial class AudioBridge {
     /// <summary>
     /// 设置人工接入状态
     /// </summary>
+    /// <param name="monitorUserId">操作者的用户ID</param>
     /// <param name="active">是否激活人工接入</param>
-    public void SetInterventionActive(bool active) {
-        _isInterventionActive = active;
-        
-        if (active) {
-            // 清空监听PCM队列中的AI音频
-            int clearedCount = 0;
-            while (_monitoringPcmQueue.Reader.TryRead(out _)) {
-                clearedCount++;
-            }
-            if (clearedCount > 0) {
-                _logger.LogInformation("已清空监听PCM队列: {Count} 帧", clearedCount);
-            }
-            
-            // 清空所有监听会话的AI缓冲区
-            foreach (var listener in _monitoringListeners.Values.Where(l => l.IsActive)) {
-                listener.Session?.ClearAiBuffer();
-            }
-            _logger.LogInformation("已清空所有监听会话的AI缓冲区");
-
-            lock (_pacerLock) {
-                RestartInterventionPacerUnsafe();
-            }
+    public void SetInterventionActive(int monitorUserId, bool active) {
+        if (_monitoringListeners.TryGetValue(monitorUserId, out var listener)) {
+            listener.IsIntervening = active;
         } else {
-            lock (_pacerLock) {
-                StopInterventionPacerUnsafe();
+            _logger.LogWarning("无法设置人工介入状态：未找到监听者 {MonitorUserId}", monitorUserId);
+            return;
+        }
+
+        bool newState = _monitoringListeners.Values.Any(l => l.IsIntervening);
+        
+        if (_isInterventionActive != newState) {
+            _isInterventionActive = newState;
+            
+            if (newState) {
+                // 清空监听PCM队列中的AI音频
+                int clearedCount = 0;
+                while (_monitoringPcmQueue.Reader.TryRead(out _)) {
+                    clearedCount++;
+                }
+                if (clearedCount > 0) {
+                    _logger.LogInformation("已清空监听PCM队列: {Count} 帧", clearedCount);
+                }
+                
+                // 清空所有监听会话的AI缓冲区
+                foreach (var l in _monitoringListeners.Values.Where(m => m.IsActive)) {
+                    l.Session?.ClearAiBuffer();
+                }
+                _logger.LogInformation("已清空所有监听会话的AI缓冲区");
+
+                lock (_pacerLock) {
+                    RestartInterventionPacerUnsafe();
+                }
+            } else {
+                lock (_pacerLock) {
+                    StopInterventionPacerUnsafe();
+                }
             }
         }
         
-        _logger.LogInformation("人工接入状态已更新: {Active}", active);
+        _logger.LogInformation("人工接入总状态已更新: {Active} (操作人 {UserId})", _isInterventionActive, monitorUserId);
     }
 
     private void RestartInterventionPacerUnsafe() {
@@ -142,13 +154,21 @@ public sealed partial class AudioBridge {
             listener.IsActive = false;
             listener.EndTime = DateTime.UtcNow;
             
-            if (listener.Session != null && listener.InterventionAudioHandler != null) {
-                listener.Session.OnInterventionAudioReceived -= listener.InterventionAudioHandler;
+            if (listener.Session != null) {
+                if (listener.InterventionAudioHandler != null) {
+                    listener.Session.OnInterventionAudioReceived -= listener.InterventionAudioHandler;
+                }
+                listener.Session.Dispose();
             }
             
-            if (_activeMonitorCount == 0) {
-                _isInterventionActive = false;
-                _logger.LogInformation("所有监听者已移除，人工接入状态已重置");
+            if (_activeMonitorCount == 0 || !_monitoringListeners.Values.Any(l => l.IsIntervening)) {
+                if (_isInterventionActive) {
+                    _isInterventionActive = false;
+                    lock (_pacerLock) {
+                        StopInterventionPacerUnsafe();
+                    }
+                    _logger.LogInformation("人工接入状态已随监听者移除而重置");
+                }
             }
             
             _logger.LogInformation("监听者已移除: UserId {UserId}, 监听时长: {Duration}秒", userId, (listener.EndTime.Value - listener.StartTime).TotalSeconds);
@@ -375,6 +395,7 @@ public class MonitoringListener {
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public bool IsActive { get; set; }
+    public bool IsIntervening { get; set; }
     public MonitorMediaSession? Session { get; set; }
     public Action<byte[]>? InterventionAudioHandler { get; set; }
 }

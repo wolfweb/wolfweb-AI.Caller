@@ -69,11 +69,15 @@ namespace AI.Caller.Core {
             }
         }
 
-        public void SetAudioBridge(IAudioBridge audioBridge) {
+        public void SetAudioBridge(IAudioBridge? audioBridge) {
             _audioBridge = audioBridge;
-            audioBridge.SetMediaSessionManager(this);            
-            _logger.LogDebug("Audio bridge attached to MediaSessionManager");
-            AudioBridgeAttached?.Invoke(audioBridge);
+            if (audioBridge != null) {
+                audioBridge.SetMediaSessionManager(this);            
+                _logger.LogDebug("Audio bridge attached to MediaSessionManager");
+                AudioBridgeAttached?.Invoke(audioBridge);
+            } else {
+                _logger.LogDebug("Audio bridge detached from MediaSessionManager");
+            }
         }
 
         public void SendAudioFrame(byte[] audioFrame) {
