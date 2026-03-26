@@ -281,7 +281,7 @@ public sealed partial class AudioBridge {
         int requiredSamples = prebufferFrames * frameSamples.Length;
 
         try {
-            while (await timer.WaitForNextTickAsync(_interventionCts!.Token)) {
+            while (_interventionCts != null && await timer.WaitForNextTickAsync(_interventionCts.Token)) {
                 if (!_isInterventionActive || !_isStarted) continue;
                 
                 if (isBuffering) {

@@ -48,11 +48,7 @@ namespace AI.Caller.Core {
 
         public event Action<byte[]>? OutgoingAudioGenerated;
         public event Action<byte[]>? OnPcmAudioGenerated;
-        
-        private byte _lastDtmfTone = 255;
-        private DateTime _lastDtmfTime = DateTime.MinValue;
-        private readonly object _dtmfDedupLock = new object();
-        
+                
         private volatile bool _shouldSendAudio = true;
         private volatile bool _isTtsStreamFinished;
         private volatile bool _shouldStopPlayout = false;
@@ -404,17 +400,19 @@ namespace AI.Caller.Core {
                     return audioFrame;
                 } else {
                     if (_isTtsStreamFinished && _jitterBuffer.Reader.Count == 0 && Interlocked.Read(ref _totalBytesSent) >= Interlocked.Read(ref _totalBytesGenerated)) {
-                        await Task.Delay(100); //等待sdp发送音频后再结束
-
-                        bool isStillFinished = _isTtsStreamFinished
-                                      && _jitterBuffer.Reader.Count == 0
-                                      && Interlocked.Read(ref _totalBytesSent) >= Interlocked.Read(ref _totalBytesGenerated);
-
-                        if (isStillFinished) {
-                            _playbackCompletionSource?.TrySetResult();
-                            return null;
+                        // 如果还没触发完成通知，则启动一个后台任务去延时触发
+                        if (_playbackCompletionSource != null && !_playbackCompletionSource.Task.IsCompleted) {
+                            var tcs = _playbackCompletionSource;
+                            _ = Task.Run(async () => {
+                                // 延时 100ms，让底层有时间把网络包发完（照顾纯 TTS 挂断场景，防止尾音被切）
+                                await Task.Delay(100, ct); 
+                                tcs.TrySetResult();
+                            });
                         }
-                        return null;
+                        
+                        // 主循环绝对不能阻塞！持续返回静音帧，维持 20ms 心跳。
+                        // 这样在 DTMF 收集等漫长的等待期内，录音时间轴才不会坍缩。
+                        return _silenceFrame;
                     }
                     
                     _emptyFrameCount++;
@@ -494,18 +492,6 @@ namespace AI.Caller.Core {
         /// 处理DTMF按键（由SIPClient调用）
         /// </summary>
         public void OnDtmfToneReceived(byte tone) {
-            var now = DateTime.UtcNow;
-            
-            // 防抖与去重：过滤同一按键在 250ms 内的重复触发（解决RFC2833与Inband双重事件）
-            lock (_dtmfDedupLock) {
-                if (tone == _lastDtmfTone && (now - _lastDtmfTime).TotalMilliseconds < 250) {
-                    _logger.LogDebug("过滤重复或过快的DTMF按键: {Tone}", tone);
-                    return;
-                }
-                _lastDtmfTone = tone;
-                _lastDtmfTime = now;
-            }
-
             if (_dtmfService != null && !string.IsNullOrEmpty(_currentCallId)) {
                 _dtmfService.OnDtmfToneReceived(_currentCallId, tone);
             } else {
