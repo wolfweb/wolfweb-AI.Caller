@@ -331,14 +331,12 @@ public partial class AICustomerServiceManager {
                                 _logger.LogInformation("VAD: 客户说话，暂停片段 {SegmentId}", currentSeg?.Id);
 
                             } else if (vadResult.State == VADState.Silence && vadInterrupted) {
-                                vadInterrupted = false;
-                                vadDelayCts?.Cancel();
-
-                                if (vadInterruptedSegmentId.HasValue) {
+                                if((vadDelayTask == null || vadDelayTask.IsCompleted) && vadInterruptedSegmentId.HasValue) {
+                                    vadDelayCts?.Cancel();
                                     vadDelayCts = new CancellationTokenSource();
                                     var token = vadDelayCts.Token;
                                     var segmentIdToResume = vadInterruptedSegmentId.Value;
-
+                                    
                                     vadDelayTask = Task.Run(async () => {
                                         try {
                                             await Task.Delay(2500, token);
@@ -347,18 +345,26 @@ public partial class AICustomerServiceManager {
                                             return;
                                         }
 
+                                        lock(vadLock) {
+                                            vadInterrupted = false;
+                                            vadInterruptedSegmentId = null;                                            
+                                        }
+
                                         await autoResponder.ResumeScenarioFromSegmentAsync(
-                                            callId, vadInterruptedSegmentId.Value,
+                                            callId, segmentIdToResume,
                                             new Dictionary<string, string>(),
                                             CancellationToken.None,
                                             settings.DefaultSpeakerId);
-                                        _logger.LogInformation("VAD: 客户停止说话，重播片段 {SegmentId}", vadInterruptedSegmentId.Value);
+                                        _logger.LogInformation("VAD: 客户停止说话，重播片段 {SegmentId}", segmentIdToResume);
                                     }, token);
                                 } else {
+                                    lock(vadLock) {
+                                        vadInterrupted = false;
+                                        vadInterruptedSegmentId = null;                                            
+                                    }
                                     _ = autoResponder.ResumeAsync();
                                     _logger.LogInformation("VAD: 客户停止说话，恢复播放");
                                 }
-                                vadInterruptedSegmentId = null;
                             }
                         }
                     } catch (Exception ex) {

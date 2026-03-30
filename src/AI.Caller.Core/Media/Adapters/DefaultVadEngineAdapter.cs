@@ -5,6 +5,7 @@ using SherpaOnnx;
 
 namespace AI.Caller.Core.Media.Adapters {
     public sealed class DefaultVadEngineAdapter : IVoiceActivityDetector {
+        private static object _lock = new object();
         private readonly VoiceActivityDetector _vad;
         private readonly AudioResamplerCrossType<byte, float> _resampler;
         public DefaultVadEngineAdapter(IOptions<VadSettings> vadOption, ILogger<IVoiceActivityDetector> logger) {
@@ -25,20 +26,22 @@ namespace AI.Caller.Core.Media.Adapters {
         }
 
         public VADResult Update(byte[] pcmBytes) {
-            var resampledSegment = _resampler.Resample(pcmBytes);
-            _vad.AcceptWaveform(resampledSegment.ToArray());
+            lock (_lock) {
+                var resampledSegment = _resampler.Resample(pcmBytes);
+                _vad.AcceptWaveform(resampledSegment.ToArray());
 
-            while (!_vad.IsEmpty()) {
-                _vad.Pop();
-            }
+                while (!_vad.IsEmpty()) {
+                    _vad.Pop();
+                }
 
-            if (_vad.IsSpeechDetected()) {
-                return new VADResult(VADState.Speaking, 0);
+                if (_vad.IsSpeechDetected()) {
+                    return new VADResult(VADState.Speaking, 0);
+                }
+                return new VADResult(VADState.Silence, 0);
             }
-            return new VADResult(VADState.Silence, 0);
         }
         public void Dispose() {
-            _vad.Flush();
+            //_vad.Flush();
             _vad.Dispose();
         }
     }

@@ -187,10 +187,6 @@ namespace AI.Caller.Phone.Services {
                     ab.InterventionAudioSend -= session.InterventionAudioSendHandler;
                 }
 
-                if (session.SipClient?.MediaSessionManager != null) {
-                    session.SipClient.MediaSessionManager.SetAudioBridge(null);
-                }
-
                 if (session.PlaybackTask != null && !session.PlaybackTask.IsCompleted) {
                     try {
                         await session.PlaybackTask.WaitAsync(TimeSpan.FromSeconds(2));
